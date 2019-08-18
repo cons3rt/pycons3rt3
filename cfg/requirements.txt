@@ -1,0 +1,7 @@
+boto3
+botocore
+netifaces
+jinja2
+requests
+requests[security]
+requests_toolbelt

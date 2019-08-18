@@ -1,0 +1,10 @@
+{
+  "name": "my_username",
+  "api_url": "https://www.cons3rt.com/rest/api/",
+  "projects": [
+    {
+      "name": "My Project",
+      "rest_key": "My project ReST API token"
+    }
+  ]
+}

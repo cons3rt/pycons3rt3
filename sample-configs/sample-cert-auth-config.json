@@ -1,0 +1,10 @@
+{
+  "cert": "path_to_pem_file",
+  "api_url": "https://www.milcloud.hanscom.hpc.mil/rest/api/",
+  "projects": [
+    {
+      "name": "My Project",
+      "rest_key": "My project ReST API token"
+    }
+  ]
+}
