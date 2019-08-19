@@ -32,7 +32,7 @@ def generate_ssh_rsa_key(key_name, dest_directory=None, passphrase='', comment='
     """
     log = logging.getLogger(mod_logger + '.generate_ssh_rsa_key')
     if not dest_directory:
-        dest_directory = os.path.expanduser('~'), '.ssh'
+        dest_directory = os.path.join(os.path.expanduser('~'), '.ssh')
     if not os.path.exists(dest_directory):
         mkdir_p(dest_directory)
     key_path = os.path.join(dest_directory, key_name)
