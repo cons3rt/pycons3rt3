@@ -19,21 +19,21 @@ pycons3rt3
 
 """
 from . import osutil
+from . import aliasip
+from . import aws_metadata
 from . import bash
-from . import linux
 from . import nexus
 from . import slack
+from . import ssh
 from . import pygit
 from . import pyjavakeys
 from . import windows
 
 
-from .aws_metadata import *
-from .deployment import Deployment
 from .cons3rtapi import Scenario, Cons3rtApi
-from .s3util import S3Util
+from .deployment import Deployment
 from .ec2util import EC2Util
-from .aliasip import *
+from .s3util import S3Util
 
 
 from .exceptions import \
@@ -53,11 +53,11 @@ __all__ = [
     'ec2util',
     'exceptions',
     'images',
-    'linux',
     'logify',
     'nexus',
     'osutil',
     'slack',
+    'ssh',
     'pygit',
     'pyjavakeys',
     's3util',

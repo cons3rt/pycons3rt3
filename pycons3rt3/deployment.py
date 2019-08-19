@@ -14,18 +14,22 @@ Classes:
     DeploymentError: Custom exception for raised when there is a
         problem obtaining the deployment properties file.
 """
+import argparse
+import datetime
 import logging
 import os
-import re
 import platform
-import argparse
+import re
 
-from .logify import Logify
-from .osutil import get_os
+
 from .bash import get_ip_addresses, ip_addr
 from .bash import update_hosts_file as update_hosts_file_linux
-from .windows import update_hosts_file as update_hosts_file_windows
 from .exceptions import DeploymentError, CommandError
+from .logify import Logify
+from .osutil import get_os
+from .ssh import generate_ssh_rsa_key, ssh_copy_id
+from .windows import update_hosts_file as update_hosts_file_windows
+
 
 __author__ = 'Joe Yennaco'
 
@@ -323,8 +327,7 @@ class Deployment(object):
         try:
             ip_addresses = get_ip_addresses()
         except CommandError as exc:
-            msg = 'Unable to get the IP address of this system, thus cannot determine the ' \
-                  'CONS3RT_ROLE_NAME'
+            msg = 'Unable to get the IP address of this system, thus cannot determine the CONS3RT_ROLE_NAME'
             raise DeploymentError(msg) from exc
         else:
             log.info('Found IP addresses: {a}'.format(a=ip_addresses))
@@ -674,6 +677,53 @@ class Deployment(object):
         log.debug('Found device name [{d}] with IP address [{i}] for network: {n}'.format(
             d=device_name, i=ip_address, n=network_name))
         return device_name
+
+    def generate_scenario_ssh_keys(self, key_name=None, username=None, port=22):
+        """Use this method to generate SSH RSA keys on this host and distribute the keys to
+        other hosts in the scenario.
+
+        NOTE: This depends on the other hosts allowing passwordless SSH access
+
+        :return: None
+        :raises: DeploymentError
+        """
+        log = logging.getLogger(self.cls_logger + '.generate_scenario_ssh_keys')
+
+        # Determine key_name
+        if not key_name:
+            key_name = 'dr{d}_{t}_id_rsa'.format(
+                d=str(self.deployment_run_id),
+                t=datetime.datetime.now().strftime('%Y%m%d_%H%M%S')
+            )
+
+        # Generate SSH keys
+        log.info('Generating SSH key with name: {n}'.format(n=key_name))
+        try:
+            key_path = generate_ssh_rsa_key(key_name=key_name)
+        except CommandError as exc:
+            raise DeploymentError('Problem generating SSH RSA keys') from exc
+
+        if len(self.scenario_role_names) < 1:
+            log.warning('No scenario role names found to distribute keys to')
+            return
+
+        if not self.cons3rt_role_name:
+            log.warning('cons3rt role name for this host not found, cannot distribute the SSH key')
+            return
+
+        # Determine the list of remote hosts
+        remote_hosts = []
+        for host in self.scenario_role_names:
+            if host != self.cons3rt_role_name:
+                remote_hosts.append(host)
+
+        # Distribute the key to remote hosts
+        for host in remote_hosts:
+            log.info('Distributing SSH key to host: {h}'.format(h=host))
+            try:
+                ssh_copy_id(key_path=key_path, remote_username=username, host=host, port=str(port))
+            except CommandError as exc:
+                raise DeploymentError('Problem copying SSH key to host: {h}'.format(h=host)) from exc
 
 
 def main():

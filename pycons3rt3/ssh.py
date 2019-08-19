@@ -27,7 +27,7 @@ def generate_ssh_rsa_key(key_name, dest_directory=None, passphrase='', comment='
     :param dest_directory: (str) path to the directory to output the key files
     :param passphrase: (str) passphrase for the RSA key (default: None)
     :param comment: (str) RSA key comment (default: None)
-    :return: None
+    :return: (str) path to the private key file
     :raises: CommandError
     """
     log = logging.getLogger(mod_logger + '.generate_ssh_rsa_key')
@@ -46,26 +46,33 @@ def generate_ssh_rsa_key(key_name, dest_directory=None, passphrase='', comment='
         raise CommandError('Command exited with code {a}: {c}'.format(
             a=str(result['code']), c=' '.join(command)))
     log.info('Generated RSA keypair: {f}'.format(f=key_path))
+    return key_path
 
 
-def ssh_copy_id(key_path, remote_username, host, port=22):
+def ssh_copy_id(key_path, host, remote_username=None, port=22):
     """Copies SSH keys to a remote host
 
     NOTE: Assumes SSH can be access password-less on the remote
     machine
 
     :param key_path: (str) path to the SSH key file to copy
-    :param remote_username: (str) username on the remote machine
     :param host: (str) hostname or IP address to copy the file to
+    :param remote_username: (str) username on the remote machine
     :return: None
     :raises: CommandError
     """
     log = logging.getLogger(mod_logger + '.ssh_copy_id')
+
+    if remote_username:
+        command = '{u}@{h}'.format(u=remote_username, h=host)
+    else:
+        command = host
+
     if not os.path.isfile(key_path):
         raise CommandError('key file not found: {f}'.format(f=key_path))
-    command = ['ssh-copy-id', '-i', key_path, '-p', str(port), '{u}@{h}'.format(u=remote_username, h=host)]
+    command = ['ssh-copy-id', '-i', key_path, '-p', str(port), command]
     try:
-        result = run_command(command, timeout_sec=60)
+        result = run_command(command, timeout_sec=30)
     except CommandError as exc:
         raise CommandError('There was a problem running: {c}'.format(c=' '.join(command))) from exc
     if result['code'] != 0:
