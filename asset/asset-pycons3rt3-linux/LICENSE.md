@@ -1,0 +1,1 @@
+Please use freely in your CONS3RT assets
