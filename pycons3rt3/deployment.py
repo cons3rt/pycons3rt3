@@ -721,7 +721,7 @@ class Deployment(object):
         for host in remote_hosts:
             log.info('Distributing SSH key to host: {h}'.format(h=host))
             try:
-                ssh_copy_id(key_path=key_path, remote_username=username, host=host, port=str(port))
+                ssh_copy_id(pub_key_path=key_path, remote_username=username, host=host, port=str(port))
             except CommandError as exc:
                 raise DeploymentError('Problem copying SSH key to host: {h}'.format(h=host)) from exc
 

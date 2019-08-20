@@ -65,7 +65,7 @@ def run_command(command, timeout_sec=3600.0, output=True):
     else:
         subproc_stdout = None
         subproc_stderr = None
-    command = map(str, command)
+    #command = map(str, command)
     command_str = ' '.join(command)
     timer = None
     log.debug('Running command: {c}'.format(c=command_str))
@@ -87,8 +87,9 @@ def run_command(command, timeout_sec=3600.0, output=True):
             log.debug('Collecting and logging output...')
             with subproc.stdout:
                 for line in iter(subproc.stdout.readline, b''):
-                    output_collector += line.rstrip() + '\n'
-                    print(">>> " + line.rstrip())
+                    line_str = str(line).rstrip()
+                    output_collector += line_str + '\n'
+                    print(">>> " + line_str)
         log.debug('Waiting for process completion...')
         subproc.wait()
         log.debug('Collecting the exit code...')
@@ -1111,13 +1112,14 @@ def set_remote_host_environment_variable(host, variable_name, variable_value, en
         log.info('Environment variable {v} set to {n} on host {h}'.format(v=variable_name, n=variable_value, h=host))
 
 
-def run_remote_command(host, command, timeout_sec=5.0):
+def run_remote_command(host, command, timeout_sec=5.0, port=22):
     """Retrieves the value of an environment variable of a
     remote host over SSH
 
     :param host: (str) host to query
     :param command: (str) command
-    :param timeout_sec (float) seconds to wait before killing the command.
+    :param timeout_sec (float) seconds to wait before killing the command
+    :param port (int) SSH port to connect on the remote machine
     :return: (str) command output
     :raises: TypeError, CommandError
     """
@@ -1129,20 +1131,23 @@ def run_remote_command(host, command, timeout_sec=5.0):
         msg = 'command argument must be a string'
         raise TypeError(msg)
     log.debug('Running remote command on host: {h}: {c}...'.format(h=host, c=command))
-    command = ['ssh', '{h}'.format(h=host), '{c}'.format(c=command)]
+    remote_command = ['ssh']
+    if port != 22:
+        remote_command += ['-p', str(port)]
+    remote_command += ['{h}'.format(h=host), '{c}'.format(c=command)]
     try:
-        result = run_command(command, timeout_sec=timeout_sec)
+        result = run_command(remote_command, timeout_sec=timeout_sec)
         code = result['code']
     except CommandError as exc:
-        raise CommandError('There was a problem running: {c}'.format(c=' '.join(command))) from exc
+        raise CommandError('There was a problem running: {c}'.format(c=' '.join(remote_command))) from exc
     if code != 0:
         msg = 'There was a problem running command [{m}] on host {h} over SSH, return code: {c}, and ' \
-              'produced output:\n{o}'.format(h=host, c=code, m=' '.join(command), o=result['output'])
+              'produced output:\n{o}'.format(h=host, c=code, m=' '.join(remote_command), o=result['output'])
         raise CommandError(msg)
     else:
         output_text = result['output'].strip()
         log.debug('Running command [{m}] host {h} over SSH produced output: {o}'.format(
-            m=command, h=host, o=output_text))
+            m=remote_command, h=host, o=output_text))
         output = {
             'output': output_text,
             'code': code
