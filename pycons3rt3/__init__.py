@@ -23,6 +23,7 @@ from . import aliasip
 from . import aws_metadata
 from . import bash
 from . import nexus
+from . import openssl
 from . import slack
 from . import ssh
 from . import pygit
@@ -57,11 +58,12 @@ __all__ = [
     'images',
     'logify',
     'nexus',
+    'openssl',
     'osutil',
-    'slack',
-    'ssh',
     'pygit',
     'pyjavakeys',
+    'slack',
+    'ssh',
     's3util',
     'slack',
     'windows'
