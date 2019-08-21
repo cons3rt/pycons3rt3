@@ -31,8 +31,10 @@ from . import windows
 
 
 from .cons3rtapi import Scenario, Cons3rtApi
+from .bash import run_command, run_remote_command
 from .deployment import Deployment
 from .ec2util import EC2Util
+from .logify import Logify
 from .s3util import S3Util
 
 

@@ -94,15 +94,17 @@ function install_prerequisites() {
 function main() {
     set_deployment_home
     read_deployment_properties
+    install_prerequisites
+    if [ $? -ne 0 ]; then logErr "There was a problem installing prerequisites"; return 1; fi
 
     which git
-    if [ $? -ne 0 ]; then logErr "git not found"; return 1; fi
+    if [ $? -ne 0 ]; then logErr "git not found"; return 2; fi
 
     which python3
-    if [ $? -ne 0 ]; then logErr "python3 not found"; return 2; fi
+    if [ $? -ne 0 ]; then logErr "python3 not found"; return 3; fi
 
     which pip3
-    if [ $? -ne 0 ]; then logErr "pip3 not found"; return 3; fi
+    if [ $? -ne 0 ]; then logErr "pip3 not found"; return 4; fi
 
     if [ -z "${PYCONS3RT3_BRANCH}" ]; then
         logInfo "PYCONS3RT3_BRANCH custom property not found, using default branch: ${branch}"
@@ -119,18 +121,18 @@ function main() {
     cd ${destinationDir}/
     logInfo "Cloning git repo: ${gitRepoUrl}"
     git clone -b ${branch} ${gitRepoUrl} >> ${logFile} 2>&1
-    if [ $? -ne 0 ]; then logErr "Problem cloning git repo: ${gitRepoUrl}"; return 4; fi
+    if [ $? -ne 0 ]; then logErr "Problem cloning git repo: ${gitRepoUrl}"; return 5; fi
 
     logInfo "Changing to ${destinationDir}/pycons3rt3..."
     cd ${destinationDir}/pycons3rt3/
 
     logInfo "Installing prerequisites..."
     pip3 install -r ./cfg/requirements.txt >> ${logFile} 2>&1
-    if [ $? -ne 0 ]; then logErr "Problem installing pip requirements"; return 5; fi
+    if [ $? -ne 0 ]; then logErr "Problem installing pip requirements"; return 6; fi
 
     logInfo "Installing pycons3rt3..."
     python3 setup.py install >> ${logFile} 2>&1
-    if [ $? -ne 0 ]; then logErr "Problem installing pycons3rt3"; return 6; fi
+    if [ $? -ne 0 ]; then logErr "Problem installing pycons3rt3"; return 7; fi
 
     # Exit successfully
     logInfo "Successfully completed: ${logTag}"

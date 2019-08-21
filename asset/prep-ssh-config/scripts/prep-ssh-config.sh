@@ -126,7 +126,7 @@ function allow_passwordless_ssh() {
     logInfo "Restarting sshd..."
     restartComplete=0
     which systemctl >> ${logFile} 2>&1
-    if [ $? -ne 0 ]; then
+    if [ $? -eq 0 ]; then
         logInfo "Running systemctl restart sshd"
         systemctl restart sshd >> ${logFile} 2>&1
         if [ $? -ne 0 ]; then logErr "There was a problem restarting sshd with systemctl"; return 1; fi
@@ -134,7 +134,7 @@ function allow_passwordless_ssh() {
     fi
     if [ ${restartComplete} -eq 1 ]; then return 0; fi
     which service >> ${logFile} 2>&1
-    if [ $? -ne 0 ]; then
+    if [ $? -eq 0 ]; then
         logInfo "Running service sshd restart"
         service sshd restart >> ${logFile} 2>&1
         if [ $? -ne 0 ]; then logErr "There was a problem restarting sshd with service command"; return 2; fi

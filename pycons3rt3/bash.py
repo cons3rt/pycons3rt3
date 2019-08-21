@@ -65,7 +65,6 @@ def run_command(command, timeout_sec=3600.0, output=True):
     else:
         subproc_stdout = None
         subproc_stderr = None
-    #command = map(str, command)
     command_str = ' '.join(command)
     timer = None
     log.debug('Running command: {c}'.format(c=command_str))
@@ -87,7 +86,8 @@ def run_command(command, timeout_sec=3600.0, output=True):
             log.debug('Collecting and logging output...')
             with subproc.stdout:
                 for line in iter(subproc.stdout.readline, b''):
-                    line_str = str(line).rstrip()
+                    line_str = line.decode('utf-8')
+                    line_str = str(line_str).rstrip()
                     output_collector += line_str + '\n'
                     print(">>> " + line_str)
         log.debug('Waiting for process completion...')
@@ -600,45 +600,6 @@ def zip_dir(dir_path, zip_file):
     except Exception as exc:
         raise CommandError('Unable to create zip file: {f}'.format(f=zip_file)) from exc
     log.info('Successfully created zip file: %s', zip_file)
-
-
-def get_ip(interface=0):
-    """This method return the IP address
-
-    :param interface: (int) Interface number (e.g. 0 for eth0)
-    :return: (str) IP address or None
-    """
-    log = logging.getLogger(mod_logger + '.get_ip')
-
-    log.info('Getting the IP address for this system...')
-    ip_address = None
-    try:
-        log.info('Attempting to get IP address by hostname...')
-        ip_address = socket.gethostbyname(socket.gethostname())
-    except socket.error:
-        log.info('Unable to get IP address for this system using hostname, '
-                 'using a bash command...')
-        command = 'ip addr show eth%s | grep inet | grep -v inet6 | ' \
-                  'awk \'{ print $2 }\' | cut -d/ -f1 ' \
-                  '>> /root/ip' % interface
-        try:
-            log.info('Running command: %s', command)
-            subprocess.check_call(command, shell=True)
-        except(OSError, subprocess.CalledProcessError) as exc:
-            raise CommandError('Unable to get the IP address of this system') from exc
-        else:
-            ip_file = '/root/ip'
-            log.info('Command executed successfully, pulling IP address from '
-                     'file: %s', ip_file)
-            if os.path.isfile(ip_file):
-                with open(ip_file, 'r') as f:
-                    for line in f:
-                        ip_address = line.strip()
-                        log.info('Found IP address from file: %s', ip_address)
-            else:
-                raise CommandError('File not found: {f}'.format(f=ip_file))
-    log.info('Returning IP address: %s', ip_address)
-    return ip_address
 
 
 def update_hosts_file(ip, entry):

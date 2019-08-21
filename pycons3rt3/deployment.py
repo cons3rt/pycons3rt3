@@ -24,10 +24,10 @@ import re
 
 from .bash import get_ip_addresses, ip_addr
 from .bash import update_hosts_file as update_hosts_file_linux
-from .exceptions import DeploymentError, CommandError
+from .exceptions import DeploymentError, CommandError, SshConfigError
 from .logify import Logify
 from .osutil import get_os
-from .ssh import generate_ssh_rsa_key, ssh_copy_id
+from .ssh import generate_ssh_rsa_key, ssh_copy_id, wait_for_host_key, unrestrict_host_key_checking
 from .windows import update_hosts_file as update_hosts_file_windows
 
 
@@ -332,47 +332,45 @@ class Deployment(object):
         else:
             log.info('Found IP addresses: {a}'.format(a=ip_addresses))
 
-        log.info('Trying to determine IP address for eth0...')
+        # Get IP addresses on this host
         try:
-            ip_address = ip_addresses['eth0']
-        except KeyError as exc:
-            msg = 'Unable to determine the IP address for eth0. Found the following IP addresses: {i}'.format(
-                i=ip_addresses)
-            raise DeploymentError(msg) from exc
-        else:
-            log.info('Found IP address for eth0: {i}'.format(i=ip_address))
+            ip_addresses = ip_addr()
+        except CommandError as exc:
+            raise DeploymentError(
+                'Unable to determine IP addresses on this host to determine CONS3RT_ROLE_NAME') from exc
 
-        pattern = '^cons3rt\.fap\.deployment\.machine.*0.internalIp=' + ip_address + '$'
-        try:
-            f = open(self.properties_file)
-        except IOError as exc:
-            msg = 'Could not open file {f}'.format(f=self.properties_file)
-            raise DeploymentError(msg) from exc
-        prop_list_matched = []
-        log.debug('Searching for deployment properties matching pattern: {p}'.format(p=pattern))
-        for line in f:
-            log.debug('Processing deployment properties file line: {a}'.format(a=line))
-            if line.startswith('#'):
-                continue
-            elif '=' in line:
-                match = re.search(pattern, line)
-                if match:
-                    log.debug('Found matching prop: {a}'.format(a=line))
-                    prop_list_matched.append(line)
-        log.debug('Number of matching properties found: {n}'.format(n=len(prop_list_matched)))
-        if len(prop_list_matched) == 1:
-            prop_parts = prop_list_matched[0].split('.')
-            if len(prop_parts) > 5:
-                self.cons3rt_role_name = prop_parts[4]
-                log.info('Found CONS3RT_ROLE_NAME from deployment properties: {c}'.format(c=self.cons3rt_role_name))
-                log.info('Adding CONS3RT_ROLE_NAME to the current environment...')
-                os.environ['CONS3RT_ROLE_NAME'] = self.cons3rt_role_name
-                return
+        for device_name, ip_address in ip_addresses.items():
+            pattern = '^cons3rt\.fap\.deployment\.machine.*0.internalIp=' + ip_address + '$'
+            try:
+                f = open(self.properties_file)
+            except IOError as exc:
+                msg = 'Could not open file {f}'.format(f=self.properties_file)
+                raise DeploymentError(msg) from exc
+            prop_list_matched = []
+            log.debug('Searching for deployment properties matching pattern: {p}'.format(p=pattern))
+            for line in f:
+                log.debug('Processing deployment properties file line: {a}'.format(a=line))
+                if line.startswith('#'):
+                    continue
+                elif '=' in line:
+                    match = re.search(pattern, line)
+                    if match:
+                        log.debug('Found matching prop: {a}'.format(a=line))
+                        prop_list_matched.append(line)
+            log.debug('Number of matching properties found: {n}'.format(n=len(prop_list_matched)))
+            if len(prop_list_matched) == 1:
+                prop_parts = prop_list_matched[0].split('.')
+                if len(prop_parts) > 5:
+                    self.cons3rt_role_name = prop_parts[4]
+                    log.info('Found CONS3RT_ROLE_NAME from deployment properties: {c}'.format(c=self.cons3rt_role_name))
+                    log.info('Adding CONS3RT_ROLE_NAME to the current environment...')
+                    os.environ['CONS3RT_ROLE_NAME'] = self.cons3rt_role_name
+                    return
+                else:
+                    log.error('Property found was not formatted as expected: %s',
+                              prop_parts)
             else:
-                log.error('Property found was not formatted as expected: %s',
-                          prop_parts)
-        else:
-            log.error('Did not find a unique matching deployment property')
+                log.error('Did not find a unique matching deployment property')
         msg = 'Could not determine CONS3RT_ROLE_NAME from deployment properties'
         raise DeploymentError(msg)
 
@@ -474,6 +472,15 @@ class Deployment(object):
                 network_info_list.append(network_info)
             scenario_host_network_info['network_info'] = network_info_list
             self.scenario_network_info.append(scenario_host_network_info)
+
+    def get_network_info(self):
+        """Returns the network info for THIS host
+
+        :return: (list) of network data
+        """
+        for network_info in self.scenario_network_info:
+            if network_info['scenario_role_name'] == self.cons3rt_role_name:
+                return network_info['network_info']
 
     def set_deployment_name(self):
         """Sets the deployment name from deployment properties
@@ -678,6 +685,28 @@ class Deployment(object):
             d=device_name, i=ip_address, n=network_name))
         return device_name
 
+    def allow_host_ssh_on_network(self, network_name):
+        """Adds unrestricted host key checking on a specific network by IP address
+
+        :param network_name: (str) name of the network to unrestrict
+        :return: None
+        :raises: DeploymentError
+        """
+        log = logging.getLogger(self.cls_logger + '.allow_host_ssh_on_network')
+        ip = None
+        for network in self.get_network_info():
+            if network['network_name'] == network_name:
+                ip = network['internal_ip']
+        if not ip:
+            raise DeploymentError('IP address not found on network: {n}'.format(n=network_name))
+        pattern = '.'.join(ip.split('.')[0:3]) + '.*'
+        log.info('Adding unrestricted host key access for network {n}: {p}'.format(n=network_name, p=pattern))
+        try:
+            unrestrict_host_key_checking(pattern)
+        except SshConfigError as exc:
+            raise DeploymentError('Problem adding unrestricted host key checking for: {p}'.format(
+                p=pattern)) from exc
+
     def generate_scenario_ssh_keys(self, key_name=None, username=None, port=22):
         """Use this method to generate SSH RSA keys on this host and distribute the keys to
         other hosts in the scenario.
@@ -699,7 +728,7 @@ class Deployment(object):
         # Generate SSH keys
         log.info('Generating SSH key with name: {n}'.format(n=key_name))
         try:
-            key_path = generate_ssh_rsa_key(key_name=key_name)
+            key_path, pub_key_path = generate_ssh_rsa_key(key_name=key_name)
         except CommandError as exc:
             raise DeploymentError('Problem generating SSH RSA keys') from exc
 
@@ -721,7 +750,8 @@ class Deployment(object):
         for host in remote_hosts:
             log.info('Distributing SSH key to host: {h}'.format(h=host))
             try:
-                ssh_copy_id(pub_key_path=key_path, remote_username=username, host=host, port=str(port))
+                wait_for_host_key(host=host)
+                ssh_copy_id(pub_key_path=pub_key_path, remote_username=username, host=host, port=str(port))
             except CommandError as exc:
                 raise DeploymentError('Problem copying SSH key to host: {h}'.format(h=host)) from exc
 

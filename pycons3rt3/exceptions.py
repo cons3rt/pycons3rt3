@@ -67,6 +67,10 @@ class AliasImportError(Exception):
 class Cons3rtSlackerError(Exception):
     """There was a problem with a slack operation"""
 
+
+class SshConfigError(Exception):
+    """Problem configuring SSH on a host"""
+
 """
 Operating System level exceptions
 """
