@@ -97,8 +97,16 @@ def get_pycons3rt_log_dir():
     """Returns the pycons3rt log directory
 
     :return: (str) Full path to pycons3rt log directory
+    :raises: OSError
     """
-    return os.path.join(get_pycons3rt_user_dir(), 'log')
+    if platform.system() == 'Linux':
+        return os.path.join(os.path.sep, 'var', 'log')
+    elif platform.system() == 'Windows':
+        return os.path.join('C:', os.path.sep, 'pycons3rt', 'log')
+    elif platform.system() == 'Darwin':
+        return os.path.join(os.path.expanduser('~'), '.pycons3rt', 'log')
+    else:
+        raise OSError('Unsupported Operating System')
 
 
 def get_pycons3rt_conf_dir():
@@ -114,7 +122,7 @@ def get_pycons3rt_src_dir():
 
     :return: (str) Full path to pycons3rt src directory
     """
-    return os.path.join(get_pycons3rt_user_dir(), 'src', 'pycons3rt')
+    return os.path.join(get_pycons3rt_home_dir(), 'src', 'pycons3rt')
 
 
 def initialize_pycons3rt_dirs():
