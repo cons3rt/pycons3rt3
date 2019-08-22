@@ -99,5 +99,5 @@ def openssl_encrypt(decrypted_file, password_file, encrypted_file=None):
             f=decrypted_file, p=password_file)) from exc
     if result['code'] != 0:
         raise CommandError('openssl exited with code: {c}'.format(c=str(result['code'])))
-    log.info('Created encrypted file: {d}'.format(d=decrypted_file))
+    log.info('Created encrypted file: {d}'.format(d=encrypted_file))
     return True
