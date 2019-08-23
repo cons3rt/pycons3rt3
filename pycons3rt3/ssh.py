@@ -93,7 +93,7 @@ def ssh_copy_id(pub_key_path, host, remote_username=None, port=22):
     return True
 
 
-def add_known_hosts(key_contents=None, key_file=None):
+def add_host_key_to_known_hosts(key_contents=None, key_file=None):
     """Adds keys to the known hosts file
 
     :param key_contents: (str) key contents to add
@@ -145,7 +145,7 @@ def add_host_to_known_hosts(host):
         raise SshConfigError('ssh-keyscan returned code [{c}] scanning host: {h}'.format(c=str(result['code']), h=host))
     host_key = result['output']
     try:
-        add_known_hosts(key_contents=host_key)
+        add_host_key_to_known_hosts(key_contents=host_key)
     except CommandError as exc:
         raise SshConfigError('Problem adding host key for [{h}] to known_hosts file: {k}'.format(
             h=host, k=host_key)) from exc
@@ -197,7 +197,7 @@ def unrestrict_host_key_checking(pattern):
     ssh_config_file = os.path.join(os.path.expanduser('~'), '.ssh', 'config')
     ssh_config_contents = ''
     if os.path.isfile(ssh_config_file):
-        with open(ssh_config_file) as f:
+        with open(ssh_config_file, 'r') as f:
             ssh_config_contents = f.read()
     ssh_config_entry = '\nHost {p}\n\tStrictHostKeyChecking no\n'
     ssh_config_contents += ssh_config_entry

@@ -92,7 +92,7 @@ class Deployment(object):
 
         # Set deployment home and read deployment properties
         try:
-            self.set_deployment_home()
+            self.get_deployment_home()
             self.read_deployment_properties()
         except DeploymentError:
             raise
@@ -106,7 +106,7 @@ class Deployment(object):
         self.set_deployment_run_id()
         self.set_virtualization_realm_type()
 
-    def set_deployment_home(self):
+    def get_deployment_home(self):
         """Sets self.deployment_home
 
         This method finds and sets deployment home, primarily based on
@@ -114,15 +114,15 @@ class Deployment(object):
         method will attempt to determine deployment home.
 
         :return: None
+        :raises: DeploymentError
         """
-        log = logging.getLogger(self.cls_logger + '.set_deployment_home')
+        log = logging.getLogger(self.cls_logger + '.get_deployment_home')
         try:
             self.deployment_home = os.environ['DEPLOYMENT_HOME']
         except KeyError:
             log.warning('DEPLOYMENT_HOME environment variable is not set, attempting to set it...')
         else:
             log.info('Found DEPLOYMENT_HOME environment variable set to: {d}'.format(d=self.deployment_home))
-            return
 
         if self.cons3rt_agent_run_dir is None:
             msg = 'This is not Windows nor Linux, cannot determine DEPLOYMENT_HOME'

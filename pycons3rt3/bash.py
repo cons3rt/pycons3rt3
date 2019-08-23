@@ -327,41 +327,42 @@ def mkdir_p(path):
 
 
 def source(script):
-    """Emulates 'source' command in bash
+    """Emulates 'source' command in bash, updates os.environ with
+    environment variables
 
     :param script: (str) Full path to the script to source
-    :return: Updated environment
+    :return: (dict) Updated environment
     :raises CommandError
     """
     log = logging.getLogger(mod_logger + '.source')
     if not isinstance(script, str):
         raise CommandError('script argument must be a string')
-    log.info('Attempting to source script: %s', script)
+    if not os.path.isfile(script):
+        raise CommandError('File not found: {f}'.format(f=script))
+    log.info('Attempting to source script: {f}'.format(f=script))
+    command = ['bash', '-c', '. {s}; env;'.format(s=script)]
     try:
-        pipe = subprocess.Popen(". %s; env" % script, stdout=subprocess.PIPE, shell=True)
-        data = pipe.communicate()[0]
-    except ValueError as exc:
-        raise CommandError('There was an invalid arg detected') from exc
-    except OSError as exc:
-        raise CommandError from exc
-    except subprocess.CalledProcessError as exc:
-        raise CommandError('Script {s} returned a non-zero exit code'.format(s=script)) from exc
+        result = run_command(command, timeout_sec=10.0)
+    except CommandError as exc:
+        raise CommandError('Problem sourcing script: {s}'.format(s=script)) from exc
     env = {}
-    log.debug('Adding environment variables from data: {d}'.format(d=data))
-    for line in data.splitlines():
-        entry = line.split("=", 1)
+    if result['output'] == '':
+        log.warning('No environment variable found to update in script: {s}'.format(s=script))
+        return
+    env_vars = result['output'].split('\n')
+    for env_var in env_vars:
+        entry = env_var.split("=", 1)
         if len(entry) != 2:
-            log.warning('This property is not in prop=value format, and will be skipped: {p}'.format(p=line))
+            log.warning('Not in prop=value format, skipping: {p}'.format(p=env_var))
             continue
         try:
             env[entry[0]] = entry[1]
         except IndexError as exc:
-            log.warning('IndexError: There was a problem setting environment variables from line: {p}\n{e}'.format(
-                p=line, e=str(exc)))
+            log.warning('Problem setting environment variable, skipping: {p}\n{e}'.format(p=env_var, e=str(exc)))
             continue
-        else:
-            log.debug('Added environment variable {p}={v}'.format(p=entry[0], v=entry[1]))
+        log.debug('Added environment variable {p}={v}'.format(p=entry[0], v=entry[1]))
     os.environ.update(env)
+    log.info('Environment variables updates from script: {s}'.format(s=script))
     return env
 
 

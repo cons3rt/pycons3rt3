@@ -82,7 +82,7 @@ def git_clone(url, clone_dir, branch='master', username=None, password=None, max
         raise PyGitError(msg)
 
     # Build a git clone or git pull command based on the existence of the clone directory
-    if os.path.isdir(clone_dir):
+    if os.path.isdir(os.path.join(clone_dir, '.git')):
         log.debug('Git repo directory already exists, updating repo in: {d}'.format(d=clone_dir))
         os.chdir(clone_dir)
         command = [git_cmd, 'pull']
