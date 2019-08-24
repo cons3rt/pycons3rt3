@@ -123,6 +123,7 @@ class Deployment(object):
             log.warning('DEPLOYMENT_HOME environment variable is not set, attempting to set it...')
         else:
             log.info('Found DEPLOYMENT_HOME environment variable set to: {d}'.format(d=self.deployment_home))
+            return
 
         if self.cons3rt_agent_run_dir is None:
             msg = 'This is not Windows nor Linux, cannot determine DEPLOYMENT_HOME'
