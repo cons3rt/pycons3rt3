@@ -20,6 +20,25 @@ __author__ = 'Joe Yennaco'
 mod_logger = Logify.get_name() + '.pygit'
 
 
+def get_git_cmd():
+    """Find the git command on the local machine
+
+    :return: (str) path to the git executable
+    """
+    log = logging.getLogger(mod_logger + '.get_git_cmd')
+    # Find the git command
+    log.info('Attempting to determine git command executable (this will only work on *NIX platforms...')
+    command = ['which', 'git']
+    try:
+        result = run_command(command)
+    except CommandError as exc:
+        raise PyGitError('Unable to find the git executable') from exc
+    git_cmd = result['output']
+    if not os.path.isfile(git_cmd):
+        raise PyGitError('Could not find git command: {g}'.format(g=git_cmd))
+    return git_cmd
+
+
 def git_clone(url, clone_dir, branch='master', username=None, password=None, max_retries=10, retry_sec=30,
               git_cmd=None):
     """Clones a git url
@@ -67,19 +86,10 @@ def git_clone(url, clone_dir, branch='master', username=None, password=None, max
     # Find the git command
     if git_cmd is None:
         log.info('Git executable not provided, attempting to determine (this will only work on *NIX platforms...')
-        command = ['which', 'git']
         try:
-            result = run_command(command)
-        except CommandError as exc:
-            msg = 'Unable to find the git executable'
-            raise PyGitError(msg) from exc
-        else:
-            git_cmd = result['output']
-
-    if not os.path.isfile(git_cmd):
-        msg = 'Could not find git command: {g}'.format(g=git_cmd)
-        log.error(msg)
-        raise PyGitError(msg)
+            git_cmd = get_git_cmd()
+        except PyGitError as exc:
+            raise PyGitError('git command not found, cannot run clone') from exc
 
     # Build a git clone or git pull command based on the existence of the clone directory
     if os.path.isdir(os.path.join(clone_dir, '.git')):
@@ -120,6 +130,68 @@ def git_clone(url, clone_dir, branch='master', username=None, password=None, max
             raise PyGitError(msg)
         log.info('Waiting to retry the git clone in {t} seconds...'.format(t=retry_sec))
         time.sleep(retry_sec)
+
+
+def list_branches(git_repo_dir):
+    """Returns a list of branches in a git repo
+
+    :param git_repo_dir: (str) path to the git repo
+    :return: (list) of branches
+    :raises: PyGitError
+    """
+    if not os.path.isdir(git_repo_dir):
+        raise PyGitError('Git repo directory not found: {d}'.format(d=git_repo_dir))
+    try:
+        git_cmd = get_git_cmd()
+    except PyGitError as exc:
+        raise PyGitError('git command not found, cannot list branches') from exc
+    current_dir = os.getcwd()
+    os.chdir(git_repo_dir)
+    command = [git_cmd, 'branch', '-a']
+    try:
+        result = run_command(command, timeout_sec=10.0)
+    except CommandError as exc:
+        os.chdir(current_dir)
+        raise PyGitError('Problem list git branches') from exc
+    if result['code'] != 0:
+        os.chdir(current_dir)
+        raise PyGitError('git branch list command exited with code: {c}'.format(c=str(result['code'])))
+    branches = []
+    branch_items = result['output'].split('\n')
+    for branch_item in branch_items:
+        if 'HEAD' in branch_item:
+            continue
+        branches.append(branch_item.split('/')[-1])
+    os.chdir(current_dir)
+    return branches
+
+
+def checkout_branch(git_repo_dir, branch):
+    """Checkout a specific branch of a git repo
+
+    :param git_repo_dir:
+    :param branch:
+    :return:
+    """
+    log = logging.getLogger(mod_logger + '.checkout_branch')
+    if not os.path.isdir(git_repo_dir):
+        raise PyGitError('Git repo directory not found: {d}'.format(d=git_repo_dir))
+    try:
+        git_cmd = get_git_cmd()
+    except PyGitError as exc:
+        raise PyGitError('git command not found, cannot list branches') from exc
+    current_dir = os.getcwd()
+    os.chdir(git_repo_dir)
+    command = [git_cmd, 'checkout', branch]
+    try:
+        result = run_command(command, timeout_sec=10.0)
+    except CommandError as exc:
+        os.chdir(current_dir)
+        raise PyGitError('Problem list git branches') from exc
+    if result['code'] != 0:
+        os.chdir(current_dir)
+        raise PyGitError('git branch list command exited with code: {c}'.format(c=str(result['code'])))
+    log.info('git repo checkout branch: {b}'.format(b=branch))
 
 
 def encode_password(password):
