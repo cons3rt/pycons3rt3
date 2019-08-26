@@ -366,6 +366,26 @@ def source(script):
     return env
 
 
+def source_env():
+    """Sources environment variable files
+
+    :return: None
+    """
+    log = logging.getLogger(mod_logger + '.source_env')
+    etc_bashrc = '/etc/bashrc'
+    etc_profile = '/etc/profile'
+    bash_profile = os.path.join(os.path.expanduser('~'), '.bash_profile')
+    try:
+        if os.path.isfile(etc_bashrc):
+            source(etc_bashrc)
+        if os.path.isfile(etc_profile):
+            source(etc_profile)
+        if os.path.isfile(bash_profile):
+            source(bash_profile)
+    except CommandError as exc:
+        log.warning('Problem sourcing environment files\n{e}'.format(e=str(exc)))
+
+
 def yum_update(downloadonly=False, dest_dir='/tmp'):
     """Run a yum update on this system
 
