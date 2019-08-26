@@ -5,12 +5,13 @@
 This module provides utilities for creating asset zip files.
 
 """
+import argparse
+import contextlib
 import logging
 import os
+import shutil
 import sys
 import zipfile
-import contextlib
-import argparse
 
 from .logify import Logify
 from .bash import mkdir_p
@@ -365,6 +366,39 @@ def create(asset_dir, dest_dir):
         return 1
     print('Created asset zip file: {z}'.format(z=asset_zip))
     return 0
+
+
+def stage_media(asset_dir, destination_dir):
+    """Stages install media in the destination directory
+
+    :param asset_dir: (str) path to asset directory
+    :param destination_dir: (str) path to the destination directory
+    :return: True if successful, False otherwise
+    """
+    log = logging.getLogger(mod_logger + '.stage_media')
+    if not os.path.isdir(asset_dir):
+        log.error('Asset directory not found: {d}'.format(d=asset_dir))
+        return False
+    if not os.path.isdir(destination_dir):
+        log.info('Creating destination directory: {d}'.format(d=destination_dir))
+        os.makedirs(destination_dir, exist_ok=True)
+    asset_media_dir = os.path.join(asset_dir, 'media')
+    if not os.path.isdir(asset_media_dir):
+        log.error('Asset media directory not found: {d}'.format(d=asset_media_dir))
+        return False
+    marker_file = os.path.join(asset_media_dir, 'MEDIA_ALREADY_COPIED')
+    if os.path.isfile(marker_file):
+        log.info('Found marker file, no media to copy: {f}'.format(f=marker_file))
+        return True
+    media_files = os.listdir(asset_media_dir)
+    for media_file in media_files:
+        log.info('Copying [{s}] to: {d}'.format(s=media_files, d=destination_dir))
+        shutil.move(os.path.join(asset_media_dir, media_file), destination_dir)
+    log.info('Adding marker file: {f}'.format(f=marker_file))
+    with open(marker_file, 'w') as f:
+        f.write('Files copied to: {d}'.format(d=destination_dir))
+    log.info('Media files have been staged!')
+    return True
 
 
 def main():
