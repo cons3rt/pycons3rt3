@@ -5,3 +5,4 @@ jinja2
 requests
 requests[security]
 requests_toolbelt
+yaml
