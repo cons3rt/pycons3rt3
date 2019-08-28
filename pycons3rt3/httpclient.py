@@ -284,7 +284,7 @@ class Client:
         # Open the content_file to create the multipart encoder
         start_time = time.time()
         response = None
-        with open(content_file, 'r') as f:
+        with open(content_file, 'rb') as f:
 
             # Create the MultipartEncoder (thanks requests_toolbelt!)
             form = MultipartEncoder({
@@ -305,11 +305,7 @@ class Client:
 
             # Send the request
             try:
-                response = s.send(
-                    prepped,
-                    cert=rest_user.cert_file_path,
-                    verify=False
-                )
+                response = s.send(prepped, cert=rest_user.cert_file_path, verify=False)
             except SSLError:
                 self.__http_exception__(
                     exc=sys.exc_info(),

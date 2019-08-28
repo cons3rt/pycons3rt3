@@ -11,11 +11,13 @@ import logging
 import os
 import shutil
 import sys
+import yaml
 import zipfile
 
 from .logify import Logify
 from .bash import mkdir_p
-from .exceptions import Cons3rtAssetStructureError, AssetZipCreationError
+from .cons3rtapi import Cons3rtApi
+from .exceptions import AssetZipCreationError, Cons3rtApiError, Cons3rtAssetStructureError
 
 __author__ = 'Joe Yennaco'
 
@@ -28,6 +30,8 @@ ignore_files = [
     '.DS_Store',
     '.gitignore',
     '._',
+    'asset_data.yml',
+    'media.yml'
 ]
 
 ignore_file_extensions = [
@@ -285,16 +289,47 @@ def make_asset_zip(asset_dir_path, destination_directory=None):
     # Determine the zip file path
     zip_file_path = os.path.join(destination_directory, zip_file_name)
 
+    # Determine the staging directory
+    staging_directory = os.path.join(destination_directory, 'asset-{n}'.format(n=asset_name.replace(' ', '')))
+
+    # Remove the existing staging dir if it exists
+    if os.path.exists(staging_directory):
+        shutil.rmtree(staging_directory)
+
     # Remove existing zip file if it exists
     if os.path.isfile(zip_file_path):
         log.info('Removing existing asset zip file: {f}'.format(f=zip_file_path))
         os.remove(zip_file_path)
 
+    # Copy asset dir to staging dir
+    shutil.copytree(asset_dir_path, staging_directory)
+
+    # Read media.yml to add media files from external sources
+    media_yml = os.path.join(staging_directory, 'media.yml')
+    media_dir = os.path.join(staging_directory, 'media')
+    media_files_copied = []
+    if os.path.isfile(media_yml):
+        if not os.path.isdir(media_dir):
+            os.makedirs(media_dir, exist_ok=True)
+        with open(media_yml, 'r') as f:
+            media_file_list = yaml.load(f, Loader=yaml.FullLoader)
+        for media_file in media_file_list:
+            if media_file.startswith('file:///'):
+                local_media_file = media_file.lstrip('file:///')
+                if local_media_file[0] == '~':
+                    local_media_file = os.path.expanduser('~') + local_media_file[1:]
+                if not os.path.isfile(local_media_file):
+                    raise Cons3rtAssetStructureError(
+                        'External media file not found: {f}'.format(f=local_media_file)
+                    )
+                shutil.copy2(local_media_file, media_dir)
+                media_files_copied.append(local_media_file)
+
     # Attempt to create the zip
     log.info('Attempting to create asset zip file: {f}'.format(f=zip_file_path))
     try:
         with contextlib.closing(zipfile.ZipFile(zip_file_path, 'w', allowZip64=True)) as zip_w:
-            for root, dirs, files in os.walk(asset_dir_path):
+            for root, dirs, files in os.walk(staging_directory):
                 for f in files:
                     skip = False
                     file_path = os.path.join(root, f)
@@ -320,7 +355,7 @@ def make_asset_zip(asset_dir_path, destination_directory=None):
                         continue
 
                     log.info('Adding file to zip: {f}'.format(f=file_path))
-                    archive_name = os.path.join(root[len(asset_dir_path):], f)
+                    archive_name = os.path.join(root[len(staging_directory):], f)
                     if archive_name.startswith('/'):
                         log.debug('Trimming the leading char: [/]')
                         archive_name = archive_name[1:]
@@ -328,6 +363,7 @@ def make_asset_zip(asset_dir_path, destination_directory=None):
                     zip_w.write(file_path, archive_name)
     except Exception as exc:
         raise AssetZipCreationError('Unable to create zip file: {f}'.format(f=zip_file_path)) from exc
+    shutil.rmtree(staging_directory)
     log.info('Successfully created asset zip file: {f}'.format(f=zip_file_path))
     return zip_file_path
 
@@ -401,6 +437,87 @@ def stage_media(asset_dir, destination_dir):
     return True
 
 
+def import_asset(cons3rt_api, asset_zip_path):
+    """Imports an asset zip file using the provided Cons3rtApi object
+    and returns data about the imported asset
+
+    :param cons3rt_api: Cons3rtApi object
+    :param asset_zip_path: (str) full path to the asset zip file
+    :return: (dict) asset import data
+    """
+    asset_data = {}
+    try:
+        asset_id = cons3rt_api.import_asset(asset_zip_file=asset_zip_path)
+    except Cons3rtApiError as exc:
+        print('ERROR: Importing zip {z} into site: {u}\n{e}'.format(
+            z=asset_zip_path, u=cons3rt_api.url_base, e=str(exc)))
+        return asset_data
+    asset_data = {
+        'asset_id': asset_id,
+        'site_url': cons3rt_api.url_base
+    }
+    print('Imported asset from zip: {z}'.format(z=asset_zip_path))
+    return asset_data
+
+
+def update_asset(cons3rt_api, asset_zip_path, asset_id):
+    """Updates an asset ID with the provided Cons3rtApi object and asset zip
+
+    :param cons3rt_api: Cons3rtApi object
+    :param asset_zip_path: full path to the asset zip file
+    :param asset_id: (int) ID of the asset to update
+    :return: True if success, False otherwise
+    """
+    try:
+        cons3rt_api.update_asset_content(asset_id=asset_id, asset_zip_file=asset_zip_path)
+    except Cons3rtApiError as exc:
+        print('ERROR: Updating asset ID [{a}] zip {z} into site: {u}\n{e}'.format(
+            a=str(asset_id), z=asset_zip_path, u=cons3rt_api.url_base, e=str(exc)))
+        return False
+    print('Updated asset ID: {a}'.format(a=str(asset_id)))
+    return True
+
+
+def import_update(asset_dir, dest_dir, import_only=False):
+    """Creates an asset zip, and attempts to import/update the asset
+
+    :param asset_dir: (str) path to asset directory
+    :param dest_dir: (full path to the destination directory)
+    :param import_only: (bool) Whe True, import even if an existing ID is found
+    :return:
+    """
+    try:
+        asset_zip = make_asset_zip(asset_dir_path=asset_dir, destination_directory=dest_dir)
+    except AssetZipCreationError as exc:
+        msg = 'AssetZipCreationError: Problem with asset zip creation\n{e}'.format(e=str(exc))
+        print('ERROR: {m}'.format(m=msg))
+        return 1
+    asset_yml = os.path.join(asset_dir, 'asset_data.yml')
+    asset_data_list = []
+    c = Cons3rtApi()
+    if os.path.isfile(asset_yml):
+        with open(asset_yml, 'r') as f:
+            asset_data_list = yaml.load(f, Loader=yaml.FullLoader)
+        asset_id = None
+        for asset_data in asset_data_list:
+            if asset_data['site_url'] == c.url_base:
+                asset_id = asset_data['asset_id']
+        if asset_id:
+            if not update_asset(cons3rt_api=c, asset_zip_path=asset_zip, asset_id=asset_id):
+                return 1
+        else:
+            asset_data = import_asset(cons3rt_api=c, asset_zip_path=asset_zip)
+            if asset_data != {}:
+                asset_data_list.append(asset_data)
+    else:
+        asset_data = import_asset(cons3rt_api=c, asset_zip_path=asset_zip)
+        if asset_data != {}:
+            asset_data_list.append(asset_data)
+    with open(asset_yml, 'w') as f:
+        yaml.dump(asset_data_list, f, sort_keys=True)
+    os.remove(asset_zip)
+
+
 def main():
     parser = argparse.ArgumentParser(description='cons3rt asset CLI')
     parser.add_argument('command', help='Command for the Asset CLI')
@@ -408,7 +525,7 @@ def main():
     parser.add_argument('--dest_dir', help='Destination directory for the asset zip (default is Downloads)')
     args = parser.parse_args()
 
-    valid_commands = ['create', 'validate']
+    valid_commands = ['create', 'validate', 'import', 'update']
     valid_commands_str = ','.join(valid_commands)
 
     # Get the command
@@ -469,6 +586,10 @@ def main():
         res = validate(asset_dir=asset_dir)
     elif command == 'create':
         res = create(asset_dir=asset_dir, dest_dir=dest_dir)
+    elif command == 'import':
+        res = import_update(asset_dir=asset_dir, dest_dir=dest_dir)
+    elif command == 'update':
+        res = import_update(asset_dir=asset_dir, dest_dir=dest_dir)
     return res
 
 
