@@ -24,7 +24,7 @@ distroId=
 distroVersion=
 distroFamily=
 
-# Merker file to indicate this host is ready for configuration over SSH
+# Marker file to indicate this host is ready for configuration over SSH
 markerFile="/root/SSH_READY"
 
 ####################### END GLOBAL VARIABLES #######################

@@ -1406,6 +1406,44 @@ def system_reboot(wait_time_sec=20):
     raise SystemRebootTimeoutError(msg)
 
 
+def create_user_basic(username):
+    """Creates a user with default settings
+
+    :param username: (str) username
+    :return: None
+    :raises: CommandError
+    """
+    log = logging.getLogger(mod_logger + '.create_user_basic')
+    log.info('Attempting to create user with username: {u}'.format(u=username))
+    command = ['useradd', username]
+    try:
+        result = run_command(command, timeout_sec=10.0)
+    except CommandError as exc:
+        raise CommandError('Problem creating user: {u}'.format(u=username)) from exc
+    if result['code'] != 0:
+        raise CommandError('useradd exited with code: {c}'.format(c=str(result['code'])))
+    log.info('User created: {u}'.format(u=username))
+
+
+def remove_user_password(username):
+    """Removes password for a user
+
+    :param username: (str) username
+    :return: None
+    :raises: CommandError
+    """
+    log = logging.getLogger(mod_logger + '.remove_user_password')
+    log.info('Attempting to remove password for username: {u}'.format(u=username))
+    command = ['passwd', '-d', username]
+    try:
+        result = run_command(command, timeout_sec=10.0)
+    except CommandError as exc:
+        raise CommandError('Problem deleting password for user: {u}'.format(u=username)) from exc
+    if result['code'] != 0:
+        raise CommandError('passwd exited with code: {c}'.format(c=str(result['code'])))
+    log.info('Password removed for user: {u}'.format(u=username))
+
+
 def main():
     """Sample usage for this python module
 
