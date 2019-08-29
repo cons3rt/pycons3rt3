@@ -2,7 +2,7 @@ boto3
 botocore
 netifaces
 jinja2
+PyYAML
 requests
 requests[security]
 requests_toolbelt
-yaml
