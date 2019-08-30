@@ -6,13 +6,15 @@ This module provides utilities for performing typical SSH actions like
 generating SSH keys
 
 """
+import datetime
 import logging
 import os
+import shutil
 import time
 
-from .logify import Logify
 from .bash import mkdir_p, manage_service, run_command, run_remote_command
 from .exceptions import CommandError, SshConfigError
+from .logify import Logify
 
 __author__ = 'Joe Yennaco'
 
@@ -218,6 +220,14 @@ def update_sshd_config(config_data):
     if not os.path.isfile(sshd_config_file):
         raise SshConfigError('sshd config file not found: {f}'.format(f=sshd_config_file))
     log.info('Updating the sshd config file: {f}'.format(f=sshd_config_file))
+
+    # Backup the sshd config
+    time_now = datetime.now().strftime('%Y%m%d-%H%M%S')
+    backup_file = '{f}.{d}'.format(f=sshd_config_file, d=time_now)
+    log.info('Creating backup file: {f}'.format(f=backup_file))
+    shutil.copy2(sshd_config_file, backup_file)
+
+    # Read the sshd config
     with open(sshd_config_file, 'r') as f:
         sshd_contents = f.read()
     sshd_lines = sshd_contents.split('\n')
@@ -231,11 +241,17 @@ def update_sshd_config(config_data):
         new_line = '{k} {v}\n'.format(k=item, v=value)
         log.info('Adding line: {t}'.format(t=new_line))
         new_lines.append(new_line)
+
+    # Build output
     new_sshd_contents = ''
     for line in new_lines:
-        new_sshd_contents += line
+        new_sshd_contents += line + '\n'
+
+    # Write the output file
     with open(sshd_config_file, 'w') as f:
         f.write(new_sshd_contents)
+
+    # Restart the sshd service
     log.info('Restarting the sshd service...')
     try:
         manage_service(service_name='sshd', service_action='restart', systemd=True)
