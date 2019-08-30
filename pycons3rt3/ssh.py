@@ -11,7 +11,7 @@ import os
 import time
 
 from .logify import Logify
-from .bash import mkdir_p, run_command, run_remote_command
+from .bash import mkdir_p, manage_service, run_command, run_remote_command
 from .exceptions import CommandError, SshConfigError
 
 __author__ = 'Joe Yennaco'
@@ -228,9 +228,16 @@ def update_sshd_config(config_data):
                 log.info('Removing line: {t}'.format(t=line))
             else:
                 new_lines.append(line)
-        new_lines.append('{k} {v}\n'.format(k=item, v=value))
+        new_line = '{k} {v}\n'.format(k=item, v=value)
+        log.info('Adding line: {t}'.format(t=new_line))
+        new_lines.append(new_line)
     new_sshd_contents = ''
     for line in new_lines:
         new_sshd_contents += line
     with open(sshd_config_file, 'w') as f:
         f.write(new_sshd_contents)
+    log.info('Restarting the sshd service...')
+    try:
+        manage_service(service_name='sshd', service_action='restart', systemd=True)
+    except OSError as exc:
+        raise SshConfigError('Problem restarting the sshd service')
