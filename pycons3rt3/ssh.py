@@ -275,12 +275,17 @@ def update_sshd_config(config_data):
         sshd_contents = f.read()
     sshd_lines = sshd_contents.split('\n')
     new_lines = []
-    for item, value in config_data.items():
-        for line in sshd_lines:
+
+    for line in sshd_lines:
+        skip = False
+        for item, value in config_data.items():
             if line.startswith(item):
+                skip = True
                 log.info('Removing line: {t}'.format(t=line))
-            else:
-                new_lines.append(line)
+        if not skip:
+            new_lines.append(line)
+
+    for item, value in config_data.items():
         new_line = '{k} {v}\n'.format(k=item, v=value)
         log.info('Adding line: {t}'.format(t=new_line))
         new_lines.append(new_line)
@@ -299,4 +304,4 @@ def update_sshd_config(config_data):
     try:
         manage_service(service_name='sshd', service_action='restart', systemd=True)
     except OSError as exc:
-        raise SshConfigError('Problem restarting the sshd service')
+        raise SshConfigError('Problem restarting the sshd service') from exc
