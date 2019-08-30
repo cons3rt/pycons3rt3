@@ -1420,8 +1420,10 @@ def create_user_basic(username):
         result = run_command(command, timeout_sec=10.0)
     except CommandError as exc:
         raise CommandError('Problem creating user: {u}'.format(u=username)) from exc
-    if result['code'] != 0:
-        raise CommandError('useradd exited with code: {c}'.format(c=str(result['code'])))
+    if result['code'] == 9:
+        log.info('useradd exited with code 9, User already exists: {u}'.format(u=username))
+    elif result['code'] != 0:
+        raise CommandError('useradd exited with code: {c}\n{o}'.format(c=str(result['code']), o=result['output']))
     log.info('User created: {u}'.format(u=username))
 
 
