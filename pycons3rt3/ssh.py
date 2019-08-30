@@ -106,6 +106,14 @@ def add_host_key_to_known_hosts(key_contents=None, key_file=None):
     log = logging.getLogger(mod_logger + '.add_host_key_to_known_hosts')
     if not key_contents and not key_file:
         raise SshConfigError('key_file or key_contents required')
+
+    # Read the known_hosts contents
+    known_hosts_file = os.path.join(os.path.expanduser('~'), '.ssh', 'known_hosts')
+    known_hosts_file_contents = ''
+    if os.path.isfile(known_hosts_file):
+        with open(known_hosts_file, 'r') as f:
+            known_hosts_file_contents = f.read()
+
     if not key_contents:
         key_contents = ''
     if key_file:
@@ -113,16 +121,12 @@ def add_host_key_to_known_hosts(key_contents=None, key_file=None):
             raise SshConfigError('key_file not found: {f}'.format(f=key_file))
         with open(key_file, 'r') as f:
             key_file_contents = f.read()
-            key_contents += '\n' + key_file_contents
+            key_contents += '\n' + key_file_contents + '\n'
     key_contents = os.linesep.join([s for s in key_contents.splitlines() if s])
     if key_contents == '':
         return
-    known_hosts_file = os.path.join(os.path.expanduser('~'), '.ssh', 'known_hosts')
-    known_hosts_file_contents = ''
-    if os.path.isfile(known_hosts_file):
-        with open(known_hosts_file, 'r') as f:
-            known_hosts_file_contents = f.read()
-    known_hosts_file_contents += key_contents
+
+    known_hosts_file_contents += key_contents + '\n'
     known_hosts_file_contents = os.linesep.join([s for s in known_hosts_file_contents.splitlines() if s])
     with open(known_hosts_file, 'w') as f:
         f.write(known_hosts_file_contents)
@@ -141,6 +145,14 @@ def add_host_key_to_authorized_keys(key_contents=None, key_file=None):
     log = logging.getLogger(mod_logger + '.add_host_key_to_authorized_keys')
     if not key_contents and not key_file:
         raise SshConfigError('key_file or key_contents required')
+
+    # Read the authorized keys contents
+    authorized_keys_file = os.path.join(os.path.expanduser('~'), '.ssh', 'authorized_keys')
+    authorized_keys_file_contents = ''
+    if os.path.isfile(authorized_keys_file):
+        with open(authorized_keys_file, 'r') as f:
+            authorized_keys_file_contents = f.read()
+
     if not key_contents:
         key_contents = ''
     if key_file:
@@ -148,16 +160,12 @@ def add_host_key_to_authorized_keys(key_contents=None, key_file=None):
             raise SshConfigError('key_file not found: {f}'.format(f=key_file))
         with open(key_file, 'r') as f:
             key_file_contents = f.read()
-            key_contents += '\n' + key_file_contents
+            key_contents += '\n' + key_file_contents + '\n'
     key_contents = os.linesep.join([s for s in key_contents.splitlines() if s])
     if key_contents == '':
         return
-    authorized_keys_file = os.path.join(os.path.expanduser('~'), '.ssh', 'authorized_keys')
-    authorized_keys_file_contents = ''
-    if os.path.isfile(authorized_keys_file):
-        with open(authorized_keys_file, 'r') as f:
-            authorized_keys_file_contents = f.read()
-    authorized_keys_file_contents += key_contents
+
+    authorized_keys_file_contents += key_contents + '\n'
     authorized_keys_file_contents = os.linesep.join([s for s in authorized_keys_file_contents.splitlines() if s])
     with open(authorized_keys_file, 'w') as f:
         f.write(authorized_keys_file_contents)
