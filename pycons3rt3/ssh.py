@@ -204,3 +204,33 @@ def unrestrict_host_key_checking(pattern):
     with open(ssh_config_file, 'w') as f:
         f.write(ssh_config_contents)
     os.chmod(ssh_config_file, 0o600)
+
+
+def update_sshd_config(config_data):
+    """Updates the SSHD config file with the provided config data
+
+    :param config_data: (dict) of key value pairs to create the configs
+    :return: None
+    :raises: SshConfigError
+    """
+    log = logging.getLogger(mod_logger + '.update_sshd_config')
+    sshd_config_file = os.path.join(os.sep, 'etc', 'ssh', 'sshd_config')
+    if not os.path.isfile(sshd_config_file):
+        raise SshConfigError('sshd config file not found: {f}'.format(f=sshd_config_file))
+    log.info('Updating the sshd config file: {f}'.format(f=sshd_config_file))
+    with open(sshd_config_file, 'r') as f:
+        sshd_contents = f.read()
+    sshd_lines = sshd_contents.split('\n')
+    new_lines = []
+    for item, value in config_data.items():
+        for line in sshd_lines:
+            if line.startswith(item):
+                log.info('Removing line: {t}'.format(t=line))
+            else:
+                new_lines.append(line)
+        new_lines.append('{k} {v}\n'.format(k=item, v=value))
+    new_sshd_contents = ''
+    for line in new_lines:
+        new_sshd_contents += line
+    with open(sshd_config_file, 'w') as f:
+        f.write(new_sshd_contents)
