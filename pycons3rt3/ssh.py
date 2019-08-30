@@ -6,11 +6,11 @@ This module provides utilities for performing typical SSH actions like
 generating SSH keys
 
 """
-import datetime
 import logging
 import os
 import shutil
 import time
+from datetime import datetime
 
 from .bash import mkdir_p, manage_service, run_command, run_remote_command
 from .exceptions import CommandError, SshConfigError
