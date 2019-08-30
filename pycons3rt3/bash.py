@@ -1094,7 +1094,7 @@ def set_remote_host_environment_variable(host, variable_name, variable_value, en
         log.info('Environment variable {v} set to {n} on host {h}'.format(v=variable_name, n=variable_value, h=host))
 
 
-def run_remote_command(host, command, timeout_sec=5.0, port=22):
+def run_remote_command(host, command, timeout_sec=5.0, port=22, output=True):
     """Retrieves the value of an environment variable of a
     remote host over SSH
 
@@ -1102,6 +1102,7 @@ def run_remote_command(host, command, timeout_sec=5.0, port=22):
     :param command: (str) command
     :param timeout_sec (float) seconds to wait before killing the command
     :param port (int) SSH port to connect on the remote machine
+    :param output (bool) Set False to ignore command output
     :return: (str) command output
     :raises: TypeError, CommandError
     """
@@ -1118,7 +1119,7 @@ def run_remote_command(host, command, timeout_sec=5.0, port=22):
         remote_command += ['-p', str(port)]
     remote_command += ['{h}'.format(h=host), '{c}'.format(c=command)]
     try:
-        result = run_command(remote_command, timeout_sec=timeout_sec)
+        result = run_command(remote_command, timeout_sec=timeout_sec, output=output)
         code = result['code']
     except CommandError as exc:
         raise CommandError('There was a problem running: {c}'.format(c=' '.join(remote_command))) from exc
