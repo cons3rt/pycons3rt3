@@ -16,6 +16,7 @@ import sys
 import zipfile
 import socket
 import contextlib
+import signal
 import time
 import platform
 import shutil
@@ -136,7 +137,9 @@ def run_command_large_buffer(command, timeout_sec=3600.0):
     command_str = ' '.join(command)
     log.debug('Running command: {c}'.format(c=command_str))
     subproc = subprocess.Popen(command, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-    log.debug('Opened up PID {p} with a timeout of {s} sec...'.format(p=subproc.pid, s=str(timeout_sec)))
+    pid = subproc.pid
+    log.debug('Opened up PID {p} with a timeout of {s} sec...'.format(p=pid, s=str(timeout_sec)))
+    timeout = False
     try:
         stdout, stderr = subproc.communicate(timeout=timeout_sec)
     except ValueError as exc:
@@ -147,10 +150,25 @@ def run_command_large_buffer(command, timeout_sec=3600.0):
         raise CommandError('Command returned a non-zero exit code: {c}, return code'.format(c=command_str)) from exc
     except subprocess.TimeoutExpired:
         log.error('Command timeout of {t} seconds expired for: [{c}]'.format(t=str(timeout_sec), c=command_str))
-        subproc.kill()
-        stdout, stderr = subproc.communicate()
+        timeout = True
+
+    if timeout:
+        log.info('Attempting to kill the PID: {p}'.format(p=str(pid)))
+        try:
+            subproc.terminate()
+            subproc.kill()
+            os.kill(pid, signal.SIGINT)
+            log.error('Force terminated: {p}'.format(p=str(pid)))
+
+        except OSError as exc:
+            log.info('Process {p} exited gracefully\n{e}'.format(p=str(pid), e=str(exc)))
+        except subprocess.TimeoutExpired:
+            raise CommandError('Command timed out and could not retrieve output for: {c}'.format(c=command_str))
+        log.error('Command timed out: {c}'.format(c=command_str))
+        return
 
     # Collect exit code and output for return
+    stdout, stderr = subproc.communicate(timeout=30.0)
     code = subproc.poll()
     stdout = stdout.decode('utf-8')
     stderr = stderr.decode('utf-8')
