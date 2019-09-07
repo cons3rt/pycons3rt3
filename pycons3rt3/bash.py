@@ -121,6 +121,47 @@ def run_command(command, timeout_sec=3600.0, output=True):
     return output
 
 
+def run_command_large_buffer(command, timeout_sec=3600.0):
+    """Runs a command using the subprocess module
+
+    :param command: List containing the command and all args
+    :param timeout_sec (float) seconds to wait before killing
+        the command.
+    :return: Dict containing stdout, stderr, and return code
+    :raises CommandError
+    """
+    log = logging.getLogger(mod_logger + '.run_command')
+    if not isinstance(command, list):
+        raise CommandError('command arg must be a list')
+    command_str = ' '.join(command)
+    log.debug('Running command: {c}'.format(c=command_str))
+    subproc = subprocess.Popen(command, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    log.debug('Opened up PID {p} with a timeout of {s} sec...'.format(p=subproc.pid, s=str(timeout_sec)))
+    try:
+        stdout, stderr = subproc.communicate(timeout=timeout_sec)
+    except ValueError as exc:
+        raise CommandError('Bad command supplied: {c}'.format(c=command_str)) from exc
+    except (OSError, IOError) as exc:
+        raise CommandError('There was a problem running command: {c}'.format(c=command_str)) from exc
+    except subprocess.CalledProcessError as exc:
+        raise CommandError('Command returned a non-zero exit code: {c}, return code'.format(c=command_str)) from exc
+    except subprocess.TimeoutExpired:
+        log.error('Command timeout of {t} seconds expired for: [{c}]'.format(t=str(timeout_sec), c=command_str))
+        subproc.kill()
+        stdout, stderr = subproc.communicate()
+
+    # Collect exit code and output for return
+    code = subproc.poll()
+    stdout = stdout.decode('utf-8')
+    stderr = stderr.decode('utf-8')
+    output = {
+        'stdout': stdout,
+        'stderr': stderr,
+        'code': code
+    }
+    return output
+
+
 def validate_ip_address(ip_address):
     """Validate the ip_address
 
