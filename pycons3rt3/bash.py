@@ -168,7 +168,6 @@ def run_command_large_buffer(command, timeout_sec=3600.0):
         return
 
     # Collect exit code and output for return
-    stdout, stderr = subproc.communicate(timeout=30.0)
     code = subproc.poll()
     stdout = stdout.decode('utf-8')
     stderr = stderr.decode('utf-8')
