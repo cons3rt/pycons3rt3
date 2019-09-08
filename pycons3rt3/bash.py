@@ -159,13 +159,12 @@ def run_command_large_buffer(command, timeout_sec=3600.0):
             subproc.kill()
             os.kill(pid, signal.SIGINT)
             log.error('Force terminated: {p}'.format(p=str(pid)))
-
         except OSError as exc:
             log.info('Process {p} exited gracefully\n{e}'.format(p=str(pid), e=str(exc)))
         except subprocess.TimeoutExpired:
             raise CommandError('Command timed out and could not retrieve output for: {c}'.format(c=command_str))
-        log.error('Command timed out: {c}'.format(c=command_str))
-        return
+        finally:
+            raise CommandError('Command timed out: {c}'.format(c=command_str))
 
     # Collect exit code and output for return
     code = subproc.poll()
