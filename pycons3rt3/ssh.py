@@ -113,7 +113,6 @@ def add_host_key_to_known_hosts(key_contents=None, key_file=None):
     if os.path.isfile(known_hosts_file):
         with open(known_hosts_file, 'r') as f:
             known_hosts_file_contents = f.read()
-
     if not key_contents:
         key_contents = ''
     if key_file:
@@ -124,9 +123,24 @@ def add_host_key_to_known_hosts(key_contents=None, key_file=None):
             key_contents += '\n' + key_file_contents + '\n'
     key_contents = os.linesep.join([s for s in key_contents.splitlines() if s])
     if key_contents == '':
+        log.info('No keys found in input, exiting without adding to known_hosts')
         return
-
-    known_hosts_file_contents += key_contents + '\n'
+    key_content_lines = key_contents.split(os.linesep)
+    log.info('Checking {n} provided keys to see if they are not already in the known_hosts file'.format(
+        n=str(len(key_content_lines))))
+    keys_to_add = []
+    for key_content_line in key_content_lines:
+        if 'no route' in key_content_line.lower():
+            raise SshConfigError('Found a key with "no route" in it: {k}'.format(k=key_content_line))
+        elif key_content_line in known_hosts_file_contents:
+            log.info('Key already exists in known_hosts, skipping...')
+        else:
+            log.info('Key does not exist in known_hosts, adding...')
+            keys_to_add.append(key_content_line)
+    if len(keys_to_add) < 1:
+        log.info('No new keys to add to known_hosts!')
+    kets_to_add_str = os.linesep.join(keys_to_add)
+    known_hosts_file_contents += kets_to_add_str + '\n'
     known_hosts_file_contents = os.linesep.join([s for s in known_hosts_file_contents.splitlines() if s])
     with open(known_hosts_file, 'w') as f:
         f.write(known_hosts_file_contents)
@@ -194,7 +208,7 @@ def add_host_to_known_hosts(host):
     except CommandError as exc:
         raise SshConfigError('Problem adding host key for [{h}] to known_hosts file: {k}'.format(
             h=host, k=host_key)) from exc
-    log.info('Successfully added host key for [{h}] to known_hosts: {k}'.format(h=host, k=host_key))
+    log.info('Successfully added host key for [{h}] to known_hosts'.format(h=host))
 
 
 def wait_for_host_key(host, max_wait_time_sec=7200, check_interval_sec=10):
