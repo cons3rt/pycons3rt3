@@ -120,7 +120,7 @@ def add_host_key_to_known_hosts(key_contents=None, key_file=None):
             raise SshConfigError('key_file not found: {f}'.format(f=key_file))
         with open(key_file, 'r') as f:
             key_file_contents = f.read()
-            key_contents += '\n' + key_file_contents + '\n'
+            key_contents += os.linesep + key_file_contents + os.linesep
     key_contents = os.linesep.join([s for s in key_contents.splitlines() if s])
     if key_contents == '':
         log.info('No keys found in input, exiting without adding to known_hosts')
@@ -142,7 +142,7 @@ def add_host_key_to_known_hosts(key_contents=None, key_file=None):
     if len(keys_to_add) < 1:
         log.info('No new keys to add to known_hosts!')
     keys_to_add_str = os.linesep.join(keys_to_add)
-    known_hosts_file_contents += '\n' + keys_to_add_str + '\n'
+    known_hosts_file_contents += os.linesep + keys_to_add_str + os.linesep
     known_hosts_file_contents = os.linesep.join([s for s in known_hosts_file_contents.splitlines() if s])
     with open(known_hosts_file, 'w') as f:
         f.write(known_hosts_file_contents)
@@ -176,12 +176,12 @@ def add_host_key_to_authorized_keys(key_contents=None, key_file=None):
             raise SshConfigError('key_file not found: {f}'.format(f=key_file))
         with open(key_file, 'r') as f:
             key_file_contents = f.read()
-            key_contents += '\n' + key_file_contents + '\n'
+            key_contents += os.linesep + key_file_contents + os.linesep
     key_contents = os.linesep.join([s for s in key_contents.splitlines() if s])
     if key_contents == '':
         return
 
-    authorized_keys_file_contents += key_contents + '\n'
+    authorized_keys_file_contents += os.linesep + key_contents + os.linesep
     authorized_keys_file_contents = os.linesep.join([s for s in authorized_keys_file_contents.splitlines() if s])
     with open(authorized_keys_file, 'w') as f:
         f.write(authorized_keys_file_contents)
@@ -197,7 +197,7 @@ def add_host_to_known_hosts(host):
     :raises: SshConfigError
     """
     log = logging.getLogger(mod_logger + '.add_host_to_known_hosts')
-    command = ['ssh-keyscan', host]
+    command = ['ssh-keyscan', '-t', 'rsa', host]
     try:
         result = run_command(command, timeout_sec=30.0)
     except CommandError as exc:
