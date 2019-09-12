@@ -95,11 +95,12 @@ def ssh_copy_id(pub_key_path, host, remote_username=None, port=22):
     return True
 
 
-def add_host_key_to_known_hosts(key_contents=None, key_file=None):
+def add_host_key_to_known_hosts(key_contents=None, key_file=None, known_hosts_file=None):
     """Adds keys to the known hosts file
 
     :param key_contents: (str) key contents to add
     :param key_file: (str) path to a file containing 1 or more host keys
+    :param known_hosts_file: (str) full path to the known_hosts file to populate
     :return: None
     :raises: SshConfigError
     """
@@ -108,7 +109,8 @@ def add_host_key_to_known_hosts(key_contents=None, key_file=None):
         raise SshConfigError('key_file or key_contents required')
 
     # Read the known_hosts contents
-    known_hosts_file = os.path.join(os.path.expanduser('~'), '.ssh', 'known_hosts')
+    if not known_hosts_file:
+        known_hosts_file = os.path.join(os.path.expanduser('~'), '.ssh', 'known_hosts')
     known_hosts_file_contents = ''
     if os.path.isfile(known_hosts_file):
         with open(known_hosts_file, 'r') as f:
@@ -190,10 +192,11 @@ def add_host_key_to_authorized_keys(key_contents=None, key_file=None):
     log.info('keys successfully added to authorized keys file')
 
 
-def add_host_to_known_hosts(host):
+def add_host_to_known_hosts(host, known_hosts_file=None):
     """Adds a remote host key to the known_hosts file
 
     :param host: (str) hostname or IP of the remote host
+    :param known_hosts_file: (str) full path to the known_hosts file to populate
     :return: None
     :raises: SshConfigError
     """
@@ -207,7 +210,7 @@ def add_host_to_known_hosts(host):
         raise SshConfigError('ssh-keyscan returned code [{c}] scanning host: {h}'.format(c=str(result['code']), h=host))
     host_key = result['output']
     try:
-        add_host_key_to_known_hosts(key_contents=host_key)
+        add_host_key_to_known_hosts(key_contents=host_key, known_hosts_file=known_hosts_file)
     except CommandError as exc:
         raise SshConfigError('Problem adding host key for [{h}] to known_hosts file: {k}'.format(
             h=host, k=host_key)) from exc
