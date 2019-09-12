@@ -138,10 +138,11 @@ def add_host_key_to_known_hosts(key_contents=None, key_file=None):
             log.info('Key already exists in known_hosts, skipping...')
         else:
             log.info('Key does not exist in known_hosts, adding...')
+            log.debug('Key does not exist in known_hosts, adding: {k}'.format(k=key_content_line))
             keys_to_add.append(key_content_line)
     if len(keys_to_add) < 1:
         log.info('No new keys to add to known_hosts!')
-    keys_to_add_str = os.linesep.join(keys_to_add)
+    keys_to_add_str = os.linesep + os.linesep.join(keys_to_add) + os.linesep
     known_hosts_file_contents += os.linesep + keys_to_add_str + os.linesep
     known_hosts_file_contents = os.linesep.join([s for s in known_hosts_file_contents.splitlines() if s])
     with open(known_hosts_file, 'w') as f:
