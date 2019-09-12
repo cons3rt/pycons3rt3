@@ -132,6 +132,8 @@ def add_host_key_to_known_hosts(key_contents=None, key_file=None):
     for key_content_line in key_content_lines:
         if 'no route' in key_content_line.lower():
             raise SshConfigError('Found a key with "no route" in it: {k}'.format(k=key_content_line))
+        elif key_content_line.startswith('#'):
+            log.info('Skipping comment line...')
         elif key_content_line in known_hosts_file_contents:
             log.info('Key already exists in known_hosts, skipping...')
         else:
@@ -139,8 +141,8 @@ def add_host_key_to_known_hosts(key_contents=None, key_file=None):
             keys_to_add.append(key_content_line)
     if len(keys_to_add) < 1:
         log.info('No new keys to add to known_hosts!')
-    kets_to_add_str = os.linesep.join(keys_to_add)
-    known_hosts_file_contents += kets_to_add_str + '\n'
+    keys_to_add_str = os.linesep.join(keys_to_add)
+    known_hosts_file_contents += '\n' + keys_to_add_str + '\n'
     known_hosts_file_contents = os.linesep.join([s for s in known_hosts_file_contents.splitlines() if s])
     with open(known_hosts_file, 'w') as f:
         f.write(known_hosts_file_contents)
