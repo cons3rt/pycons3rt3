@@ -101,13 +101,13 @@ def add_host_key_to_known_hosts(key_contents=None, key_file=None, known_hosts_fi
     :param key_contents: (str) key contents to add
     :param key_file: (str) path to a file containing 1 or more host keys
     :param known_hosts_file: (str) full path to the known_hosts file to populate
-    :return: None
+    :return: (list) of SSH keys
     :raises: SshConfigError
     """
     log = logging.getLogger(mod_logger + '.add_host_key_to_known_hosts')
     if not key_contents and not key_file:
         raise SshConfigError('key_file or key_contents required')
-
+    keys_to_add = []
     # Read the known_hosts contents
     if not known_hosts_file:
         known_hosts_file = os.path.join(os.path.expanduser('~'), '.ssh', 'known_hosts')
@@ -126,11 +126,10 @@ def add_host_key_to_known_hosts(key_contents=None, key_file=None, known_hosts_fi
     key_contents = os.linesep.join([s for s in key_contents.splitlines() if s])
     if key_contents == '':
         log.info('No keys found in input, exiting without adding to known_hosts')
-        return
+        return keys_to_add
     key_content_lines = key_contents.split(os.linesep)
     log.info('Checking {n} provided keys to see if they are not already in the known_hosts file'.format(
         n=str(len(key_content_lines))))
-    keys_to_add = []
     for key_content_line in key_content_lines:
         if 'no route' in key_content_line.lower():
             raise SshConfigError('Found a key with "no route" in it: {k}'.format(k=key_content_line))
@@ -151,6 +150,7 @@ def add_host_key_to_known_hosts(key_contents=None, key_file=None, known_hosts_fi
         f.write(known_hosts_file_contents)
     os.chmod(known_hosts_file, 0o644)
     log.info('keys successfully added to known hosts file')
+    return keys_to_add
 
 
 def add_host_key_to_authorized_keys(key_contents=None, key_file=None):
@@ -197,7 +197,7 @@ def add_host_to_known_hosts(host, known_hosts_file=None):
 
     :param host: (str) hostname or IP of the remote host
     :param known_hosts_file: (str) full path to the known_hosts file to populate
-    :return: None
+    :return: (list) of SSH keys
     :raises: SshConfigError
     """
     log = logging.getLogger(mod_logger + '.add_host_to_known_hosts')
@@ -210,11 +210,12 @@ def add_host_to_known_hosts(host, known_hosts_file=None):
         raise SshConfigError('ssh-keyscan returned code [{c}] scanning host: {h}'.format(c=str(result['code']), h=host))
     host_key = result['output']
     try:
-        add_host_key_to_known_hosts(key_contents=host_key, known_hosts_file=known_hosts_file)
+        added_keys = add_host_key_to_known_hosts(key_contents=host_key, known_hosts_file=known_hosts_file)
     except CommandError as exc:
         raise SshConfigError('Problem adding host key for [{h}] to known_hosts file: {k}'.format(
             h=host, k=host_key)) from exc
     log.info('Successfully added host key for [{h}] to known_hosts'.format(h=host))
+    return added_keys
 
 
 def wait_for_host_key(host, max_wait_time_sec=7200, check_interval_sec=10):
