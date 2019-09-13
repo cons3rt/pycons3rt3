@@ -145,7 +145,7 @@ def add_host_key_to_known_hosts(key_contents=None, key_file=None, known_hosts_fi
         log.info('No new keys to add to known_hosts!')
     keys_to_add_str = os.linesep + os.linesep.join(keys_to_add) + os.linesep
     known_hosts_file_contents += os.linesep + keys_to_add_str + os.linesep
-    known_hosts_file_contents = os.linesep.join([s for s in known_hosts_file_contents.splitlines() if s])
+    known_hosts_file_contents = os.linesep.join([s for s in known_hosts_file_contents.splitlines() if s]) + os.linesep
     with open(known_hosts_file, 'w') as f:
         f.write(known_hosts_file_contents)
     os.chmod(known_hosts_file, 0o644)
