@@ -1010,12 +1010,13 @@ class Cons3rtApi(object):
             raise Cons3rtApiError(msg) from exc
         log.info('Successfully updated state for Asset ID {i} to: {s}'.format(i=str(asset_id), s=state))
 
-    def update_asset_visibility(self, asset_type, asset_id, visibility):
+    def update_asset_visibility(self, asset_type, asset_id, visibility, trusted_projects=None):
         """Updates the asset visibility
 
         :param asset_type: (str) asset type (scenario, deployment, system, etc)
         :param asset_id: (int) asset ID to update
-        :param visibility: (str) desired asset visibilty
+        :param visibility: (str) desired asset visibility
+        :param trusted_projects (list) of int project IDs to add
         :return: None
         """
         log = logging.getLogger(self.cls_logger + '.update_asset_visibility')
@@ -1052,12 +1053,24 @@ class Cons3rtApi(object):
             raise Cons3rtApiError('Provided visibility is not valid: {s}, must be one of: {v}'.format(
                 s=visibility, v=valid_visibility))
 
+        # If a list of trusted project was provided, add them to the asset
+        if trusted_projects and visibility == 'TRUSTED_PROJECTS':
+            for trusted_project in trusted_projects:
+                try:
+                    self.cons3rt_client.add_trusted_project_to_asset(
+                        asset_id=asset_id, trusted_project_id=trusted_project)
+                except Cons3rtClientError as exc:
+                    msg = 'Problem adding trusted project ID [{p}] to asset ID: {i}'.format(
+                        p=str(trusted_project), i=str(asset_id))
+                    raise Cons3rtApiError(msg) from exc
+                log.info('Added trusted project ID [{p}] to asset ID: {i}'.format(
+                    p=str(trusted_project), i=str(asset_id)))
+
         # Attempt to update the asset ID
         try:
             self.cons3rt_client.update_asset_visibility(asset_id=asset_id, visibility=visibility, asset_type=target)
         except Cons3rtClientError as exc:
-            msg = 'Unable to update the visibility for asset ID: {i}'.format(
-                i=str(asset_id))
+            msg = 'Unable to update the visibility for asset ID: {i}'.format(i=str(asset_id))
             raise Cons3rtApiError(msg) from exc
         log.info('Successfully updated visibility for Asset ID {i} to: {s}'.format(i=str(asset_id), s=visibility))
 
