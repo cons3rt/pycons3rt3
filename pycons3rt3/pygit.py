@@ -40,7 +40,7 @@ def get_git_cmd():
 
 
 def git_clone(url, clone_dir, branch='master', username=None, password=None, max_retries=10, retry_sec=30,
-              git_cmd=None):
+              git_cmd=None, git_lfs=False):
     """Clones a git url
 
     :param url: (str) Git URL in https or ssh
@@ -51,6 +51,7 @@ def git_clone(url, clone_dir, branch='master', username=None, password=None, max
     :param max_retries: (int) the number of attempt to clone the git repo
     :param retry_sec: (int) number of seconds in between retries of the git clone
     :param git_cmd: (str) Path to git executable (required on Windows)
+    :param git_lfs: (bool) set True to use git lfs in the clone command
     :return: None
     :raises: PyGitError
     """
@@ -106,7 +107,11 @@ def git_clone(url, clone_dir, branch='master', username=None, password=None, max
             raise PyGitError(msg) from exc
 
         # Create the git clone command
-        command = [git_cmd, 'clone', '-b', branch, clone_url, clone_dir]
+        if git_lfs:
+            command = [git_cmd, 'lfs']
+        else:
+            command = [git_cmd]
+        command += ['clone', '-b', branch, clone_url, clone_dir]
 
     # Run the git command
     log.info('Running git command: {c}'.format(c=command))
