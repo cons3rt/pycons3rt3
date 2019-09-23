@@ -49,7 +49,7 @@ dist = setup(
             'asset = pycons3rt3.asset:main',
             'slack = pycons3rt3.slack:main',
             'deployment = pycons3rt3.deployment:main',
-            'cons3rt = pycons3rtapi.cons3rt:main'
+            'cons3rt = pycons3rt3.cons3rt:main'
         ],
     },
     classifiers=[

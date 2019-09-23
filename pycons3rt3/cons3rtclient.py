@@ -756,13 +756,12 @@ class Cons3rtClient:
                 content_file=asset_zip_file,
             )
         except Cons3rtClientError as exc:
-            msg = 'Unable to import asset from zip file: {f}\n{e}'.format(
-                f=asset_zip_file)
+            msg = 'Unable to import asset from zip file: {f}'.format(f=asset_zip_file)
             raise Cons3rtClientError(msg) from exc
         try:
             asset_id = self.http_client.parse_response(response=response)
         except Cons3rtClientError as exc:
-            msg = 'The HTTP response contains a bad status code\n{e}'.format(e=str(ex))
+            msg = 'The HTTP response contains a bad status code'
             raise Cons3rtClientError(msg) from exc
         return asset_id
 
