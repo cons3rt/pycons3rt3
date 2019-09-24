@@ -161,9 +161,6 @@ class Cons3rtCli(object):
 
 class CloudspaceCli(Cons3rtCli):
 
-    def __init__(self, args):
-        Cons3rtCli.__init__(self, args)
-
     def process_args(self):
         if not self.validate_args():
             return False
