@@ -40,7 +40,7 @@ class Cons3rtClient:
         try:
             cloud_id = self.http_client.parse_response(response=response)
         except Cons3rtClientError as exc:
-            msg = 'The HTTP response contains a bad status code'.format(e=str(ex))
+            msg = 'The HTTP response contains a bad status code'
             raise Cons3rtClientError(msg) from exc
         return cloud_id
 
@@ -68,7 +68,7 @@ class Cons3rtClient:
         try:
             team_id = self.http_client.parse_response(response=response)
         except Cons3rtClientError as exc:
-            msg = 'The HTTP response contains a bad status code'.format(e=str(ex))
+            msg = 'The HTTP response contains a bad status code'
             raise Cons3rtClientError(msg) from exc
         return team_id
 
@@ -96,7 +96,7 @@ class Cons3rtClient:
         try:
             self.http_client.parse_response(response=response)
         except Cons3rtClientError as exc:
-            msg = 'The HTTP response contains a bad status code'.format(e=str(ex))
+            msg = 'The HTTP response contains a bad status code'
             raise Cons3rtClientError(msg) from exc
 
     def add_user_to_project(self, username, project_id):
@@ -127,7 +127,7 @@ class Cons3rtClient:
         try:
             self.http_client.parse_response(response=response)
         except Cons3rtClientError as exc:
-            msg = 'The HTTP response contains a bad status code'.format(e=str(ex))
+            msg = 'The HTTP response contains a bad status code'
             raise Cons3rtClientError(msg) from exc
 
     def create_system(self, system_data):
@@ -140,9 +140,8 @@ class Cons3rtClient:
         # Create JSON content
         try:
             json_content = json.dumps(system_data)
-        except SyntaxError:
-            msg = 'There was a problem converting data to JSON: {d}\n{e}'.format(
-                d=str(system_data))
+        except SyntaxError as exc:
+            msg = 'There was a problem converting data to JSON: {d}'.format(d=str(system_data))
             raise Cons3rtClientError(msg) from exc
 
         try:
@@ -159,7 +158,7 @@ class Cons3rtClient:
         try:
             system_id = self.http_client.parse_response(response=response)
         except Cons3rtClientError as exc:
-            msg = 'The HTTP response contains a bad status code'.format(e=str(ex))
+            msg = 'The HTTP response contains a bad status code'
             raise Cons3rtClientError(msg) from exc
         return system_id
 
@@ -178,9 +177,8 @@ class Cons3rtClient:
         # Create JSON content
         try:
             json_content = json.dumps(scenario_data)
-        except SyntaxError:
-            msg = 'There was a problem converting data to JSON: {d}\n{e}'.format(
-                d=str(scenario_data))
+        except SyntaxError as exc:
+            msg = 'There was a problem converting data to JSON: {d}'.format(d=str(scenario_data))
             raise Cons3rtClientError(msg) from exc
 
         # Create the Scenario
@@ -198,7 +196,7 @@ class Cons3rtClient:
         try:
             scenario_id = self.http_client.parse_response(response=response)
         except Cons3rtClientError as exc:
-            msg = 'The HTTP response contains a bad status code'.format(e=str(ex))
+            msg = 'The HTTP response contains a bad status code'
             raise Cons3rtClientError(msg) from exc
         return scenario_id
 
@@ -217,9 +215,8 @@ class Cons3rtClient:
         # Create JSON content
         try:
             json_content = json.dumps(deployment_data)
-        except SyntaxError:
-            msg = 'There was a problem converting data to JSON: {d}\n{e}'.format(
-                d=str(deployment_data))
+        except SyntaxError as exc:
+            msg = 'There was a problem converting data to JSON: {d}'.format(d=str(deployment_data))
             raise Cons3rtClientError(msg) from exc
 
         # Create the Deployment
@@ -237,7 +234,7 @@ class Cons3rtClient:
         try:
             deployment_id = self.http_client.parse_response(response=response)
         except Cons3rtClientError as exc:
-            msg = 'The HTTP response contains a bad status code'.format(e=str(ex))
+            msg = 'The HTTP response contains a bad status code'
             raise Cons3rtClientError(msg) from exc
         return deployment_id
 
@@ -262,13 +259,13 @@ class Cons3rtClient:
                 target='clouds/' + str(cloud_id) + '/virtualizationrealms',
                 content_file=virtualization_realm_file)
         except Cons3rtClientError as exc:
-            msg = 'Unable to register virtualization realm to Cloud ID {c} from file: {f}\n{e}'.format(
+            msg = 'Unable to register virtualization realm to Cloud ID {c} from file: {f}'.format(
                 c=cloud_id, f=virtualization_realm_file)
             raise Cons3rtClientError(msg) from exc
         try:
             vr_id = self.http_client.parse_response(response=response)
         except Cons3rtClientError as exc:
-            msg = 'The HTTP response contains a bad status code\n{e}'.format(e=str(ex), n=ex.__class__.__name__)
+            msg = 'The HTTP response contains a bad status code'
             raise Cons3rtClientError(msg) from exc
         return vr_id
 
@@ -287,13 +284,13 @@ class Cons3rtClient:
                 target='clouds/' + str(cloud_id) + '/virtualizationrealms/allocate',
                 content_file=allocate_virtualization_realm_file)
         except Cons3rtClientError as exc:
-            msg = 'Unable to allocate virtualization realm to Cloud ID {c} from file: {f}\n{e}'.format(
+            msg = 'Unable to allocate virtualization realm to Cloud ID {c} from file: {f}'.format(
                 c=cloud_id, f=allocate_virtualization_realm_file)
             raise Cons3rtClientError(msg) from exc
         try:
             vr_id = self.http_client.parse_response(response=response)
         except Cons3rtClientError as exc:
-            msg = 'The HTTP response contains a bad status code\n{e}'.format(e=str(ex))
+            msg = 'The HTTP response contains a bad status code'
             raise Cons3rtClientError(msg) from exc
         return vr_id
 
@@ -557,7 +554,7 @@ class Cons3rtClient:
         try:
             result = self.http_client.parse_response(response=response)
         except Cons3rtClientError as exc:
-            msg = 'The HTTP response contains a bad status code\n{e}'.format(e=str(ex))
+            msg = 'The HTTP response contains a bad status code'
             raise Cons3rtClientError(msg) from exc
         drs = json.loads(result)
         return drs
@@ -570,7 +567,7 @@ class Cons3rtClient:
         try:
             result = self.http_client.parse_response(response=response)
         except Cons3rtClientError as exc:
-            msg = 'The HTTP response contains a bad status code\n{e}'.format(e=str(ex))
+            msg = 'The HTTP response contains a bad status code'
             raise Cons3rtClientError(msg) from exc
         networks = json.loads(result)
         return networks
@@ -584,7 +581,7 @@ class Cons3rtClient:
         try:
             result = self.http_client.parse_response(response=response)
         except Cons3rtClientError as exc:
-            msg = 'The HTTP response contains a bad status code\n{e}'.format(e=str(ex))
+            msg = 'The HTTP response contains a bad status code'
             raise Cons3rtClientError(msg) from exc
         templates = json.loads(result)
         return templates
@@ -596,7 +593,7 @@ class Cons3rtClient:
         try:
             result = self.http_client.parse_response(response=response)
         except Cons3rtClientError as exc:
-            msg = 'The HTTP response contains a bad status code\n{e}'.format(e=str(ex))
+            msg = 'The HTTP response contains a bad status code'
             raise Cons3rtClientError(msg) from exc
         return result
 
@@ -605,9 +602,8 @@ class Cons3rtClient:
         # Create JSON content
         try:
             json_content = json.dumps(run_options)
-        except SyntaxError:
-            msg = 'There was a problem converting data to JSON: {d}\n{e}'.format(
-                d=str(run_options))
+        except SyntaxError as exc:
+            msg = 'There was a problem converting data to JSON: {d}'.format(d=str(run_options))
             raise Cons3rtClientError(msg) from exc
 
         response = self.http_client.http_put(
@@ -617,7 +613,7 @@ class Cons3rtClient:
         try:
             dr_id = self.http_client.parse_response(response=response)
         except Cons3rtClientError as exc:
-            msg = 'The HTTP response contains a bad status code\n{e}'.format(e=str(ex))
+            msg = 'The HTTP response contains a bad status code'
             raise Cons3rtClientError(msg) from exc
         return dr_id
 
@@ -666,13 +662,12 @@ class Cons3rtClient:
                 content_file=asset_zip_file
             )
         except Cons3rtClientError as exc:
-            msg = 'Unable to update asset ID {i} with asset zip file: {f}\n{e}'.format(
-                i=asset_id, f=asset_zip_file)
+            msg = 'Unable to update asset ID {i} with asset zip file: {f}'.format(i=asset_id, f=asset_zip_file)
             raise Cons3rtClientError(msg) from exc
         try:
             self.http_client.parse_response(response=response)
         except Cons3rtClientError as exc:
-            msg = 'The HTTP response contains a bad status code\n{e}'.format(e=str(ex))
+            msg = 'The HTTP response contains a bad status code'
             raise Cons3rtClientError(msg) from exc
 
     def update_asset_state(self, asset_id, state, asset_type):
@@ -689,13 +684,12 @@ class Cons3rtClient:
                 rest_user=self.user,
                 target='{t}/{i}/updatestate?state={s}'.format(t=asset_type, i=str(asset_id), s=state))
         except Cons3rtClientError as exc:
-            msg = 'Unable to set asset state for asset ID: {i}\n{e}'.format(
-                i=str(asset_id))
+            msg = 'Unable to set asset state for asset ID: {i}'.format(i=str(asset_id))
             raise Cons3rtClientError(msg) from exc
         try:
             self.http_client.parse_response(response=response)
         except Cons3rtClientError as exc:
-            msg = 'The HTTP response contains a bad status code\n{e}'.format(e=str(ex))
+            msg = 'The HTTP response contains a bad status code'
             raise Cons3rtClientError(msg) from exc
 
     def add_trusted_project_to_asset(self, asset_id, trusted_project_id):
@@ -717,7 +711,7 @@ class Cons3rtClient:
         try:
             self.http_client.parse_response(response=response)
         except Cons3rtClientError as exc:
-            msg = 'The HTTP response contains a bad status code\n{e}'.format(e=str(ex))
+            msg = 'The HTTP response contains a bad status code'
             raise Cons3rtClientError(msg) from exc
 
     def update_asset_visibility(self, asset_id, visibility, asset_type):
@@ -739,7 +733,7 @@ class Cons3rtClient:
         try:
             self.http_client.parse_response(response=response)
         except Cons3rtClientError as exc:
-            msg = 'The HTTP response contains a bad status code\n{e}'.format(e=str(ex))
+            msg = 'The HTTP response contains a bad status code'
             raise Cons3rtClientError(msg) from exc
 
     def import_asset(self, asset_zip_file):
@@ -785,7 +779,7 @@ class Cons3rtClient:
         try:
             self.http_client.parse_response(response=response)
         except Cons3rtClientError as exc:
-            msg = 'The HTTP response contains a bad status code\n{e}'.format(e=str(ex))
+            msg = 'The HTTP response contains a bad status code'
             raise Cons3rtClientError(msg) from exc
 
     def disable_remote_access(self, vr_id):
@@ -807,7 +801,7 @@ class Cons3rtClient:
         try:
             self.http_client.parse_response(response=response)
         except Cons3rtClientError as exc:
-            msg = 'The HTTP response contains a bad status code\n{e}'.format(e=str(ex))
+            msg = 'The HTTP response contains a bad status code'
             raise Cons3rtClientError(msg) from exc
 
     def retrieve_all_users(self):
@@ -826,8 +820,7 @@ class Cons3rtClient:
                     target=target
                 )
             except Cons3rtClientError as exc:
-                msg = 'The HTTP response contains a bad status code\n{e}'.format(
-                    e=str(ex))
+                msg = 'The HTTP response contains a bad status code'
                 raise Cons3rtClientError(msg) from exc
             result = self.http_client.parse_response(response=response)
             found_users = json.loads(result)

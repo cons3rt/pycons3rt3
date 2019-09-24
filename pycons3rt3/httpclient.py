@@ -126,8 +126,7 @@ class Client:
         except RequestException as exc:
             raise Cons3rtClientError(str(exc)) from exc
         except SSLError as exc:
-            msg = 'There was an SSL error making an HTTP GET to URL: {u}\n{e}'.format(
-                u=url, e=str(exc))
+            msg = 'There was an SSL error making an HTTP GET to URL: {u}'.format(u=url)
             raise Cons3rtClientError(msg) from exc
         return response
 
@@ -155,8 +154,7 @@ class Client:
                 with open(content_file, 'r') as f:
                     content = f.read()
             except (OSError, IOError) as exc:
-                msg = 'Unable to read contents of file: {f}\n{e}'.format(
-                    f=content_file, e=str(exc))
+                msg = 'Unable to read contents of file: {f}'.format(f=content_file)
                 raise Cons3rtClientError(msg) from exc
         # Otherwise use data provided as content
         elif content_data:
@@ -170,23 +168,19 @@ class Client:
         try:
             response = requests.post(url, headers=headers, data=content, cert=rest_user.cert_file_path)
         except SSLError as exc:
-            msg = 'There was an SSL error making an HTTP POST to URL: {u}\n{e}'.format(
-                u=url, e=str(exc))
+            msg = 'There was an SSL error making an HTTP POST to URL: {u}'.format(u=url)
             raise Cons3rtClientError(msg) from exc
         except requests.ConnectionError as exc:
-            msg = 'Connection error encountered making HTTP POST:\n{e}'.format(
-                e=str(exc))
+            msg = 'Connection error encountered making HTTP POST'
             raise Cons3rtClientError(msg) from exc
         except requests.Timeout as exc:
-            msg = 'HTTP POST to URL {u} timed out\n{e}'.format(u=url, e=str(exc))
+            msg = 'HTTP POST to URL {u} timed out'.format(u=url)
             raise Cons3rtClientError(msg) from exc
         except RequestException as exc:
-            msg = 'There was a problem making an HTTP POST to URL: {u}\n{e}'.format(
-                u=url, e=str(exc))
+            msg = 'There was a problem making an HTTP POST to URL: {u}'.format(u=url)
             raise Cons3rtClientError(msg) from exc
         except Exception as exc:
-            msg = 'Generic error caught making an HTTP POST to URL: {u}\n{e}'.format(
-                u=url, e=str(exc))
+            msg = 'Generic error caught making an HTTP POST to URL: {u}'.format(u=url)
             raise Cons3rtClientError(msg) from exc
         return response
 
@@ -212,8 +206,7 @@ class Client:
                 with open(content_file, 'r') as f:
                     content = f.read()
             except (OSError, IOError) as exc:
-                msg = 'Unable to read contents of file: {f}\n{e}'.format(
-                    f=content_file, e=str(exc))
+                msg = 'Unable to read contents of file: {f}'.format(f=content_file)
                 raise Cons3rtClientError(msg) from exc
         # Otherwise use data provided as content
         elif content_data:
@@ -227,23 +220,19 @@ class Client:
         try:
             response = requests.put(url, headers=headers, data=content, cert=rest_user.cert_file_path)
         except SSLError as exc:
-            msg = 'There was an SSL error making an HTTP PUT to URL: {u}\n{e}'.format(
-                u=url, e=str(exc))
+            msg = 'There was an SSL error making an HTTP PUT to URL: {u}'.format(u=url)
             raise Cons3rtClientError(msg) from exc
         except requests.ConnectionError as exc:
-            msg = 'Connection error encountered making HTTP Put:\n{e}'.format(
-                e=str(exc))
+            msg = 'Connection error encountered making HTTP PUT'
             raise Cons3rtClientError(msg) from exc
         except requests.Timeout as exc:
-            msg = 'HTTP put to URL {u} timed out\n{e}'.format(u=url, e=str(exc))
+            msg = 'HTTP put to URL {u} timed out'.format(u=url)
             raise Cons3rtClientError(msg) from exc
         except RequestException as exc:
-            msg = 'There was a problem making an HTTP put to URL: {u}\n{e}'.format(
-                u=url, e=str(exc))
+            msg = 'There was a problem making an HTTP put to URL: {u}'.format(u=url)
             raise Cons3rtClientError(msg) from exc
         except Exception as exc:
-            msg = 'Generic error caught making an HTTP put to URL: {u}\n{e}'.format(
-                u=url, e=str(exc))
+            msg = 'Generic error caught making an HTTP put to URL: {u}'.format(u=url)
             raise Cons3rtClientError(msg) from exc
         return response
 
