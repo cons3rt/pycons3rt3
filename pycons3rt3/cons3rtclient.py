@@ -962,3 +962,24 @@ class Cons3rtClient:
         except Cons3rtClientError as exc:
             msg = 'The HTTP response contains a bad status code'
             raise Cons3rtClientError(msg) from exc
+
+    def download_asset(self, asset_id, download_file, background=False):
+        """Requests download of the asset ID
+
+        :param asset_id: (int) asset ID
+        :param background: (bool) set True to download in the background and receive an email when ready
+        :param download_file: (str) path to the destination file
+        :return: (str) path to the downloaded asset zip
+        :raises: Cons3rtClientError
+        """
+        target = 'assets/{i}/download'.format(i=str(asset_id))
+        if background:
+            target += '?background=true'
+        else:
+            target += '?background=false'
+        try:
+            asset_zip = self.http_client.http_download(rest_user=self.user, target=target, download_file=download_file)
+        except Cons3rtClientError as exc:
+            msg = 'Problem downloading asset ID: {a}'.format(a=str(asset_id))
+            raise Cons3rtClientError(msg) from exc
+        return asset_zip

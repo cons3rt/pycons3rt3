@@ -1,6 +1,7 @@
 #!/usr/bin/env python
 
 import logging
+import os
 import sys
 import time
 
@@ -367,3 +368,103 @@ class Client:
                 msg += '\nand content:\n{c}'.format(c=response.content)
             log.warning(msg)
             raise Cons3rtClientError(msg)
+
+    def http_download(self, rest_user, target, download_file, overwrite=True, suppress_status=False):
+        """Runs an HTTP GET request to the CONS3RT ReST API
+
+        :param rest_user: (RestUser) user info
+        :param target: (str) URL
+        :param download_file (str) destination file path
+        :param overwrite (bool) set True to overwrite the existing file
+        :param suppress_status: (bool) Set to True to suppress printing download status
+        :return: (str) path to the downloaded file
+        """
+        log = logging.getLogger(self.cls_logger + '.http_download')
+        log.info('Attempting to download file to: {d}'.format(d=download_file))
+        
+        # Set up for download attempts
+        retry_sec = 5
+        max_retries = 6
+        try_num = 1
+        download_success = False
+        dl_err = None
+        failed_attempt = False
+
+        # Start the retry loop
+        while try_num <= max_retries:
+    
+            # Break the loop if the download was successful
+            if download_success:
+                break
+    
+            log.info('Attempting to query Nexus for the Artifact using URL: {u}'.format(u=target))
+            try:
+                response = self.http_get(rest_user=rest_user, target=target)
+            except Cons3rtClientError as exc:
+                msg = 'There was a problem querying target: {u}'.format(u=target)
+                raise Cons3rtClientError(msg) from exc
+    
+            # Attempt to get the content-length
+            file_size = 0
+            try:
+                file_size = int(response.headers['Content-Length'])
+            except(KeyError, ValueError):
+                log.debug('Could not get Content-Length, suppressing download status...')
+                suppress_status = True
+            else:
+                log.info('Artifact file size: {s}'.format(s=file_size))
+    
+            # Determine the full download file path
+            file_name = response.url.split('/')[-1]
+
+            # Attempt to download the content from the response
+            log.info('Attempting to download content of size {s} from Nexus to file: {d}'.format(
+                s=file_size, d=download_file))
+    
+            # Remove the existing file if it exists, or exit if the file exists, overwrite is set,
+            # and there was not a previous failed attempted download
+            if os.path.isfile(download_file) and overwrite:
+                log.debug('File already exists, removing: {d}'.format(d=download_file))
+                os.remove(download_file)
+            elif os.path.isfile(download_file) and not overwrite and not failed_attempt:
+                log.info('File already downloaded, and overwrite is set to False.  The Artifact will '
+                         'not be retrieved from Nexus: {f}.  To overwrite the existing downloaded file, '
+                         'set overwrite=True'.format(f=download_file))
+                return
+    
+            # Attempt to download content
+            log.debug('Attempt # {n} of {m} to download content'.format(n=try_num, m=max_retries))
+            chunk_size = 1024
+            file_size_dl = 0
+            try:
+                with open(download_file, 'wb') as f:
+                    for chunk in response.iter_content(chunk_size=chunk_size):
+                        if chunk:
+                            f.write(chunk)
+                            file_size_dl += len(chunk)
+                            status = r"%10d  [%3.2f%%]" % (file_size_dl, file_size_dl * 100. / file_size)
+                            status += chr(8)*(len(status)+1)
+                            if not suppress_status:
+                                print(status),
+            except(requests.exceptions.ConnectionError, requests.exceptions.RequestException, OSError) as exc:
+                dl_err = 'There was an error reading content from the Nexus response. Downloaded ' \
+                         'size: {s}.\n{e}'.format(s=file_size_dl, t=retry_sec, e=str(exc))
+                failed_attempt = True
+                log.warning(dl_err)
+                if try_num < max_retries:
+                    log.info('Retrying download in {t} sec...'.format(t=retry_sec))
+                    time.sleep(retry_sec)
+            else:
+                log.info('File download of size {s} completed without error: {f}'.format(
+                    s=file_size_dl, f=download_file))
+                failed_attempt = False
+                download_success = True
+            try_num += 1
+    
+        # Raise an exception if the download did not complete successfully
+        if not download_success:
+            msg = 'Unable to download file content from Nexus after {n} attempts'.format(n=max_retries)
+            if dl_err:
+                msg += '\n{m}'.format(m=dl_err)
+            raise Cons3rtClientError(msg)
+        return download_file

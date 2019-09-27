@@ -2071,3 +2071,25 @@ class Cons3rtApi(object):
         except Cons3rtClientError as exc:
             msg = 'Problem removing category ID {c} from asset ID {a}'.format(c=str(category_id), a=str(asset_id))
             raise Cons3rtApiError(msg) from exc
+
+    def download_asset(self, asset_id, background=False, dest_dir=None):
+        """Requests download of the asset ID
+
+        :param asset_id: (int) asset ID
+        :param background: (bool) set True to download in the background and receive an email when ready
+        :param dest_dir: (str) path to the destination directory
+        :return: (str) path to the downloaded asset zip
+        :raises: Cons3rtClientError
+        """
+        log = logging.getLogger(self.cls_logger + '.download_asset')
+        if not dest_dir:
+            dest_dir = os.path.expanduser('~')
+        download_file = os.path.join(dest_dir, 'asset-{i}.zip'.format(i=str(asset_id)))
+        log.info('Attempting to download asset ID: {a}'.format(a=str(asset_id)))
+        try:
+            asset_zip = self.cons3rt_client.download_asset(asset_id=asset_id, background=background,
+                                                           download_file=download_file)
+        except Cons3rtClientError as exc:
+            msg = 'Problem downloading asset ID: {a}'.format(a=str(asset_id))
+            raise Cons3rtClientError(msg) from exc
+        return asset_zip
