@@ -830,3 +830,135 @@ class Cons3rtClient:
             else:
                 page_num += 1
         return users
+
+    def retrieve_expanded_software_assets(self, asset_type=None, community=False, category_ids=None,
+                                          max_results=40, page_num=0):
+        """Get a list of software assets with expanded info
+
+        :param asset_type: (str) the software asset type, defaults to null
+        :param community: (bool) the boolean to include community assets
+        :param category_ids: (list) the list of categories to filter by
+        :param max_results: (int) the max number of results desired
+        :param page_num: (int) the page number requested
+        :return: List of software asset IDs
+        """
+        target = 'software/expanded?'
+        if asset_type:
+            target += 'type={t}&'.format(t=type)
+        if community:
+            target += 'community=true'
+        else:
+            target += 'community=false'
+        if category_ids:
+            for category_id in category_ids:
+                target += '&categoryids={c}'.format(c=str(category_id))
+        target += '&maxresults={m}&page={p}'.format(m=str(max_results), p=str(page_num))
+        try:
+            response = self.http_client.http_get(
+                rest_user=self.user,
+                target=target
+            )
+        except Cons3rtClientError as exc:
+            raise Cons3rtClientError('Problem querying for software assets') from exc
+        try:
+            result = self.http_client.parse_response(response=response)
+        except Cons3rtClientError as exc:
+            msg = 'The HTTP response contains a bad status code'
+            raise Cons3rtClientError(msg) from exc
+        software_asset_ids = json.loads(result)
+        return software_asset_ids
+
+    def retrieve_all_expanded_software_assets(self, asset_type=None, community=False, category_ids=None):
+        """Get a list of software assets with expanded info
+
+        :param asset_type: (str) the software asset type, defaults to null
+        :param community: (bool) the boolean to include community assets
+        :param category_ids: (list) the list of categories to filter by
+        :return: List of software asset IDs
+        """
+        software_asset_ids = []
+        page_num = 0
+        max_results_per_page = 40
+        while True:
+            try:
+                software_asset_ids_page = self.retrieve_expanded_software_assets(
+                    asset_type=asset_type,
+                    community=community,
+                    category_ids=category_ids,
+                    max_results=max_results_per_page,
+                    page_num=page_num
+                )
+            except Cons3rtClientError as exc:
+                msg = 'Problem querying software assets on page: {n}'.format(n=str(page_num))
+                raise Cons3rtClientError(msg) from exc
+            software_asset_ids += software_asset_ids_page
+            if len(software_asset_ids_page) < max_results_per_page:
+                break
+            else:
+                page_num += 1
+        return software_asset_ids
+
+    def retrieve_asset_categories(self):
+        """Retrieves a list of the asset categories in the site
+
+        :return: (list) of asset categories
+        """
+        try:
+            response = self.http_client.http_get(rest_user=self.user, target='categories')
+        except Cons3rtClientError as exc:
+            raise Cons3rtClientError('Problem retrieving a list of categories') from exc
+        try:
+            result = self.http_client.parse_response(response=response)
+        except Cons3rtClientError as exc:
+            msg = 'The HTTP response contains a bad status code'
+            raise Cons3rtClientError(msg) from exc
+        categories = json.loads(result)
+        return categories
+
+    def add_category_to_asset(self, asset_id, category_id):
+        """Adds the category ID to the asset ID
+
+        :param asset_id: (int) asset ID
+        :param category_id: (int) category ID
+        :return: None
+        :raises: Cons3rtClientError
+        """
+        target = 'categories/{c}/asset/?assetid={a}'.format(c=str(category_id), a=str(asset_id))
+
+        # Add the user to the project
+        try:
+            response = self.http_client.http_put(rest_user=self.user, target=target)
+        except Cons3rtClientError as exc:
+            msg = 'Unable to add category ID {c} to asset ID: {a}'.format(c=str(category_id), a=str(asset_id))
+            raise Cons3rtClientError(msg) from exc
+
+        # Check the response
+        try:
+            self.http_client.parse_response(response=response)
+        except Cons3rtClientError as exc:
+            msg = 'The HTTP response contains a bad status code'
+            raise Cons3rtClientError(msg) from exc
+
+    def remove_category_from_asset(self, asset_id, category_id):
+        """Removes the category ID from the asset ID
+
+        :param asset_id: (int) asset ID
+        :param category_id: (int) category ID
+        :return: None
+        :raises: Cons3rtClientError
+        """
+        target = 'categories/{c}/asset/?assetid={a}'.format(c=str(category_id), a=str(asset_id))
+
+        # Add the user to the project
+        try:
+            response = self.http_client.http_delete(rest_user=self.user, target=target)
+        except Cons3rtClientError as exc:
+            msg = 'Unable to remove category ID {c} to asset ID: {a}'.format(c=str(category_id), a=str(asset_id))
+            raise Cons3rtClientError(msg) from exc
+
+        # Check the response
+        try:
+            self.http_client.parse_response(response=response)
+        except Cons3rtClientError as exc:
+            msg = 'The HTTP response contains a bad status code'
+            raise Cons3rtClientError(msg) from exc

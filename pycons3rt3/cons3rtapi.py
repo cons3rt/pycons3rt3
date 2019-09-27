@@ -1993,3 +1993,81 @@ class Cons3rtApi(object):
                 i=str(dr_id))
             raise Cons3rtApiError(msg) from exc
         return result
+
+    def retrieve_all_expanded_software_assets(self, asset_type=None, community=False, category_ids=None):
+        """Get a list of software assets with expanded info
+
+        :param asset_type: (str) the software asset type, defaults to null
+        :param community: (bool) the boolean to include community assets
+        :param category_ids: (list) the list of categories to filter by
+        :return: List of software asset IDs
+        :raises: Cons3rtApiError
+        """
+        log = logging.getLogger(self.cls_logger + '.retrieve_all_expanded_software_assets')
+        log.info('Attempting to query CONS3RT to retrieve expanded data on all software asset IDs...')
+        try:
+            software_asset_ids = self.cons3rt_client.retrieve_all_expanded_software_assets(
+                asset_type=asset_type, community=community, category_ids=category_ids
+            )
+        except Cons3rtClientError as exc:
+            msg = 'There was a problem querying for all users'
+            raise Cons3rtApiError(msg) from exc
+        log.info('Retrieved {n} software assets'.format(n=str(len(software_asset_ids))))
+        return software_asset_ids
+
+    def retrieve_asset_categories(self):
+        """Retrieves a list of the asset categories in the site
+
+        :return: (list) of asset categories
+        :raises: Cons3rtApiError
+        """
+        log = logging.getLogger(self.cls_logger + '.retrieve_asset_categories')
+        log.info('Attempting to retrieve a list of asset categories...')
+        try:
+            categories = self.cons3rt_client.retrieve_asset_categories()
+        except Cons3rtClientError as exc:
+            msg = 'Problem retrieving asset categories'
+            raise Cons3rtApiError(msg) from exc
+        return categories
+
+    def add_category_to_asset(self, asset_id, category_id):
+        """Adds the category ID to the asset ID
+
+        :param asset_id: (int) asset ID
+        :param category_id: (int) category ID
+        :return: None
+        :raises: Cons3rtApiError
+        """
+        log = logging.getLogger(self.cls_logger + '.add_category_to_asset')
+        if not isinstance(asset_id, int):
+            raise Cons3rtClientError('asset_id arg must be in any')
+        if not isinstance(category_id, int):
+            raise Cons3rtClientError('category_id arg must be in any')
+
+        log.info('Attempting to add category ID {c} to asset ID {a}...'.format(c=str(category_id), a=str(asset_id)))
+        try:
+            self.cons3rt_client.add_category_to_asset(asset_id=asset_id, category_id=category_id)
+        except Cons3rtClientError as exc:
+            msg = 'Problem adding category ID {c} to asset ID {a}'.format(c=str(category_id), a=str(asset_id))
+            raise Cons3rtApiError(msg) from exc
+
+    def remove_category_from_asset(self, asset_id, category_id):
+        """Removes the category ID from the asset ID
+
+        :param asset_id: (int) asset ID
+        :param category_id: (int) category ID
+        :return: None
+        :raises: Cons3rtApiError
+        """
+        log = logging.getLogger(self.cls_logger + '.remove_category_from_asset')
+        if not isinstance(asset_id, int):
+            raise Cons3rtClientError('asset_id arg must be in any')
+        if not isinstance(category_id, int):
+            raise Cons3rtClientError('category_id arg must be in any')
+
+        log.info('Attempting to remove category ID {c} from asset ID {a}...'.format(c=str(category_id), a=str(asset_id)))
+        try:
+            self.cons3rt_client.remove_category_from_asset(asset_id=asset_id, category_id=category_id)
+        except Cons3rtClientError as exc:
+            msg = 'Problem removing category ID {c} from asset ID {a}'.format(c=str(category_id), a=str(asset_id))
+            raise Cons3rtApiError(msg) from exc
