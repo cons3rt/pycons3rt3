@@ -107,6 +107,34 @@ class Client:
             raise Cons3rtClientError(msg) from exc
         return response
 
+    def http_get_download(self, rest_user, target):
+        """Runs an HTTP GET request to the CONS3RT ReST API
+
+        :param rest_user: (RestUser) user info
+        :param target: (str) URL
+        :return: http response
+        """
+        log = logging.getLogger(self.cls_logger + '.http_get')
+
+        self.validate_target(target)
+
+        # Set the URL
+        url = self.base + target
+        log.debug('Querying http GET with URL: {u}'.format(u=url))
+
+        # Determine the headers
+        headers = self.get_auth_headers(rest_user=rest_user)
+        headers['Accept'] = 'application/octet-stream'
+
+        try:
+            response = requests.get(url, headers=headers, cert=rest_user.cert_file_path)
+        except RequestException as exc:
+            raise Cons3rtClientError(str(exc)) from exc
+        except SSLError as exc:
+            msg = 'There was an SSL error making an HTTP GET to URL: {u}'.format(u=url)
+            raise Cons3rtClientError(msg) from exc
+        return response
+
     def http_delete(self, rest_user, target, content=None, keep_alive=False):
         self.validate_target(target)
 
@@ -399,7 +427,7 @@ class Client:
     
             log.info('Attempting to query Nexus for the Artifact using URL: {u}'.format(u=target))
             try:
-                response = self.http_get(rest_user=rest_user, target=target)
+                response = self.http_get_download(rest_user=rest_user, target=target)
             except Cons3rtClientError as exc:
                 msg = 'There was a problem querying target: {u}'.format(u=target)
                 raise Cons3rtClientError(msg) from exc
@@ -413,14 +441,11 @@ class Client:
                 suppress_status = True
             else:
                 log.info('Artifact file size: {s}'.format(s=file_size))
-    
-            # Determine the full download file path
-            file_name = response.url.split('/')[-1]
 
             # Attempt to download the content from the response
             log.info('Attempting to download content of size {s} from Nexus to file: {d}'.format(
                 s=file_size, d=download_file))
-    
+
             # Remove the existing file if it exists, or exit if the file exists, overwrite is set,
             # and there was not a previous failed attempted download
             if os.path.isfile(download_file) and overwrite:
