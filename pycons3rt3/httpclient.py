@@ -114,7 +114,7 @@ class Client:
         :param target: (str) URL
         :return: http response
         """
-        log = logging.getLogger(self.cls_logger + '.http_get')
+        log = logging.getLogger(self.cls_logger + '.http_get_download')
 
         self.validate_target(target)
 
@@ -128,10 +128,20 @@ class Client:
 
         try:
             response = requests.get(url, headers=headers, cert=rest_user.cert_file_path)
-        except RequestException as exc:
-            raise Cons3rtClientError(str(exc)) from exc
         except SSLError as exc:
             msg = 'There was an SSL error making an HTTP GET to URL: {u}'.format(u=url)
+            raise Cons3rtClientError(msg) from exc
+        except requests.ConnectionError as exc:
+            msg = 'Connection error encountered making HTTP GET to URL: {u}'.format(u=url)
+            raise Cons3rtClientError(msg) from exc
+        except requests.Timeout as exc:
+            msg = 'There was a timeout making an HTTP GET to URL: {u}'.format(u=url)
+            raise Cons3rtClientError(msg) from exc
+        except RequestException as exc:
+            msg = 'There was a general RequestException making an HTTP GET to URL: {u}'.format(u=url)
+            raise Cons3rtClientError(msg) from exc
+        except Exception as exc:
+            msg = 'Generic error caught making an HTTP GET to URL: {u}'.format(u=url)
             raise Cons3rtClientError(msg) from exc
         return response
 
@@ -397,7 +407,7 @@ class Client:
             log.warning(msg)
             raise Cons3rtClientError(msg)
 
-    def http_download(self, rest_user, target, download_file, overwrite=True, suppress_status=False):
+    def http_download(self, rest_user, target, download_file, overwrite=True, suppress_status=True):
         """Runs an HTTP GET request to the CONS3RT ReST API
 
         :param rest_user: (RestUser) user info
@@ -408,7 +418,7 @@ class Client:
         :return: (str) path to the downloaded file
         """
         log = logging.getLogger(self.cls_logger + '.http_download')
-        log.info('Attempting to download file to: {d}'.format(d=download_file))
+        log.info('Attempting to download target [{t}] to: {d}'.format(t=target, d=download_file))
         
         # Set up for download attempts
         retry_sec = 5
@@ -424,12 +434,12 @@ class Client:
             # Break the loop if the download was successful
             if download_success:
                 break
-    
-            log.info('Attempting to query Nexus for the Artifact using URL: {u}'.format(u=target))
+
+            log.info('Attempt # {n} of {m} to query target URL: {u}'.format(n=try_num, m=max_retries, u=target))
             try:
                 response = self.http_get_download(rest_user=rest_user, target=target)
             except Cons3rtClientError as exc:
-                msg = 'There was a problem querying target: {u}'.format(u=target)
+                msg = 'There was a problem querying target with GET: {u}'.format(u=target)
                 raise Cons3rtClientError(msg) from exc
     
             # Attempt to get the content-length
@@ -440,25 +450,25 @@ class Client:
                 log.debug('Could not get Content-Length, suppressing download status...')
                 suppress_status = True
             else:
-                log.info('Artifact file size: {s}'.format(s=file_size))
+                log.info('Download file size: {s}'.format(s=file_size))
 
             # Attempt to download the content from the response
-            log.info('Attempting to download content of size {s} from Nexus to file: {d}'.format(
-                s=file_size, d=download_file))
+            log.info('Attempting to download content of size {s} to file: {d}'.format(s=file_size, d=download_file))
 
             # Remove the existing file if it exists, or exit if the file exists, overwrite is set,
             # and there was not a previous failed attempted download
             if os.path.isfile(download_file) and overwrite:
-                log.debug('File already exists, removing: {d}'.format(d=download_file))
+                log.info('File already exists, removing: {d}'.format(d=download_file))
                 os.remove(download_file)
             elif os.path.isfile(download_file) and not overwrite and not failed_attempt:
-                log.info('File already downloaded, and overwrite is set to False.  The Artifact will '
-                         'not be retrieved from Nexus: {f}.  To overwrite the existing downloaded file, '
+                log.info('File already downloaded, and overwrite is set to False.  The file will '
+                         'not be downloaded: {f}.  To overwrite the existing downloaded file, '
                          'set overwrite=True'.format(f=download_file))
                 return
     
             # Attempt to download content
-            log.debug('Attempt # {n} of {m} to download content'.format(n=try_num, m=max_retries))
+            log.info('Attempt # {n} of {m} to download content to: {d}'.format(
+                n=try_num, m=max_retries, d=download_file))
             chunk_size = 1024
             file_size_dl = 0
             try:
@@ -472,7 +482,7 @@ class Client:
                             if not suppress_status:
                                 print(status),
             except(requests.exceptions.ConnectionError, requests.exceptions.RequestException, OSError) as exc:
-                dl_err = 'There was an error reading content from the Nexus response. Downloaded ' \
+                dl_err = 'There was an error reading content from the response. Downloaded ' \
                          'size: {s}.\n{e}'.format(s=file_size_dl, t=retry_sec, e=str(exc))
                 failed_attempt = True
                 log.warning(dl_err)
@@ -488,7 +498,7 @@ class Client:
     
         # Raise an exception if the download did not complete successfully
         if not download_success:
-            msg = 'Unable to download file content from Nexus after {n} attempts'.format(n=max_retries)
+            msg = 'Unable to download file content after {n} attempts'.format(n=max_retries)
             if dl_err:
                 msg += '\n{m}'.format(m=dl_err)
             raise Cons3rtClientError(msg)

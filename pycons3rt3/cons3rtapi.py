@@ -2065,19 +2065,22 @@ class Cons3rtApi(object):
         if not isinstance(category_id, int):
             raise Cons3rtClientError('category_id arg must be in any')
 
-        log.info('Attempting to remove category ID {c} from asset ID {a}...'.format(c=str(category_id), a=str(asset_id)))
+        log.info('Attempting to remove category ID {c} from asset ID {a}...'.format(
+            c=str(category_id), a=str(asset_id)))
         try:
             self.cons3rt_client.remove_category_from_asset(asset_id=asset_id, category_id=category_id)
         except Cons3rtClientError as exc:
             msg = 'Problem removing category ID {c} from asset ID {a}'.format(c=str(category_id), a=str(asset_id))
             raise Cons3rtApiError(msg) from exc
 
-    def download_asset(self, asset_id, background=False, dest_dir=None):
+    def download_asset(self, asset_id, background=False, dest_dir=None, overwrite=True, suppress_status=True):
         """Requests download of the asset ID
 
         :param asset_id: (int) asset ID
         :param background: (bool) set True to download in the background and receive an email when ready
         :param dest_dir: (str) path to the destination directory
+        :param overwrite (bool) set True to overwrite the existing file
+        :param suppress_status: (bool) Set to True to suppress printing download status
         :return: (str) path to the downloaded asset zip
         :raises: Cons3rtClientError
         """
@@ -2087,9 +2090,15 @@ class Cons3rtApi(object):
         download_file = os.path.join(dest_dir, 'asset-{i}.zip'.format(i=str(asset_id)))
         log.info('Attempting to download asset ID: {a}'.format(a=str(asset_id)))
         try:
-            asset_zip = self.cons3rt_client.download_asset(asset_id=asset_id, background=background,
-                                                           download_file=download_file)
+            asset_zip = self.cons3rt_client.download_asset(
+                asset_id=asset_id,
+                background=background,
+                download_file=download_file,
+                overwrite=overwrite,
+                suppress_status=suppress_status
+            )
         except Cons3rtClientError as exc:
             msg = 'Problem downloading asset ID: {a}'.format(a=str(asset_id))
             raise Cons3rtClientError(msg) from exc
+        log.info('Completed download of asset ID {a} to: {d}'.format(a=str(asset_id), d=download_file))
         return asset_zip
