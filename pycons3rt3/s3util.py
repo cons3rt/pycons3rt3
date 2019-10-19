@@ -143,7 +143,7 @@ class S3Util(object):
                     msg = 'Unable to download key {k} from S3 bucket {b}'.format(k=key, b=self.bucket_name)
                     raise S3UtilError(msg) from exc
                 else:
-                    log.warning('Download failed, re-trying...')
+                    log.warning('Download failed, re-trying...\n{e}'.format(e=str(exc)))
                     count += 1
                     time.sleep(5)
                     continue
