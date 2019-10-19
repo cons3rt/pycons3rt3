@@ -181,7 +181,7 @@ class EC2Util(object):
         :param private_ip: String IP address of the private IP address to
                 assign
         :return: None
-        :raises: OSError, AWSAPIError, EC2UtilError
+        :raises: EC2UtilError
         """
         log = logging.getLogger(self.cls_logger + '.associate_elastic_ip')
 
@@ -201,8 +201,7 @@ class EC2Util(object):
         if eni_id is None:
             msg = 'Unable to find the corresponding ENI ID for interface: {i}'. \
                 format(i=interface)
-            log.error(msg)
-            raise OSError(msg)
+            raise EC2UtilError(msg)
         else:
             log.info('Found ENI ID: {e}'.format(e=eni_id))
 
@@ -218,22 +217,53 @@ class EC2Util(object):
         except ClientError as exc:
             msg = 'Unable to attach elastic IP address {a} to interface {i}'.format(
                     a=allocation_id, i=interface)
-            log.error(msg)
-            raise AWSAPIError(msg) from exc
+            raise EC2UtilError(msg) from exc
 
         code = response['ResponseMetadata']['HTTPStatusCode']
         if code != 200:
             msg = 'associate_address returned invalid code: {c}'.format(c=code)
             log.error(msg)
-            raise AWSAPIError(msg)
+            raise EC2UtilError(msg)
         log.info('Successfully associated elastic IP address ID {a} to interface {i} on ENI ID {e}'.format(
                 a=allocation_id, i=interface, e=eni_id))
+
+    def associate_elastic_ip_to_instance_id(self, allocation_id, instance_id):
+        """Given an elastic IP address and an instance ID, associates the
+        elastic IP to the instance
+
+        :param allocation_id: String ID for the elastic IP
+        :param instance_id: Integer associated to the interface/device number
+        :return: None
+        :raises: EC2UtilError
+        """
+        log = logging.getLogger(self.cls_logger + '.associate_elastic_ip_to_instance_id')
+
+        log.info('Associating Elastic IP {e} to instance: {i}'.format(e=allocation_id, i=instance_id))
+
+        # Assign the secondary IP address
+        log.info('Attempting to assign the secondary IP address...')
+        try:
+            response = self.client.associate_address(
+                AllowReassociation=True,
+                AllocationId=allocation_id,
+                InstanceId=instance_id
+            )
+        except ClientError as exc:
+            msg = 'Unable to attach elastic IP address {a} to instance ID: {i}'.format(a=allocation_id, i=instance_id)
+            raise AWSAPIError(msg) from exc
+
+        code = response['ResponseMetadata']['HTTPStatusCode']
+        if code != 200:
+            msg = 'associate_address returned invalid code: {c}'.format(c=code)
+            raise EC2UtilError(msg)
+        log.info('Successfully associated elastic IP address ID {a} to instance ID {i}'.format(
+            a=allocation_id, i=instance_id))
 
     def allocate_elastic_ip(self):
         """Allocates an elastic IP address
 
         :return: Dict with allocation ID and Public IP that were created
-        :raises: AWSAPIError, EC2UtilError
+        :raises: EC2UtilError
         """
         log = logging.getLogger(self.cls_logger + '.allocate_elastic_ip')
 
@@ -246,8 +276,7 @@ class EC2Util(object):
             )
         except ClientError as exc:
             msg = 'Unable to allocate a new elastic IP address'
-            log.error(msg)
-            raise AWSAPIError(msg) from exc
+            raise EC2UtilError(msg) from exc
 
         allocation_id = response['AllocationId']
         public_ip = response['PublicIp']
@@ -281,7 +310,6 @@ class EC2Util(object):
         else:
             msg = 'Unable to verify existence of new Elastic IP {p} with Allocation ID: {a}'. \
                 format(p=public_ip, a=allocation_id)
-            log.error(msg)
             raise EC2UtilError(msg)
 
     def attach_new_eni(self, subnet_name, security_group_ids, device_index=2, allocation_id=None, description=''):
@@ -558,18 +586,14 @@ class EC2Util(object):
         # Validate args
         if not isinstance(name, str):
             msg = 'name argument is not a string'
-            log.error(msg)
             raise EC2UtilError(msg)
         if not isinstance(description, str):
             msg = 'description argument is not a string'
-            log.error(msg)
             raise EC2UtilError(msg)
-        if vpc_id is None and self.vpc_id is not None:
+        if not vpc_id:
             vpc_id = self.vpc_id
-        else:
-            msg = 'Unable to determine VPC ID to use to create the Security Group'
-            log.error(msg)
-            raise EC2UtilError(msg)
+        if not vpc_id:
+            raise EC2UtilError('Unable to determine VPC ID to use to create the Security Group')
 
         # See if a Security Group already exists with the same name
         log.info('Checking for an existing security group with name {n} in VPC: {v}'.format(n=name, v=vpc_id))
@@ -656,41 +680,35 @@ class EC2Util(object):
             raise AWSAPIError(msg) from exc
         return security_groups
 
-    def configure_security_group_ingress(self, security_group_id, port, desired_cidr_blocks):
+    def configure_security_group_ingress(self, security_group_id, port, desired_cidr_blocks, protocol='tcp'):
         """Configures the security group ID allowing access
         only to the specified CIDR blocks, for the specified
         port number.
 
         :param security_group_id: (str) Security Group ID
-        :param port: (str) TCP Port number
+        :param port: (str) Port number
         :param desired_cidr_blocks: (list) List of desired CIDR
                blocks, e.g. 192.168.1.2/32
+        :param protocol: (str) protocol tcp | udp | icmp | all
         :return: None
         :raises: AWSAPIError, EC2UtilError
         """
         log = logging.getLogger(self.cls_logger + '.configure_security_group_ingress')
         # Validate args
         if not isinstance(security_group_id, str):
-            msg = 'security_group_id argument is not a string'
-            log.error(msg)
-            raise EC2UtilError(msg)
-        if not isinstance(port, str):
-            msg = 'port argument is not a string'
-            log.error(msg)
-            raise EC2UtilError(msg)
+            raise EC2UtilError('security_group_id argument is not a string')
         if not isinstance(desired_cidr_blocks, list):
-            msg = 'desired_cidr_blocks argument is not a list'
-            log.error(msg)
-            raise EC2UtilError(msg)
-        log.info('Configuring Security Group <{g}> on port {p} to allow: {r}'.format(
-            g=security_group_id, p=port, r=desired_cidr_blocks
+            raise EC2UtilError('desired_cidr_blocks argument is not a list')
+        if not isinstance(protocol, str):
+            raise EC2UtilError('protocol argument is not a str')
+        log.info('Configuring Security Group ID {g} to allow protocol {o} on port {p}: {r}'.format(
+            g=security_group_id, p=port, o=protocol, r=desired_cidr_blocks
         ))
         log.debug('Querying AWS for info on Security Group ID: {g}...'.format(g=security_group_id))
         try:
             security_group_info = self.client.describe_security_groups(DryRun=False, GroupIds=[security_group_id])
         except ClientError as exc:
             msg = 'Unable to query AWS for Security Group ID: {g}'.format(g=security_group_id)
-            log.error(msg)
             raise AWSAPIError(msg) from exc
         else:
             log.debug('Found Security Group: {g}'.format(g=security_group_info))
@@ -699,7 +717,6 @@ class EC2Util(object):
         except KeyError as exc:
             msg = 'Unable to get list of ingress rules for Security Group ID: {g}'.format(
                     g=security_group_id)
-            log.error(msg)
             raise AWSAPIError(msg) from exc
         else:
             log.debug('Found ingress rules: {r}'.format(r=ingress_rules))
@@ -721,20 +738,29 @@ class EC2Util(object):
             except ClientError as exc:
                 msg = 'Unable to remove existing Security Group rules for port {p} from Security Group: ' \
                       '{g}'.format(p=port, g=security_group_id)
-                log.error(msg)
                 raise AWSAPIError(msg) from exc
 
         # Build ingress rule based on the provided CIDR block list
-        desired_ip_permissions = [
-            {
-                'IpProtocol': 'tcp',
-                'FromPort': int(port),
-                'ToPort': int(port),
-                'UserIdGroupPairs': [],
-                'IpRanges': [],
-                'PrefixListIds': []
-            }
-        ]
+        if protocol == 'all':
+            desired_ip_permissions = [
+                {
+                    'IpProtocol': -1,
+                    'UserIdGroupPairs': [],
+                    'IpRanges': [],
+                    'PrefixListIds': []
+                }
+            ]
+        else:
+            desired_ip_permissions = [
+                {
+                    'IpProtocol': protocol,
+                    'FromPort': int(port),
+                    'ToPort': int(port),
+                    'UserIdGroupPairs': [],
+                    'IpRanges': [],
+                    'PrefixListIds': []
+                }
+            ]
 
         # Add IP rules
         for desired_cidr_block in desired_cidr_blocks:
@@ -755,7 +781,6 @@ class EC2Util(object):
         except ClientError as exc:
             msg = 'Unable to authorize Security Group ingress rule for Security Group {g}: {r}'.format(
                     g=security_group_id, r=desired_ip_permissions)
-            log.error(msg)
             raise AWSAPIError(msg) from exc
         else:
             log.info('Successfully added ingress rule for Security Group {g} on port: {p}'.format(
@@ -842,7 +867,7 @@ class EC2Util(object):
                 BlockDeviceMappings=block_device_mappings
             )
         except ClientError as exc:
-            msg = 'There was a problem launching the EC2 instance'
+            msg = 'There was a problem launching the EC2 instance\n{e}'.format(e=str(exc))
             raise EC2UtilError(msg) from exc
         instance_id = response['Instances'][0]['InstanceId']
         output = {
@@ -895,6 +920,141 @@ class EC2Util(object):
             msg = 'There was a problem describing VPCs'
             raise EC2UtilError(msg) from exc
         return response
+
+    def get_vpc_id_by_name(self, vpc_name):
+        """Return the VPC ID matching the provided name or None if not found
+
+        :param vpc_name: (str) name of the VPC
+        :return: (id) of the VPC or None if not found
+        """
+        log = logging.getLogger(self.cls_logger + '.get_vpc_id_by_name')
+        log.info('Getting a list of VPCS...')
+        try:
+            vpcs = self.get_vpcs()
+        except EC2UtilError as exc:
+            raise EC2UtilError('Problem listing VPCs') from exc
+
+        # Ensure VPCs were found
+        if 'Vpcs' not in vpcs.keys():
+            log.info('No VPCs found')
+            return
+
+        # Check eac VPC for matching name
+        log.info('Found [{n}] VPCs'.format(n=str(len(vpcs['Vpcs']))))
+        for vpc in vpcs['Vpcs']:
+            if 'VpcId' not in vpc.keys():
+                continue
+            if 'Tags' not in vpc.keys():
+                continue
+            for tag in vpc['Tags']:
+                if tag['Key'] == 'Name' and tag['Value'] == vpc_name:
+                    log.info('Found VPC with name [{n}] has ID: {i}'.format(n=vpc_name, i=vpc['VpcId']))
+                    return vpc['VpcId']
+        log.info('VPC with name {n} not found'.format(n=vpc_name))
+
+    def create_vpc(self, vpc_name, cidr_block, amazon_ipv6_cidr=False, instance_tenancy='default', dry_run=False):
+        """Creates a VPC with the provided name
+
+        :param vpc_name: (str) desired VPC name
+        :param cidr_block: (str) desired CIDR block for the VPC
+        :param instance_tenancy: (str) default or dedicated
+        :param amazon_ipv6_cidr: (bool) Set true to request an Amazon IPv6 CIDR block
+        :param dry_run: (bool) Set true to dry run the call
+        :return: (str) VPC ID
+        """
+        log = logging.getLogger(self.cls_logger + '.create_vpc')
+
+        # Check for an existing VPC with the desired name
+        try:
+            vpc_id = self.get_vpc_id_by_name(vpc_name=vpc_name)
+        except EC2UtilError as exc:
+            raise EC2UtilError('Problem checking for existing VPCs') from exc
+        if vpc_id:
+            log.info('Found existing VPC named {n} with ID: {i}'.format(n=vpc_name, i=vpc_id))
+            return vpc_id
+
+        # Create the VPC
+        try:
+            response = self.client.create_vpc(
+                CidrBlock=cidr_block,
+                AmazonProvidedIpv6CidrBlock=amazon_ipv6_cidr,
+                InstanceTenancy=instance_tenancy,
+                DryRun=dry_run
+            )
+        except ClientError as exc:
+            msg = 'There was a problem describing VPCs'
+            raise EC2UtilError(msg) from exc
+
+        # Get the new VPC ID
+        if 'Vpc' not in response.keys():
+            raise EC2UtilError('VPC not created with name: {n}'.format(n=vpc_name))
+
+        if 'VpcId' not in response['Vpc'].keys():
+            raise EC2UtilError('VpcId data not found in{ {d}'.format(d=str(response['Vpc'])))
+        vpc_id = response['Vpc']['VpcId']
+        log.info('Created new VPC with ID: {i}'.format(i=vpc_id))
+
+        # Apply the name tag
+        try:
+            self.client.create_tags(
+                DryRun=False,
+                Resources=[
+                    vpc_id
+                ],
+                Tags=[
+                    {
+                        'Key': 'Name',
+                        'Value': vpc_name
+                    }
+                ]
+            )
+        except ClientError as exc:
+            raise EC2UtilError('Problem adding tags to set the name of VPC ID: {i}'.format(i=vpc_id)) from exc
+        log.info('Successfully created VPC name {n} with ID: {n}'.format(n=vpc_name, i=vpc_id))
+        return vpc_id
+
+    def create_usable_vpc(self, vpc_name, cidr_block):
+        """Creates a VPC with a subnet that routes to an Internet Gateway, and default Network ACL and routes
+
+        :param vpc_name: (str) name of the VPC
+        :param cidr_block: (str) desired CIDR block
+        :return: (str) ID of the VPC that was created or configured
+        """
+        log = logging.getLogger(self.cls_logger + '.create_usable_vpc')
+
+        # Create a VPC
+        try:
+            vpc_id = self.create_vpc(vpc_name=vpc_name, cidr_block=cidr_block)
+        except EC2UtilError as exc:
+            raise EC2UtilError('Problem creating a VPC') from exc
+        log.info('Created VPC ID: {i]'.format(i=vpc_id))
+
+        # Create an Internet Gateway
+        try:
+            internet_gateway = self.client.create_internet_gateway(DryRun=False)
+        except ClientError as exc:
+            raise EC2UtilError('Problem creating Internet Gateway') from exc
+
+        if 'InternetGateway' not in internet_gateway:
+            raise EC2UtilError('Internet gateway was not created')
+
+        if 'InternetGatewayId' not in internet_gateway['InternetGateway']:
+            raise EC2UtilError('InternetGatewayId not found in data: {d}'.format(d=str(internet_gateway)))
+
+        ig_id = internet_gateway['InternetGateway']['InternetGatewayId']
+        log.info('Created Internet gateway: {i}'.format(i=ig_id))
+
+        try:
+            self.client.attach_internet_gateway(
+                DryRun=False,
+                InternetGatewayId=ig_id,
+                VpcId=vpc_id
+            )
+        except ClientError as exc:
+            raise EC2UtilError('Problem attaching Internet gateway {i} to VPC {v}'.format(i=ig_id, v=vpc_id)) from exc
+        log.info('Successfully attach Internet gateway {i} to VPC: {v}'.format(i=ig_id, v=vpc_id))
+
+
 
 
 def get_ec2_client(region_name=None, aws_access_key_id=None, aws_secret_access_key=None):
