@@ -495,7 +495,7 @@ def import_update(asset_dir, dest_dir, import_only=False):
     asset_yml = os.path.join(asset_dir, 'asset_data.yml')
     asset_data_list = []
     c = Cons3rtApi()
-    if os.path.isfile(asset_yml):
+    if os.path.isfile(asset_yml) and not import_only:
         with open(asset_yml, 'r') as f:
             asset_data_list = yaml.load(f, Loader=yaml.FullLoader)
         asset_id = None
@@ -587,7 +587,7 @@ def main():
     elif command == 'create':
         res = create(asset_dir=asset_dir, dest_dir=dest_dir)
     elif command == 'import':
-        res = import_update(asset_dir=asset_dir, dest_dir=dest_dir)
+        res = import_update(asset_dir=asset_dir, dest_dir=dest_dir, import_only=True)
     elif command == 'update':
         res = import_update(asset_dir=asset_dir, dest_dir=dest_dir)
     return res
