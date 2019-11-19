@@ -746,7 +746,7 @@ class Cons3rtClient:
         try:
             response = self.http_client.http_post_multipart(
                 rest_user=self.user,
-                target='software/import/',
+                target='import/',
                 content_file=asset_zip_file,
             )
         except Cons3rtClientError as exc:
