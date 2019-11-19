@@ -658,7 +658,7 @@ class Cons3rtClient:
         try:
             response = self.http_client.http_put_multipart(
                 rest_user=self.user,
-                target='software/' + str(asset_id) + '/updatecontent/',
+                target='assets/' + str(asset_id) + '/updatecontent/',
                 content_file=asset_zip_file
             )
         except Cons3rtClientError as exc:

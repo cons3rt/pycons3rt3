@@ -11,6 +11,7 @@ import logging
 import os
 import shutil
 import sys
+import traceback
 import yaml
 import zipfile
 
@@ -379,6 +380,7 @@ def validate(asset_dir):
     except Cons3rtAssetStructureError as exc:
         msg = 'Cons3rtAssetStructureError: Problem with asset validation\n{e}'.format(e=str(exc))
         print('ERROR: {m}'.format(m=msg))
+        traceback.print_exc()
         return 1
     print('Validated asset with name: {n}'.format(n=asset_name))
     return 0
@@ -399,6 +401,7 @@ def create(asset_dir, dest_dir):
     except AssetZipCreationError as exc:
         msg = 'AssetZipCreationError: Problem with asset zip creation\n{e}'.format(e=str(exc))
         print('ERROR: {m}'.format(m=msg))
+        traceback.print_exc()
         return 1
     print('Created asset zip file: {z}'.format(z=asset_zip))
     return 0
@@ -451,6 +454,7 @@ def import_asset(cons3rt_api, asset_zip_path):
     except Cons3rtApiError as exc:
         print('ERROR: Importing zip {z} into site: {u}\n{e}'.format(
             z=asset_zip_path, u=cons3rt_api.url_base, e=str(exc)))
+        traceback.print_exc()
         return asset_data
     asset_data = {
         'asset_id': asset_id,
@@ -473,6 +477,7 @@ def update_asset(cons3rt_api, asset_zip_path, asset_id):
     except Cons3rtApiError as exc:
         print('ERROR: Updating asset ID [{a}] zip {z} into site: {u}\n{e}'.format(
             a=str(asset_id), z=asset_zip_path, u=cons3rt_api.url_base, e=str(exc)))
+        traceback.print_exc()
         return False
     print('Updated asset ID: {a}'.format(a=str(asset_id)))
     return True
@@ -491,6 +496,7 @@ def import_update(asset_dir, dest_dir, import_only=False):
     except AssetZipCreationError as exc:
         msg = 'AssetZipCreationError: Problem with asset zip creation\n{e}'.format(e=str(exc))
         print('ERROR: {m}'.format(m=msg))
+        traceback.print_exc()
         return 1
     asset_yml = os.path.join(asset_dir, 'asset_data.yml')
     asset_data_list = []
