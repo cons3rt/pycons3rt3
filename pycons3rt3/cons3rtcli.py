@@ -1,5 +1,7 @@
 #!/usr/bin/env python
 
+import traceback
+
 from .cons3rtapi import Cons3rtApi
 from .exceptions import Cons3rtApiError
 
@@ -21,35 +23,11 @@ class Cons3rtCli(object):
 
     def validate_args(self):
         try:
-            self.validate_ids()
-            self.validate_id()
-        except Cons3rtCliError:
+            self.ids = validate_ids(self.args)
+        except Cons3rtCliError as exc:
+            traceback.print_exc()
             return False
         return True
-
-    def validate_id(self):
-        if self.args.id:
-            try:
-                self.ids.append(int(self.args.id))
-            except ValueError:
-                msg = 'Cloudspace ID provided is not an int: {i}'.format(i=str(self.args.id))
-                self.err(msg)
-                raise Cons3rtCliError(msg)
-
-    def validate_ids(self):
-        if self.args.ids:
-            if ',' not in self.args.ids:
-                msg = 'IDs provided should be comma-separated: --ids=1,2,3'
-                self.err(msg)
-                raise Cons3rtCliError(msg)
-            for an_id in self.args.ids.split(','):
-                try:
-                    an_id = int(an_id)
-                except ValueError:
-                    msg = 'An ID provided is not an int: {i}'.format(i=str(an_id))
-                    self.err(msg)
-                    raise Cons3rtCliError(msg)
-                self.ids.append(an_id)
 
     @staticmethod
     def dict_id_comparator(element):
@@ -323,3 +301,48 @@ class TeamCli(Cons3rtCli):
             teams = self.sort_by_id(teams)
             self.print_teams(teams_list=teams)
         print('Total number of clouds teams: {n}'.format(n=str(len(teams))))
+
+
+def validate_id(args):
+    """Provided a set of args, validates and returns an int ID
+
+    :param args: argparser args
+    :return: (int) ID
+    :raises: Cons3rtCliError
+    """
+    if not args.id:
+        return
+    try:
+        provided_id = int(args.id)
+    except ValueError:
+        msg = 'ID provided is not an int: {i}'.format(i=str(args.id))
+        raise Cons3rtCliError(msg)
+    return provided_id
+
+
+def validate_ids(args):
+    """Provided a set of args, validates and returns a list of IDs as ints
+
+    :param args: argparser args
+    :return: (list) of int IDs
+    :raises: Cons3rtCliError
+    """
+    lone_id = None
+    try:
+        lone_id = validate_id(args)
+    except Cons3rtCliError as exc:
+        raise Cons3rtCliError('Problem validating the --id arg') from exc
+    if not args.ids and lone_id:
+        return [lone_id]
+    elif not args.ids:
+        return
+    ids = []
+    if lone_id:
+        ids.append(lone_id)
+    for an_id in args.ids.split(','):
+        try:
+            an_id = int(an_id)
+        except ValueError:
+            raise Cons3rtCliError('An ID provided is not an int: {i}'.format(i=str(an_id)))
+        ids.append(an_id)
+    return ids

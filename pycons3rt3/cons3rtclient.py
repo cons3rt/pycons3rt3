@@ -831,18 +831,22 @@ class Cons3rtClient:
                 page_num += 1
         return users
 
-    def retrieve_expanded_software_assets(self, asset_type=None, community=False, category_ids=None,
-                                          max_results=40, page_num=0):
-        """Get a list of software assets with expanded info
+    def retrieve_software_assets(self, asset_type=None, community=False, category_ids=None, expanded=False,
+                                 max_results=40, page_num=0):
+        """Get a list of software assets
 
         :param asset_type: (str) the software asset type, defaults to null
         :param community: (bool) the boolean to include community assets
         :param category_ids: (list) the list of categories to filter by
+        :param expanded: (bool) whether to retrieve expanded info
         :param max_results: (int) the max number of results desired
         :param page_num: (int) the page number requested
         :return: List of software asset IDs
         """
-        target = 'software/expanded?'
+        if expanded:
+            target = 'software/expanded?'
+        else:
+            target = 'software?'
         if asset_type:
             target += 'type={t}&'.format(t=type)
         if community:
@@ -868,12 +872,13 @@ class Cons3rtClient:
         software_asset_ids = json.loads(result)
         return software_asset_ids
 
-    def retrieve_all_expanded_software_assets(self, asset_type=None, community=False, category_ids=None):
+    def retrieve_all_software_assets(self, asset_type=None, community=False, category_ids=None, expanded=False):
         """Get a list of software assets with expanded info
 
         :param asset_type: (str) the software asset type, defaults to null
         :param community: (bool) the boolean to include community assets
         :param category_ids: (list) the list of categories to filter by
+        :param expanded: (bool) whether to retrieve expanded info
         :return: List of software asset IDs
         """
         software_asset_ids = []
@@ -881,10 +886,11 @@ class Cons3rtClient:
         max_results_per_page = 40
         while True:
             try:
-                software_asset_ids_page = self.retrieve_expanded_software_assets(
+                software_asset_ids_page = self.retrieve_software_assets(
                     asset_type=asset_type,
                     community=community,
                     category_ids=category_ids,
+                    expanded=expanded,
                     max_results=max_results_per_page,
                     page_num=page_num
                 )
@@ -897,6 +903,79 @@ class Cons3rtClient:
             else:
                 page_num += 1
         return software_asset_ids
+
+    def retrieve_container_assets(self, asset_type=None, community=False, category_ids=None, expanded=False,
+                                  max_results=40, page_num=0):
+        """Get a list of container assets
+
+        :param asset_type: (str) the container asset type, defaults to null
+        :param community: (bool) the boolean to include community assets
+        :param category_ids: (list) the list of categories to filter by
+        :param expanded: (bool) whether to retrieve expanded info
+        :param max_results: (int) the max number of results desired
+        :param page_num: (int) the page number requested
+        :return: List of container asset IDs
+        """
+        if expanded:
+            target = 'containers/expanded?'
+        else:
+            target = 'containers?'
+        if asset_type:
+            target += 'type={t}&'.format(t=type)
+        if community:
+            target += 'community=true'
+        else:
+            target += 'community=false'
+        if category_ids:
+            for category_id in category_ids:
+                target += '&categoryids={c}'.format(c=str(category_id))
+        target += '&maxresults={m}&page={p}'.format(m=str(max_results), p=str(page_num))
+        try:
+            response = self.http_client.http_get(
+                rest_user=self.user,
+                target=target
+            )
+        except Cons3rtClientError as exc:
+            raise Cons3rtClientError('Problem querying for container assets') from exc
+        try:
+            result = self.http_client.parse_response(response=response)
+        except Cons3rtClientError as exc:
+            msg = 'The HTTP response contains a bad status code'
+            raise Cons3rtClientError(msg) from exc
+        container_asset_ids = json.loads(result)
+        return container_asset_ids
+
+    def retrieve_all_container_assets(self, asset_type=None, community=False, category_ids=None, expanded=False):
+        """Get a list of container assets with expanded info
+
+        :param asset_type: (str) the container asset type, defaults to null
+        :param community: (bool) the boolean to include community assets
+        :param category_ids: (list) the list of categories to filter by
+        :param expanded: (bool) whether to retrieve expanded info
+        :return: List of container asset IDs
+        """
+        container_asset_ids = []
+        page_num = 0
+        max_results_per_page = 40
+        while True:
+            try:
+                container_asset_ids_page = self.retrieve_container_assets(
+                    asset_type=asset_type,
+                    community=community,
+                    category_ids=category_ids,
+                    expanded=expanded,
+                    max_results=max_results_per_page,
+                    page_num=page_num
+                )
+            except Cons3rtClientError as exc:
+                msg = 'Problem querying container assets on page: {n}'.format(n=str(page_num))
+                raise Cons3rtClientError(msg) from exc
+            container_asset_ids += container_asset_ids_page
+            if len(container_asset_ids_page) < max_results_per_page:
+                break
+            else:
+                page_num += 1
+        return container_asset_ids
 
     def retrieve_asset_categories(self):
         """Retrieves a list of the asset categories in the site

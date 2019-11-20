@@ -8,9 +8,10 @@ import time
 from .logify import Logify
 
 from .cons3rtclient import Cons3rtClient
+from .deployment import Deployment
 from .pycons3rtlibs import RestUser
 from .cons3rtconfig import cons3rtapi_config_file
-from .exceptions import Cons3rtClientError, Cons3rtApiError
+from .exceptions import Cons3rtClientError, Cons3rtApiError, DeploymentError
 
 
 # Set up logger name for this module
@@ -91,7 +92,6 @@ class Cons3rtApi(object):
         :raises: Cons3rtApiError
         """
         log = logging.getLogger(self.cls_logger + '.load_config')
-        log.info('Loading configuration...')
 
         # Ensure the file_path file exists
         if not os.path.isfile(self.config_file):
@@ -153,7 +153,7 @@ class Cons3rtApi(object):
                 continue
 
             # Create a ReST User for the project/token pair
-            log.debug('Found rest token for project {p}: {t}'.format(p=project, t=token))
+            log.debug('Found rest token for project {p}'.format(p=project))
 
             # Create a cert-based auth or username-based auth user depending on the config
             if cert_file_path:
@@ -171,7 +171,7 @@ class Cons3rtApi(object):
         self.user = self.user_list[0]
         if self.project is not None:
             self.set_project_token(project_name=self.project)
-        log.info('Set project to [{p}] and ReST API token: {t}'.format(p=self.user.project_name, t=self.user.token))
+        log.info('Using ReST API token for project: {p}'.format(p=self.user.project_name))
 
     def set_project_token(self, project_name):
         """Sets the project name and token to the specified project name.  This project name
@@ -1994,7 +1994,28 @@ class Cons3rtApi(object):
             raise Cons3rtApiError(msg) from exc
         return result
 
-    def retrieve_all_expanded_software_assets(self, asset_type=None, community=False, category_ids=None):
+    def retrieve_software_assets(self, asset_type=None, community=False, category_ids=None):
+        """Get a list of software assets
+
+        :param asset_type: (str) the software asset type, defaults to null
+        :param community: (bool) the boolean to include community assets
+        :param category_ids: (list) the list of categories to filter by
+        :return: List of software asset IDs
+        :raises: Cons3rtApiError
+        """
+        log = logging.getLogger(self.cls_logger + '.retrieve_software_assets')
+        log.info('Attempting to query CONS3RT to retrieve software assets...')
+        try:
+            software_asset_ids = self.cons3rt_client.retrieve_all_software_assets(
+                asset_type=asset_type, community=community, category_ids=category_ids, expanded=False
+            )
+        except Cons3rtClientError as exc:
+            msg = 'There was a problem querying for software assets'
+            raise Cons3rtApiError(msg) from exc
+        log.info('Retrieved {n} software assets'.format(n=str(len(software_asset_ids))))
+        return software_asset_ids
+
+    def retrieve_expanded_software_assets(self, asset_type=None, community=False, category_ids=None):
         """Get a list of software assets with expanded info
 
         :param asset_type: (str) the software asset type, defaults to null
@@ -2003,17 +2024,65 @@ class Cons3rtApi(object):
         :return: List of software asset IDs
         :raises: Cons3rtApiError
         """
-        log = logging.getLogger(self.cls_logger + '.retrieve_all_expanded_software_assets')
-        log.info('Attempting to query CONS3RT to retrieve expanded data on all software asset IDs...')
+        log = logging.getLogger(self.cls_logger + '.retrieve_expanded_software_assets')
+        log.info('Attempting to query CONS3RT to retrieve expanded data on software assets...')
         try:
-            software_asset_ids = self.cons3rt_client.retrieve_all_expanded_software_assets(
-                asset_type=asset_type, community=community, category_ids=category_ids
+            software_asset_ids = self.cons3rt_client.retrieve_all_software_assets(
+                asset_type=asset_type, community=community, category_ids=category_ids, expanded=True
             )
         except Cons3rtClientError as exc:
-            msg = 'There was a problem querying for all users'
+            msg = 'There was a problem querying for expanded software assets'
             raise Cons3rtApiError(msg) from exc
         log.info('Retrieved {n} software assets'.format(n=str(len(software_asset_ids))))
         return software_asset_ids
+
+    def retrieve_all_expanded_software_assets(self, asset_type=None, community=False, category_ids=None):
+        """Leaving this for backwards compatibility
+        """
+        return self.retrieve_expanded_software_assets(asset_type=asset_type, community=community,
+                                                      category_ids=category_ids)
+
+    def retrieve_container_assets(self, asset_type=None, community=False, category_ids=None):
+        """Get a list of container assets
+
+        :param asset_type: (str) the container asset type, defaults to null
+        :param community: (bool) the boolean to include community assets
+        :param category_ids: (list) the list of categories to filter by
+        :return: List of container asset IDs
+        :raises: Cons3rtApiError
+        """
+        log = logging.getLogger(self.cls_logger + '.retrieve_container_assets')
+        log.info('Attempting to query CONS3RT to retrieve container assets...')
+        try:
+            container_asset_ids = self.cons3rt_client.retrieve_all_container_assets(
+                asset_type=asset_type, community=community, category_ids=category_ids, expanded=False
+            )
+        except Cons3rtClientError as exc:
+            msg = 'There was a problem querying for container assets'
+            raise Cons3rtApiError(msg) from exc
+        log.info('Retrieved {n} container assets'.format(n=str(len(container_asset_ids))))
+        return container_asset_ids
+
+    def retrieve_expanded_container_assets(self, asset_type=None, community=False, category_ids=None):
+        """Get a list of container assets with expanded info
+
+        :param asset_type: (str) the container asset type, defaults to null
+        :param community: (bool) the boolean to include community assets
+        :param category_ids: (list) the list of categories to filter by
+        :return: List of container asset IDs
+        :raises: Cons3rtApiError
+        """
+        log = logging.getLogger(self.cls_logger + '.retrieve_expanded_container_assets')
+        log.info('Attempting to query CONS3RT to retrieve expanded data on container assets...')
+        try:
+            container_asset_ids = self.cons3rt_client.retrieve_all_container_assets(
+                asset_type=asset_type, community=community, category_ids=category_ids, expanded=True
+            )
+        except Cons3rtClientError as exc:
+            msg = 'There was a problem querying for expanded container assets'
+            raise Cons3rtApiError(msg) from exc
+        log.info('Retrieved {n} container assets'.format(n=str(len(container_asset_ids))))
+        return container_asset_ids
 
     def retrieve_asset_categories(self):
         """Retrieves a list of the asset categories in the site
@@ -2102,3 +2171,26 @@ class Cons3rtApi(object):
             raise Cons3rtClientError(msg) from exc
         log.info('Completed download of asset ID {a} to: {d}'.format(a=str(asset_id), d=download_file))
         return asset_zip
+
+    def get_my_run_id(self):
+        """From deployment properties on this host, gets the run ID
+
+        :return: None
+        :raises: Cons3rtClientError
+        """
+        log = logging.getLogger(self.cls_logger + '.release_myself')
+        log.info('Attempting to release this run...')
+        try:
+            dep = Deployment()
+        except DeploymentError as exc:
+            pass
+
+    def release_myself(self):
+        """From deployment properties on this host, gets the run ID and attempts to self-release
+
+        :return: None
+        :raises: Cons3rtClientError
+        """
+        log = logging.getLogger(self.cls_logger + '.release_myself')
+        log.info('Attempting to release this run...')
+        dep = Deployment()

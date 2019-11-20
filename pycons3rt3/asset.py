@@ -18,7 +18,8 @@ import zipfile
 from .logify import Logify
 from .bash import mkdir_p
 from .cons3rtapi import Cons3rtApi
-from .exceptions import AssetZipCreationError, Cons3rtApiError, Cons3rtAssetStructureError
+from .cons3rtcli import validate_ids
+from .exceptions import AssetZipCreationError, Cons3rtApiError, Cons3rtAssetStructureError, Cons3rtCliError
 
 __author__ = 'Joe Yennaco'
 
@@ -524,14 +525,136 @@ def import_update(asset_dir, dest_dir, import_only=False):
     os.remove(asset_zip)
 
 
+def query_assets(args):
+    """Queries assets and prints IDs of assets matching the query
+
+    :param args: command line args
+    :return: (int) 0 if successful, non-zero otherwise
+    """
+    Logify.set_log_level(log_level='WARNING')
+    if not args.asset_type:
+        print('ERROR: Required arg not found: --asset_type')
+        return 1
+    asset_type = args.asset_type
+    valid_asset_types = ['software', 'containers']
+
+    if asset_type not in valid_asset_types:
+        print('Invalid --asset_type found, valid asset types: {t}'.format(t=','.join(valid_asset_types)))
+        return 2
+
+    assets = []
+    expanded = False
+    community = False
+    asset_subtype = None
+    asset_name = None
+    latest = False
+
+    if args.expanded:
+        expanded = True
+    if args.community:
+        community = True
+    if args.asset_subtype:
+        asset_subtype = args.asset_subtype
+    if args.name:
+        asset_name = args.name
+    if args.latest:
+        latest = True
+    category_ids = None
+    if args.category_ids:
+        args.ids = args.category_ids
+        try:
+            category_ids = validate_ids(args)
+        except Cons3rtCliError as exc:
+            print('ERROR: Invalid --id or --ids arg found\n{e}'.format(e=str(exc)))
+            traceback.print_exc()
+            return 3
+
+    c = Cons3rtApi()
+    if asset_type == 'software' and expanded:
+        try:
+            assets = c.retrieve_expanded_software_assets(
+                asset_type=asset_subtype,
+                community=community,
+                category_ids=category_ids
+            )
+        except Cons3rtApiError as exc:
+            print('ERROR: Problem retrieving assets\n{e}'.format(e=str(exc)))
+            traceback.print_exc()
+            return 4
+    elif asset_type == 'software' and not expanded:
+        try:
+            assets = c.retrieve_software_assets(
+                asset_type=asset_subtype,
+                community=community,
+                category_ids=category_ids
+            )
+        except Cons3rtApiError as exc:
+            print('ERROR: Problem retrieving assets\n{e}'.format(e=str(exc)))
+            traceback.print_exc()
+            return 4
+    elif asset_type == 'containers' and expanded:
+        try:
+            assets = c.retrieve_expanded_container_assets(
+                asset_type=asset_subtype,
+                community=community,
+                category_ids=category_ids
+            )
+        except Cons3rtApiError as exc:
+            print('ERROR: Problem retrieving assets\n{e}'.format(e=str(exc)))
+            traceback.print_exc()
+            return 4
+    elif asset_type == 'containers' and not expanded:
+        try:
+            assets = c.retrieve_container_assets(
+                asset_type=asset_subtype,
+                community=community,
+                category_ids=category_ids
+            )
+        except Cons3rtApiError as exc:
+            print('ERROR: Problem retrieving assets\n{e}'.format(e=str(exc)))
+            traceback.print_exc()
+            return 4
+
+    if len(assets) < 1:
+        print('No assets found matching the query!')
+        return 0
+
+    if asset_name:
+        filtered_assets = []
+        for asset in assets:
+            if asset_name in asset['name']:
+                filtered_assets.append(asset)
+    else:
+        filtered_assets = assets
+
+    if latest:
+        highest_asset_id = 0
+        for asset in filtered_assets:
+            asset_id = int(asset['id'])
+            if asset_id > highest_asset_id:
+                highest_asset_id = asset_id
+        print(str(highest_asset_id))
+    else:
+        for asset in filtered_assets:
+            print(str(asset['id']))
+    return 0
+
+
 def main():
     parser = argparse.ArgumentParser(description='cons3rt asset CLI')
     parser.add_argument('command', help='Command for the Asset CLI')
     parser.add_argument('--asset_dir', help='Path to the asset to import')
     parser.add_argument('--dest_dir', help='Destination directory for the asset zip (default is Downloads)')
+    parser.add_argument('--asset_type', help='Set to: containers, software')
+    parser.add_argument('--asset_subtype', help='Asset subtype to query on')
+    parser.add_argument('--expanded', help='Include to retrieve expanded info on assets', action='store_true')
+    parser.add_argument('--community', help='Include to retrieve community assets', action='store_true')
+    parser.add_argument('--category_ids', help='List of category IDs to filter on')
+    parser.add_argument('--name', help='Asset name to filter on')
+    parser.add_argument('--latest', help='Include to only return the latest with the highest ID', action='store_true')
     args = parser.parse_args()
 
-    valid_commands = ['create', 'validate', 'import', 'update']
+    valid_commands = ['create', 'import', 'query', 'update', 'validate']
     valid_commands_str = ','.join(valid_commands)
 
     # Get the command
@@ -588,14 +711,17 @@ def main():
 
     # Process the command
     res = 0
-    if command == 'validate':
-        res = validate(asset_dir=asset_dir)
-    elif command == 'create':
+
+    if command == 'create':
         res = create(asset_dir=asset_dir, dest_dir=dest_dir)
     elif command == 'import':
         res = import_update(asset_dir=asset_dir, dest_dir=dest_dir, import_only=True)
+    elif command == 'query':
+        res = query_assets(args)
     elif command == 'update':
         res = import_update(asset_dir=asset_dir, dest_dir=dest_dir)
+    elif command == 'validate':
+        res = validate(asset_dir=asset_dir)
     return res
 
 
