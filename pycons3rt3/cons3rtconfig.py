@@ -8,10 +8,10 @@ import json
 import logging
 import shutil
 
-from .logify import Logify
 from .bash import mkdir_p
 from .exceptions import Cons3rtConfigError
-
+from .logify import Logify
+from .osutil import get_pycons3rt_conf_dir
 
 # Set up logger name for this module
 mod_logger = Logify.get_name() + '.cons3rtconfig'
@@ -39,7 +39,7 @@ cert_auth_sites = [
 site_url_list_str = ', '.join(site_urls.keys())
 
 # cons3rtapi config directory
-cons3rtapi_config_dir = os.path.join(os.path.expanduser('~'), '.cons3rt')
+cons3rtapi_config_dir = get_pycons3rt_conf_dir()
 
 # cons3rtapi config file
 cons3rtapi_config_file = os.path.join(cons3rtapi_config_dir, 'config.json')

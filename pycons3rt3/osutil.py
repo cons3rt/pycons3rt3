@@ -75,12 +75,20 @@ def get_pycons3rt_home_dir():
     :return: (str) Full path to pycons3rt home
     :raises: OSError
     """
-    if platform.system() == 'Linux':
-        return os.path.join(os.path.sep, 'etc', 'pycons3rt')
-    elif platform.system() == 'Windows':
-        return os.path.join('C:', os.path.sep, 'pycons3rt')
+    user_login = True
+    user_home_dir = os.path.expanduser('~')
+    if user_home_dir == '~' or not os.path.isdir(user_home_dir):
+        user_login = False
+    if platform.system() == 'Linux' and user_login:
+        return os.path.join(user_home_dir, '.cons3rt')
+    elif platform.system() == 'Linux' and not user_login:
+        return os.path.join(os.sep, 'root', '.cons3rt')
+    elif platform.system() == 'Windows' and user_login:
+        return os.path.join(user_home_dir, '.cons3rt')
+    elif platform.system() == 'Windows' and not user_login:
+        return os.path.join('C:', os.path.sep, 'cons3rt')
     elif platform.system() == 'Darwin':
-        return os.path.join(os.path.expanduser('~'), '.pycons3rt')
+        return os.path.join(user_home_dir, '.cons3rt')
     else:
         raise OSError('Unsupported Operating System')
 
@@ -90,7 +98,11 @@ def get_pycons3rt_user_dir():
 
     :return: (str) Full path to the user-writable pycons3rt home
     """
-    return os.path.join(os.path.expanduser('~'), '.pycons3rt')
+    user_home_dir = os.path.expanduser('~')
+    if user_home_dir == '~' or not os.path.isdir(user_home_dir):
+        return
+    else:
+        return os.path.join(user_home_dir, '.cons3rt')
 
 
 def get_pycons3rt_log_dir():
@@ -99,14 +111,7 @@ def get_pycons3rt_log_dir():
     :return: (str) Full path to pycons3rt log directory
     :raises: OSError
     """
-    if platform.system() == 'Linux':
-        return os.path.join(os.path.sep, 'var', 'log')
-    elif platform.system() == 'Windows':
-        return os.path.join('C:', os.path.sep, 'pycons3rt', 'log')
-    elif platform.system() == 'Darwin':
-        return os.path.join(os.path.expanduser('~'), '.pycons3rt', 'log')
-    else:
-        raise OSError('Unsupported Operating System')
+    return os.path.join(get_pycons3rt_home_dir(), 'log')
 
 
 def get_pycons3rt_conf_dir():
@@ -122,7 +127,7 @@ def get_pycons3rt_src_dir():
 
     :return: (str) Full path to pycons3rt src directory
     """
-    return os.path.join(get_pycons3rt_home_dir(), 'src', 'pycons3rt')
+    return os.path.join(get_pycons3rt_home_dir(), 'src')
 
 
 def initialize_pycons3rt_dirs():
@@ -132,7 +137,6 @@ def initialize_pycons3rt_dirs():
     :raises: OSError
     """
     for pycons3rt_dir in [get_pycons3rt_home_dir(),
-                          get_pycons3rt_user_dir(),
                           get_pycons3rt_conf_dir(),
                           get_pycons3rt_log_dir(),
                           get_pycons3rt_src_dir()]:
