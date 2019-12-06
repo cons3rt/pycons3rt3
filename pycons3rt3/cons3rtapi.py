@@ -1387,7 +1387,7 @@ class Cons3rtApi(object):
             minRam=2000,
             minBootDiskCapacity=100000,
             additionalDisks=None,
-            softwareComponents=None,
+            components=None,
             subtype='virtualHost',
             vgpuRequired=False,
             physicalMachineId=None,
@@ -1402,7 +1402,7 @@ class Cons3rtApi(object):
         :param minRam: (int) see CONS3RT API docs
         :param minBootDiskCapacity: (int) see CONS3RT API docs
         :param additionalDisks: (list) see CONS3RT API docs
-        :param softwareComponents: (list) see CONS3RT API docs
+        :param components: (list) see CONS3RT API docs
         :param subtype: (str) see CONS3RT API docs
         :param vgpuRequired: (bool) see CONS3RT API docs
         :param physicalMachineId (int) see CONS3RT API docs
@@ -1433,12 +1433,12 @@ class Cons3rtApi(object):
         else:
             content['name'] = name
             content['subtype'] = subtype
-            if softwareComponents:
-                if not isinstance(softwareComponents, list):
-                    raise Cons3rtApiError('softwareComponents must be a list, found: {t}'.format(
-                        t=softwareComponents.__class__.__name__))
-                log.debug('Adding softwareComponents...')
-                content['softwareComponents'] = softwareComponents
+            if components:
+                if not isinstance(components, list):
+                    raise Cons3rtApiError('components must be a list, found: {t}'.format(
+                        t=components.__class__.__name__))
+                log.debug('Adding components...')
+                content['components'] = components
 
             if subtype == 'physicalHost':
                 log.debug('Creating JSON content from params for a physical host...')
