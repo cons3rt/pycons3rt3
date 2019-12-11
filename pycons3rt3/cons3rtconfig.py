@@ -18,12 +18,16 @@ mod_logger = Logify.get_name() + '.cons3rtconfig'
 
 # List of site URLs
 site_urls = {
-    'hmc': 'https://hmc.hpc.mil/rest/api/',
-    'cons3rt.com': 'https://www.cons3rt.com/rest/api/',
-    'qa': 'https://www.qa.cons3rt.io/rest/api/',
-    'qa2': 'https://www.qa2.cons3rt.io/rest/api/',
-    'ci': 'https://www.ci.cons3rt.io/rest/api/',
-    'dev': 'https://www.cons3rt-dev.ma.jackpinetech.com/rest/api/'
+    'hmc': 'https://app.hmc.hpc.mil/rest/api/',
+    'cons3rt.com': 'https://api.cons3rt.com/rest/api/',
+    'qa': 'https://api.qa.cons3rt.io/rest/api/',
+    'qa2': 'https://api.qa2.cons3rt.io/rest/api/',
+    'ci': 'https://api.ci.cons3rt.io/rest/api/',
+    'ci2': 'https://api.ci2.cons3rt.io/rest/api/',
+    'dev': 'https://api.dev.cons3rt.io/rest/api/',
+    'dev2': 'https://api.dev2.cons3rt.io/rest/api/',
+    'int': 'https://api.int.cons3rt.io/rest/api/',
+    'open': 'https://api.open.cons3rt.io/rest/api/',
 }
 
 # The default site selection
