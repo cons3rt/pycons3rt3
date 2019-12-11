@@ -39,6 +39,8 @@ The `pycons3rt_system_home` directory is located on your system here:
 * MacOS: `~/.cons3rt`
 * Windows: `C:\cons3rt`
 
+The `pycons3rt_user_home` is always: `~/.cons3rt` on all OS types.
+
 The following directories are also created:
 
 * System pycons3rt config dir: `pycons3rt_system_home/conf/`
@@ -59,17 +61,114 @@ By default, pycons3rt log files will output here:
 * `pycons3rt_user_home/log/pycons3rt-warn.log`
 * `pycons3rt_user_home/log/pycons3rt-debug.log`
 
+## CONS3RT ReST API and CLI
+
+pycons3rt3 provides a python3 SDK for using the CONS3RT ReST API.  
+
+> There is an official verison coming soon with full support.  This
+version does not support all API calls, email support@cons3rt.com to 
+request a call added.
+
+To access the ReST API you will need:
+
+* An active account on HmC or cons3rt.com
+* Access to a project
+* A ReST API token ([click here for instructions](https://kb.cons3rt.com/kb/accounts/api-tokens))
+* For sites that require **Certificate Authentication** you will require an 
+[ECA certificate](https://kb.cons3rt.com/kb/accounts/obtain-an-eca-certificate) or a machine 
+certificate.  Contact [support@cons3rt.com](mailto:support@cons3rt.com) to request a machine 
+certificate.
+
+> pycons3rt3 does **not** support CAC authentication at this time
+
+If you have a certificate in p12 or pfx format, convert it to a passwordless pem file:
+
+`openssl pkcs12 -in certfile.pfx -out certfile.pem -nodes`
+
 ## Configuration
+
+To configure pycons3rt3 for the CONS3RT ReST API type:
+
+`cons3rt config`
+
+After entering your info, a config file is created here:
+
+`pycons3rt_user_home/conf/config.json`
+
+This configuration will automatically loaded for ReST API calls.
+
+# asset CLI
+
+The asset CLI command helps you automatically create and import assets:
+
+Validate your asset directory, and check for errors:
+
+`asset validate --asset_dir=/path/to/asset`
+
+Validate and create an asset zip file for import in your Downloads directory (default):
+
+`asset create --asset_dir=/path/to/asset`
+
+* Creates an asset zip file `AssetName.zip` in your Downloads directory
+
+Specify the destination directory:
+
+`asset create --asset_dir=/path/to/asset --dest_dir=/path/to/directory`
+
+* Creates an asset zip file `AssetName.zip` in the specified directory
+
+Import an asset into CONS3RT:
+
+`asset import --asset_dir=/path/to/asset`
+
+* Creates an asset zip, and imports the zip file into CONS3RT
+* Adds an `asset.yml` file to the asset directory with the site info and asset ID
+
+Update an existing asset in CONS3RT:
+
+`asset update --asset_dir=/path/to/asset`
+
+* Uses the asset ID in the asset.yml file
+* Creates an asset zip, and updates the asset ID
+
+# cons3rt CLI
+
+Configure the API authentication info:
+
+`cons3rt config`
+
+## cons3rt cloudspace CLI
+
+> Cloudspace CLI calls require the caller to have the **Team Manager** role in CONS3RT.
+
+The `--id=1` or `--ids=1,2,3` args can be used to indicate which cloudspace IDs.
+
+List active runs in a cloudspace:
+
+`cons3rt cloudspace --list_active_runs --id=123`
+
+Release active runs from multiple cloudspaces:
+
+`cons3rt cloudspace --release_active_runs --ids=123,124`
+
+Delete inactive runs from your cloudspace
+
+`cons3rt cloudspace --delete_inactive_runs --id=123`
+
+
+# Use pycons3rt3 in python3
 
 ## Logify
 
-With the default configuration log files go to: `~/.pycons3rt/log/`, and INFO 
+With the default configuration log files go to: `pycons3rt_user_home/log/`, and INFO 
 level is printed to stdout.  To customize pycons3rt logging, modify the 
-`pycons3rt-logging.conf` file.
+logging configuration file.
+
+Logging example:
 
 ~~~
 import logging
-from pycons3rt.logify import Logify
+from pycons3rt3.logify import Logify
 
 mod_logger = Logify.get_name() + '.your_module'
     
@@ -90,15 +189,13 @@ mod_logger = Logify.get_name() + '.your_module'
     	log.error('ERROR')
 ~~~
 
-Deployment
----
+## Deployment
 
-This module provides a set of useful utilities for accessing CONS3RT
-deployment related info. It is intended to be imported and used in
-other python-based CONS3RT assets.
+This module provides a set of useful utilities for accessing 
+deployment related info on deployment run hosts.
 
 ~~~
-from pycons3rt.deployment import Deployment
+from pycons3rt3.deployment import Deployment
     
 # Create a new Deployment object
 dep = new Deployment()
@@ -122,14 +219,13 @@ print(dep.scenario_network_info)
 print(dep.asset_dir)
 ~~~
 
-Slack
----
+## Slack
 
 This module provides an interface for posting anything to Slack!
 
 ~~~
-from pycons3rt.slack import SlackMessage
-from pycons3rt.slack import SlackAttachments
+from pycons3rt3.slack import SlackMessage
+from pycons3rt3.slack import SlackAttachments
 
 # Create a message
 slack_msg = SlackMessage(
@@ -158,7 +254,7 @@ This module provides simple method of fetching artifacts from a nexus
 repository.
 
 ~~~
-from pycons3rt import nexus
+from pycons3rt3 import nexus
 
 nexus.get_artifact(
     username=nexus_username,
@@ -175,7 +271,7 @@ nexus.get_artifact(
     destination_dir=dest_dir)
 ~~~
 
-## Bash (Linux)
+## Bash (Linux only)
 
 Executes commands on a Linux system.  See the source code for specific available
 commands but the most commonly used `run_command` is shown below.
@@ -188,7 +284,7 @@ Parameters
 * timeout_sec: (optional) Float specifying how long to wait before 
 terminating the command.  Default is 3600.0.
 * output: (boolean) True collects the output of the command.  In some cases
-supressing the command output improves stability.
+suppressing the command output improves stability.
 
 Returns:
 
@@ -207,8 +303,8 @@ Raises: `CommandError` when there is a problem running the command.
 Example Usage:
 
 ~~~
-from pycons3rt.bash import run_command
-from pycons3rt.bash import CommandError
+from pycons3rt3.bash import run_command
+from pycons3rt3.bash import CommandError
 command = ['ls', '/root']
 try:
     result = run_command(command, timeout_sec=60.0)
@@ -225,30 +321,4 @@ else:
             raise CommandError(msg)
 ~~~
 
-
-
-## Alias IP (Linux)
-
-Utility for setting IP address aliases in Linux.
-
-## Cons3rtUtil
-
-Utility for running CONS3RT CLI commands.  Only useful for CONS3RT site 
-administrators with CLI access.
-
-## OsUtil
-
-Handles the initial pycons3rt configuration based on the detected OS type.
-
-## PyGit
-
-Utility for cloning a git repo from python.
-
-## PyJavaKeys
-
-Utility for importing Root Certificate Authority (CA) certificates into a 
-Java keystore.
-
-## Windows
-
-Basic Windows utlities like adding host file entries.
+More to come....
