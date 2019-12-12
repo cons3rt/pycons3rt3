@@ -124,12 +124,32 @@ Import an asset into CONS3RT:
 * Creates an asset zip, and imports the zip file into CONS3RT
 * Adds an `asset.yml` file to the asset directory with the site info and asset ID
 
+Import an asset and set the visibility to the project-level:
+
+`asset import --asset_dir=/path/to/asset --visibility=OWNING_PROJECT`
+
 Update an existing asset in CONS3RT:
 
 `asset update --asset_dir=/path/to/asset`
 
 * Uses the asset ID in the asset.yml file
 * Creates an asset zip, and updates the asset ID
+
+Update an asset and set the visibility to the community-level:
+
+`asset update --asset_dir=/path/to/asset --visibility=COMMUNITY`
+
+Query for software assets:
+
+`asset query --asset_type=software`
+
+Query for the latest community container asset containing "nginx":
+
+`asset query --asset_type=containers --asset_subtype=DOCKER --expanded --community --name nginx --latest`
+
+Use the `queryids` command to query for just the latest asset ID for asset with name "nginx":
+
+`asset queryids --asset_type=containers --latest --name=nginx`
 
 # cons3rt CLI
 

@@ -714,19 +714,18 @@ class Cons3rtClient:
             msg = 'The HTTP response contains a bad status code'
             raise Cons3rtClientError(msg) from exc
 
-    def update_asset_visibility(self, asset_id, visibility, asset_type):
+    def update_asset_visibility(self, asset_id, visibility):
         """Updates the asset visibility for the provided asset ID
 
         :param asset_id: (int) asset ID to update
         :param visibility: (str) desired asset visibility
-        :param asset_type: (str) asset type to update
         :return: None
         :raises: Cons3rtClientError
         """
         try:
             response = self.http_client.http_put(
                 rest_user=self.user,
-                target='{t}/{i}/updatevisibility?visibility={s}'.format(t=asset_type, i=str(asset_id), s=visibility))
+                target='assets/{i}/updatevisibility?visibility={s}'.format(i=str(asset_id), s=visibility))
         except Cons3rtClientError as exc:
             msg = 'Unable to set asset visibility for asset ID: {i}'.format(i=str(asset_id))
             raise Cons3rtClientError(msg) from exc
@@ -848,7 +847,7 @@ class Cons3rtClient:
         else:
             target = 'software?'
         if asset_type:
-            target += 'type={t}&'.format(t=type)
+            target += 'softwareType={t}&'.format(t=type)
         if community:
             target += 'community=true'
         else:
@@ -886,6 +885,7 @@ class Cons3rtClient:
         max_results_per_page = 40
         while True:
             try:
+                print('Retrieving software assets: page {p}'.format(p=str(page_num)))
                 software_asset_ids_page = self.retrieve_software_assets(
                     asset_type=asset_type,
                     community=community,
@@ -902,6 +902,8 @@ class Cons3rtClient:
                 break
             else:
                 page_num += 1
+            print('Found {n} software assets...'.format(n=str(len(software_asset_ids))))
+        print('Retrieved a total of {n} software assets'.format(n=str(len(software_asset_ids))))
         return software_asset_ids
 
     def retrieve_container_assets(self, asset_type=None, community=False, category_ids=None, expanded=False,
@@ -959,6 +961,7 @@ class Cons3rtClient:
         max_results_per_page = 40
         while True:
             try:
+                print('Retrieving container assets: page {p}'.format(p=str(page_num)))
                 container_asset_ids_page = self.retrieve_container_assets(
                     asset_type=asset_type,
                     community=community,
@@ -975,6 +978,8 @@ class Cons3rtClient:
                 break
             else:
                 page_num += 1
+                print('Found {n} container assets...'.format(n=str(len(container_asset_ids))))
+        print('Retrieved a total of {n} container assets'.format(n=str(len(container_asset_ids))))
         return container_asset_ids
 
     def retrieve_asset_categories(self):

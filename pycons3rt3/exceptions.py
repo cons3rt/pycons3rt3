@@ -52,6 +52,10 @@ class AssetZipCreationError(Exception):
     """Simple exception type for handling errors creating the asset zip file"""
 
 
+class AssetError(Exception):
+    """General exception for handling assets"""
+
+
 class PyGitError(Exception):
     """There was a problem performing git operations"""
 

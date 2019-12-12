@@ -11,6 +11,7 @@ import logging
 import os
 import shutil
 import sys
+import time
 import traceback
 import yaml
 import zipfile
@@ -19,7 +20,7 @@ from .logify import Logify
 from .bash import mkdir_p
 from .cons3rtapi import Cons3rtApi
 from .cons3rtcli import validate_ids
-from .exceptions import AssetZipCreationError, Cons3rtApiError, Cons3rtAssetStructureError, Cons3rtCliError
+from .exceptions import AssetError, AssetZipCreationError, Cons3rtApiError, Cons3rtAssetStructureError, Cons3rtCliError
 
 __author__ = 'Joe Yennaco'
 
@@ -107,6 +108,21 @@ except KeyError:
     working_dir = os.getcwd()
 
 
+class Asset(object):
+
+    def __init__(self, asset_dir_path, name=None, asset_type=None, asset_subtype=None, asset_zip_path=None,
+                 asset_id=None):
+        self.asset_dir_path = asset_dir_path
+        self.name = name
+        self.asset_type = asset_type
+        self.asset_subtype = asset_subtype
+        self.asset_zip_path = asset_zip_path
+        self.asset_id = asset_id
+
+    def __str__(self):
+        return str(self.asset_dir_path)
+
+
 def ignore_by_extension(item_path):
     if not os.path.isfile(item_path):
         return False
@@ -120,7 +136,7 @@ def validate_asset_structure(asset_dir_path):
     """Checks asset structure validity
 
     :param asset_dir_path: (str) path to the directory containing the asset
-    :return: (str) Asset name
+    :return: (Asset) containing asset name
     :raises: Cons3rtAssetStructureError
     """
     log = logging.getLogger(mod_logger + '.validate_asset_structure')
@@ -138,6 +154,7 @@ def validate_asset_structure(asset_dir_path):
     doc_file_rel_path = None
     license_file_rel_path = None
     asset_type = None
+    asset_subtype = None
     license_file_path = ''
     doc_file_path = ''
     asset_name = None
@@ -155,6 +172,10 @@ def validate_asset_structure(asset_dir_path):
             elif line.strip().startswith('assetType='):
                 asset_type = line.strip().split('=')[1]
                 asset_type = asset_type.lower()
+                if asset_type == 'container':
+                    asset_type = 'containers'
+            elif 'AssetType=' in line.strip():
+                asset_subtype = line.strip().split('=')[1]
             elif line.strip().startswith('name='):
                 asset_name = line.strip().split('=')[1]
 
@@ -247,7 +268,9 @@ def validate_asset_structure(asset_dir_path):
             else:
                 raise Cons3rtAssetStructureError('Found illegal item at the asset root dir: {i}'.format(i=item))
     log.info('Validated asset directory successfully: {d}'.format(d=asset_dir_path))
-    return asset_name
+    asset_info = Asset(asset_dir_path=asset_dir_path, name=asset_name, asset_subtype=asset_subtype,
+                       asset_type=asset_type)
+    return asset_info
 
 
 def make_asset_zip(asset_dir_path, destination_directory=None):
@@ -257,11 +280,12 @@ def make_asset_zip(asset_dir_path, destination_directory=None):
     :param asset_dir_path: (str) path to the directory containing the asset
     :param destination_directory: (str) path to the destination directory for
             the asset
-    :return: (str) Path to the asset zip file
+    :return: (Asset) with the path to the asset zip file
     :raises: AssetZipCreationError
     """
     log = logging.getLogger(mod_logger + '.make_asset_zip')
     log.info('Attempting to create an asset zip from directory: {d}'.format(d=asset_dir_path))
+    print('Creating asset zip file from asset directory: {d}'.format(d=asset_dir_path))
 
     # Ensure the path is a directory
     if not os.path.isdir(asset_dir_path):
@@ -279,17 +303,18 @@ def make_asset_zip(asset_dir_path, destination_directory=None):
 
     # Validate the asset structure
     try:
-        asset_name = validate_asset_structure(asset_dir_path=asset_dir_path)
+        asset_info = validate_asset_structure(asset_dir_path=asset_dir_path)
     except Cons3rtAssetStructureError as exc:
         raise AssetZipCreationError('Cons3rtAssetStructureError: Problem found in the asset structure: {d}'.format(
             d=asset_dir_path)) from exc
 
     # Determine the asset zip file name (same as asset name without spaces)
+    asset_name = asset_info.name
     zip_file_name = 'asset-' + asset_name.replace(' ', '') + '.zip'
     log.info('Using asset zip file name: {n}'.format(n=zip_file_name))
 
     # Determine the zip file path
-    zip_file_path = os.path.join(destination_directory, zip_file_name)
+    asset_info.asset_zip_path = os.path.join(destination_directory, zip_file_name)
 
     # Determine the staging directory
     staging_directory = os.path.join(destination_directory, 'asset-{n}'.format(n=asset_name.replace(' ', '')))
@@ -299,9 +324,9 @@ def make_asset_zip(asset_dir_path, destination_directory=None):
         shutil.rmtree(staging_directory)
 
     # Remove existing zip file if it exists
-    if os.path.isfile(zip_file_path):
-        log.info('Removing existing asset zip file: {f}'.format(f=zip_file_path))
-        os.remove(zip_file_path)
+    if os.path.isfile(asset_info.asset_zip_path):
+        log.info('Removing existing asset zip file: {f}'.format(f=asset_info.asset_zip_path))
+        os.remove(asset_info.asset_zip_path)
 
     # Copy asset dir to staging dir
     shutil.copytree(asset_dir_path, staging_directory)
@@ -328,9 +353,9 @@ def make_asset_zip(asset_dir_path, destination_directory=None):
                 media_files_copied.append(local_media_file)
 
     # Attempt to create the zip
-    log.info('Attempting to create asset zip file: {f}'.format(f=zip_file_path))
+    log.info('Attempting to create asset zip file: {f}'.format(f=asset_info.asset_zip_path))
     try:
-        with contextlib.closing(zipfile.ZipFile(zip_file_path, 'w', allowZip64=True)) as zip_w:
+        with contextlib.closing(zipfile.ZipFile(asset_info.asset_zip_path, 'w', allowZip64=True)) as zip_w:
             for root, dirs, files in os.walk(staging_directory):
                 for f in files:
                     skip = False
@@ -364,10 +389,11 @@ def make_asset_zip(asset_dir_path, destination_directory=None):
                     log.info('Adding to archive as: {a}'.format(a=archive_name))
                     zip_w.write(file_path, archive_name)
     except Exception as exc:
-        raise AssetZipCreationError('Unable to create zip file: {f}'.format(f=zip_file_path)) from exc
+        raise AssetZipCreationError('Unable to create zip file: {f}'.format(f=asset_info.asset_zip_path)) from exc
     shutil.rmtree(staging_directory)
-    log.info('Successfully created asset zip file: {f}'.format(f=zip_file_path))
-    return zip_file_path
+    log.info('Successfully created asset zip file: {f}'.format(f=asset_info.asset_zip_path))
+    print('Created asset zip file: {f}'.format(f=asset_info.asset_zip_path))
+    return asset_info
 
 
 def validate(asset_dir):
@@ -377,13 +403,13 @@ def validate(asset_dir):
     :return: (int)
     """
     try:
-        asset_name = validate_asset_structure(asset_dir_path=asset_dir)
+        asset_info = validate_asset_structure(asset_dir_path=asset_dir)
     except Cons3rtAssetStructureError as exc:
         msg = 'Cons3rtAssetStructureError: Problem with asset validation\n{e}'.format(e=str(exc))
         print('ERROR: {m}'.format(m=msg))
         traceback.print_exc()
         return 1
-    print('Validated asset with name: {n}'.format(n=asset_name))
+    print('Validated asset with name: {n}'.format(n=asset_info.name))
     return 0
 
 
@@ -398,13 +424,13 @@ def create(asset_dir, dest_dir):
     if val != 0:
         return 1
     try:
-        asset_zip = make_asset_zip(asset_dir_path=asset_dir, destination_directory=dest_dir)
+        asset_info = make_asset_zip(asset_dir_path=asset_dir, destination_directory=dest_dir)
     except AssetZipCreationError as exc:
         msg = 'AssetZipCreationError: Problem with asset zip creation\n{e}'.format(e=str(exc))
         print('ERROR: {m}'.format(m=msg))
         traceback.print_exc()
         return 1
-    print('Created asset zip file: {z}'.format(z=asset_zip))
+    print('Created asset zip file: {z}'.format(z=asset_info.asset_zip_path))
     return 0
 
 
@@ -441,59 +467,88 @@ def stage_media(asset_dir, destination_dir):
     return True
 
 
-def import_asset(cons3rt_api, asset_zip_path):
+def import_asset(cons3rt_api, asset_info):
     """Imports an asset zip file using the provided Cons3rtApi object
     and returns data about the imported asset
 
     :param cons3rt_api: Cons3rtApi object
-    :param asset_zip_path: (str) full path to the asset zip file
+    :param asset_info: (Asset)
     :return: (dict) asset import data
     """
     asset_data = {}
     try:
-        asset_id = cons3rt_api.import_asset(asset_zip_file=asset_zip_path)
+        asset_id = cons3rt_api.import_asset(asset_zip_file=asset_info.asset_zip_path)
     except Cons3rtApiError as exc:
         print('ERROR: Importing zip {z} into site: {u}\n{e}'.format(
-            z=asset_zip_path, u=cons3rt_api.url_base, e=str(exc)))
+            z=asset_info.asset_zip_path, u=cons3rt_api.url_base, e=str(exc)))
         traceback.print_exc()
         return asset_data
     asset_data = {
         'asset_id': asset_id,
         'site_url': cons3rt_api.url_base
     }
-    print('Imported asset from zip: {z}'.format(z=asset_zip_path))
+    print('Imported asset from zip: {z}'.format(z=asset_info.asset_zip_path))
+    try:
+        int(asset_id)
+    except ValueError:
+        print('Attempting to determine imported asset ID in 15 seconds...')
+        time.sleep(15)
+        print('Querying for latest asset with type [{t}], subtype [{s}], and name [{n}]'.format(
+            t=asset_info.asset_type, s=asset_info.asset_subtype, n=asset_info.name))
+        try:
+            filtered_assets = query_assets(
+                asset_type=asset_info.asset_type,
+                asset_subtype=asset_info.asset_subtype,
+                expanded=False,
+                community=False,
+                latest=True,
+                asset_name=asset_info.name,
+                category_ids=None
+            )
+        except AssetError as exc:
+            print('WARNING: Problem querying for the imported asset ID, will have to be manually added to '
+                  'asset.yml\n{e}'.format(e=str(exc)))
+            traceback.print_exc()
+            return asset_data
+        else:
+            if len(filtered_assets) != 1:
+                print('WARNING: Unable to determine the imported asset ID, will have to be manually added to asset.yml')
+            else:
+                asset_data['asset_id'] = int(filtered_assets[0]['id'])
+                print('Found asset ID: {n}'.format(n=str(asset_data['asset_id'])))
     return asset_data
 
 
-def update_asset(cons3rt_api, asset_zip_path, asset_id):
+def update_asset(cons3rt_api, asset_info):
     """Updates an asset ID with the provided Cons3rtApi object and asset zip
 
     :param cons3rt_api: Cons3rtApi object
-    :param asset_zip_path: full path to the asset zip file
-    :param asset_id: (int) ID of the asset to update
+    :param asset_info: (Asset)
     :return: True if success, False otherwise
     """
     try:
-        cons3rt_api.update_asset_content(asset_id=asset_id, asset_zip_file=asset_zip_path)
+        cons3rt_api.update_asset_content(asset_id=asset_info.asset_id, asset_zip_file=asset_info.asset_zip_path)
     except Cons3rtApiError as exc:
         print('ERROR: Updating asset ID [{a}] zip {z} into site: {u}\n{e}'.format(
-            a=str(asset_id), z=asset_zip_path, u=cons3rt_api.url_base, e=str(exc)))
+            a=str(asset_info.asset_id), z=asset_info.asset_zip_path, u=cons3rt_api.url_base, e=str(exc)))
         traceback.print_exc()
         return False
-    print('Updated asset ID: {a}'.format(a=str(asset_id)))
+    print('Updated asset ID: {a}'.format(a=str(asset_info.asset_id)))
     return True
 
 
-def import_update(asset_dir, dest_dir, import_only=False):
+def import_update(asset_dir, dest_dir, visibility=None, import_only=False):
     """Creates an asset zip, and attempts to import/update the asset
 
     :param asset_dir: (str) path to asset directory
     :param dest_dir: (full path to the destination directory)
+    :param visibility: (str) desired visibility default: OWNER
     :param import_only: (bool) Whe True, import even if an existing ID is found
-    :return:
+    :return: (int) 0 = Success, non-zero otherwise
     """
+    Logify.set_log_level(log_level='WARNING')
     try:
-        asset_zip = make_asset_zip(asset_dir_path=asset_dir, destination_directory=dest_dir)
+        asset_info = make_asset_zip(asset_dir_path=asset_dir, destination_directory=dest_dir)
     except AssetZipCreationError as exc:
         msg = 'AssetZipCreationError: Problem with asset zip creation\n{e}'.format(e=str(exc))
         print('ERROR: {m}'.format(m=msg))
@@ -501,34 +556,92 @@ def import_update(asset_dir, dest_dir, import_only=False):
         return 1
     asset_yml = os.path.join(asset_dir, 'asset_data.yml')
     asset_data_list = []
+    asset_data = None
     c = Cons3rtApi()
     if os.path.isfile(asset_yml) and not import_only:
         with open(asset_yml, 'r') as f:
             asset_data_list = yaml.load(f, Loader=yaml.FullLoader)
-        asset_id = None
         for asset_data in asset_data_list:
             if asset_data['site_url'] == c.url_base:
-                asset_id = asset_data['asset_id']
-        if asset_id:
-            if not update_asset(cons3rt_api=c, asset_zip_path=asset_zip, asset_id=asset_id):
+                asset_info.asset_id = asset_data['asset_id']
+        if asset_info.asset_id:
+            print('Attempting to update asset ID [{i}] with asset zip: {f}'.format(
+                i=str(asset_info.asset_id), f=asset_info.asset_zip_path))
+            if not update_asset(cons3rt_api=c, asset_info=asset_info):
                 return 1
         else:
-            asset_data = import_asset(cons3rt_api=c, asset_zip_path=asset_zip)
+            print('Attempting to import asset zip: {f}'.format(f=asset_info.asset_zip_path))
+            asset_data = import_asset(cons3rt_api=c, asset_info=asset_info)
             if asset_data != {}:
                 asset_data_list.append(asset_data)
     else:
-        asset_data = import_asset(cons3rt_api=c, asset_zip_path=asset_zip)
+        print('Attempting to import asset zip: {f}'.format(f=asset_info.asset_zip_path))
+        asset_data = import_asset(cons3rt_api=c, asset_info=asset_info)
         if asset_data != {}:
             asset_data_list.append(asset_data)
+    if not asset_data:
+        print('WARNING: No asset data available, cannot set visibility')
+        return 0
+    os.remove(asset_info.asset_zip_path)
     with open(asset_yml, 'w') as f:
         yaml.dump(asset_data_list, f, sort_keys=True)
-    os.remove(asset_zip)
+    if visibility:
+        print('Attempting to set visibility on asset ID {n} to: {v}'.format(
+            n=str(asset_data['asset_id']), v=visibility))
+        try:
+            c.update_asset_visibility(
+                asset_id=asset_data['asset_id'],
+                visibility=visibility,
+                trusted_projects=None
+            )
+        except Cons3rtApiError as exc:
+            print('ERROR: Problem setting visibility for asset ID {n} to: {v}\n{e}'.format(
+                n=str(asset_data['asset_id']), v=visibility, e=str(exc)))
+            traceback.print_exc()
+            return 1
+        print('Set visibility for asset ID {i} to: {v}'.format(i=str(asset_data['asset_id']), v=visibility))
+    print('Completed import/update for asset {n} with ID: {i}'.format(
+        n=asset_data['asset_id'], i=str(asset_info.asset_id)))
+    return 0
 
 
-def query_assets(args):
+def print_assets(asset_list):
+    msg = 'ID\tName\t\t\t\t\t\tVisibility\t\tState\t\t\tType\n'
+    for asset in asset_list:
+
+        if 'id' in asset:
+            msg += str(asset['id'])
+        else:
+            msg += '      '
+        msg += '\t'
+        if 'name' in asset:
+            msg += asset['name']
+        else:
+            msg += '          '
+        msg += '\t\t\t\t\t\t'
+        if 'visibility' in asset:
+            msg += asset['visibility']
+        else:
+            msg += '              '
+        msg += '\t\t'
+        if 'state' in asset:
+            msg += asset['state']
+        else:
+            msg += '                 '
+        msg += '\t\t\t'
+        if 'type' in asset:
+            msg += asset['type']
+        else:
+            msg += '         '
+        msg += '\n'
+    print(msg)
+
+
+def query_assets_args(args, id_only=False):
     """Queries assets and prints IDs of assets matching the query
 
     :param args: command line args
+    :param id_only: print the ID(s) only
     :return: (int) 0 if successful, non-zero otherwise
     """
     Logify.set_log_level(log_level='WARNING')
@@ -542,7 +655,6 @@ def query_assets(args):
         print('Invalid --asset_type found, valid asset types: {t}'.format(t=','.join(valid_asset_types)))
         return 2
 
-    assets = []
     expanded = False
     community = False
     asset_subtype = None
@@ -569,6 +681,51 @@ def query_assets(args):
             traceback.print_exc()
             return 3
 
+    try:
+        filtered_assets = query_assets(
+            asset_type=asset_type,
+            asset_subtype=asset_subtype,
+            expanded=expanded,
+            community=community,
+            latest=latest,
+            asset_name=asset_name,
+            category_ids=category_ids
+        )
+    except AssetError as exc:
+        print('ERROR: Problem querying for assets\n{e}'.format(e=str(exc)))
+        traceback.print_exc()
+        return 4
+
+    # Print either the asset IDs or the asset data for each assety
+    if id_only:
+        asset_id_str = ''
+        for asset in filtered_assets:
+            asset_id_str += str(asset['id']) + '\n'
+        print(asset_id_str)
+    else:
+        print_assets(filtered_assets)
+    return 0
+
+
+def query_assets(asset_type, asset_subtype=None, expanded=False, community=False, latest=False, asset_name=None,
+                 category_ids=None):
+    """Queries assets and prints IDs of assets matching the query
+
+    :param asset_type: (str) asset type
+    :param asset_subtype: (str) asset subtype
+    :param expanded: (bool) set true to query on expanded list of assets
+    :param community: (bool) set true to query on community assets
+    :param latest: (bool) set true to return just the latest asset (highest asset ID number)
+    :param asset_name: (str) name to filter results on
+    :param category_ids: (list) list of category IDs to filter on
+    :return: (list) of assets
+    :raises: AssetError
+    """
+    log = logging.getLogger(mod_logger + '.query_assets')
+    valid_asset_types = ['software', 'containers']
+    if asset_type not in valid_asset_types:
+        raise AssetError('Invalid asset_type found, valid asset types: {t}'.format(t=','.join(valid_asset_types)))
+    assets = []
     c = Cons3rtApi()
     if asset_type == 'software' and expanded:
         try:
@@ -578,9 +735,7 @@ def query_assets(args):
                 category_ids=category_ids
             )
         except Cons3rtApiError as exc:
-            print('ERROR: Problem retrieving assets\n{e}'.format(e=str(exc)))
-            traceback.print_exc()
-            return 4
+            raise AssetError('Problem retrieving expanded software assets') from exc
     elif asset_type == 'software' and not expanded:
         try:
             assets = c.retrieve_software_assets(
@@ -589,9 +744,7 @@ def query_assets(args):
                 category_ids=category_ids
             )
         except Cons3rtApiError as exc:
-            print('ERROR: Problem retrieving assets\n{e}'.format(e=str(exc)))
-            traceback.print_exc()
-            return 4
+            raise AssetError('Problem retrieving software assets') from exc
     elif asset_type == 'containers' and expanded:
         try:
             assets = c.retrieve_expanded_container_assets(
@@ -600,9 +753,7 @@ def query_assets(args):
                 category_ids=category_ids
             )
         except Cons3rtApiError as exc:
-            print('ERROR: Problem retrieving assets\n{e}'.format(e=str(exc)))
-            traceback.print_exc()
-            return 4
+            raise AssetError('Problem retrieving expanded container assets') from exc
     elif asset_type == 'containers' and not expanded:
         try:
             assets = c.retrieve_container_assets(
@@ -611,14 +762,14 @@ def query_assets(args):
                 category_ids=category_ids
             )
         except Cons3rtApiError as exc:
-            print('ERROR: Problem retrieving assets\n{e}'.format(e=str(exc)))
-            traceback.print_exc()
-            return 4
+            raise AssetError('Problem retrieving container assets') from exc
 
+    # Return empty list if no assets found
     if len(assets) < 1:
-        print('No assets found matching the query!')
-        return 0
+        log.info('No assets found')
+        return []
 
+    # Filter the list by the provided asset name
     if asset_name:
         filtered_assets = []
         for asset in assets:
@@ -626,18 +777,25 @@ def query_assets(args):
                 filtered_assets.append(asset)
     else:
         filtered_assets = assets
+    log.info('Found {n} assets matching the query'.format(n=str(len(filtered_assets))))
+    print('Found {n} assets matching the query'.format(n=str(len(filtered_assets))))
 
+    # If the latest flag was provided, return a list containing just the latest asset
+    # Otherwise return the full list of filtered assets
     if latest:
+        log.info('Returning the latest asset...')
         highest_asset_id = 0
+        latest_asset = None
         for asset in filtered_assets:
             asset_id = int(asset['id'])
             if asset_id > highest_asset_id:
                 highest_asset_id = asset_id
-        print(str(highest_asset_id))
+                latest_asset = asset
+        if not latest_asset:
+            raise AssetError('Latest asset not found in asset data: {d}'.format(d=str(filtered_assets)))
+        return [latest_asset]
     else:
-        for asset in filtered_assets:
-            print(str(asset['id']))
-    return 0
+        return filtered_assets
 
 
 def main():
@@ -652,9 +810,10 @@ def main():
     parser.add_argument('--category_ids', help='List of category IDs to filter on')
     parser.add_argument('--name', help='Asset name to filter on')
     parser.add_argument('--latest', help='Include to only return the latest with the highest ID', action='store_true')
+    parser.add_argument('--visibility', help='Set to the desired visibility')
     args = parser.parse_args()
 
-    valid_commands = ['create', 'import', 'query', 'update', 'validate']
+    valid_commands = ['create', 'import', 'query', 'queryids', 'update', 'validate']
     valid_commands_str = ','.join(valid_commands)
 
     # Get the command
@@ -709,17 +868,24 @@ def main():
         print('ERROR: Unable to find a destination directory for the asset, please specify with "--dest-dir"')
         return 4
 
+    # Set visibility
+    visibility = 'OWNER'
+    if args.visibility:
+        visibility = args.visibility
+
     # Process the command
     res = 0
 
     if command == 'create':
         res = create(asset_dir=asset_dir, dest_dir=dest_dir)
     elif command == 'import':
-        res = import_update(asset_dir=asset_dir, dest_dir=dest_dir, import_only=True)
+        res = import_update(asset_dir=asset_dir, dest_dir=dest_dir, import_only=True, visibility=visibility)
     elif command == 'query':
-        res = query_assets(args)
+        res = query_assets_args(args)
+    elif command == 'queryids':
+        res = query_assets_args(args, id_only=True)
     elif command == 'update':
-        res = import_update(asset_dir=asset_dir, dest_dir=dest_dir)
+        res = import_update(asset_dir=asset_dir, dest_dir=dest_dir, visibility=visibility)
     elif command == 'validate':
         res = validate(asset_dir=asset_dir)
     return res

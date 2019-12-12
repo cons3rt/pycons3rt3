@@ -1010,14 +1010,14 @@ class Cons3rtApi(object):
             raise Cons3rtApiError(msg) from exc
         log.info('Successfully updated state for Asset ID {i} to: {s}'.format(i=str(asset_id), s=state))
 
-    def update_asset_visibility(self, asset_type, asset_id, visibility, trusted_projects=None):
+    def update_asset_visibility(self, asset_id, visibility, trusted_projects=None):
         """Updates the asset visibility
 
-        :param asset_type: (str) asset type (scenario, deployment, system, etc)
         :param asset_id: (int) asset ID to update
         :param visibility: (str) desired asset visibility
         :param trusted_projects (list) of int project IDs to add
         :return: None
+        :raises: Cons3rtApiError
         """
         log = logging.getLogger(self.cls_logger + '.update_asset_visibility')
 
@@ -1029,20 +1029,11 @@ class Cons3rtApi(object):
                 msg = 'asset_id arg must be an Integer'
                 raise Cons3rtApiError(msg) from exc
 
-        #  Ensure the asset_zip_file arg is a string
-        if not isinstance(asset_type, str):
-            msg = 'The asset_type arg must be a string, found {t}'.format(t=asset_type.__class__.__name__)
-            raise Cons3rtApiError(msg)
 
         #  Ensure the asset_zip_file arg is a string
         if not isinstance(visibility, str):
             msg = 'The visibility arg must be a string, found {t}'.format(t=visibility.__class__.__name__)
             raise Cons3rtApiError(msg)
-
-        # Determine the target based on asset_type
-        target = self.get_asset_type(asset_type=asset_type)
-        if target == '':
-            raise Cons3rtApiError('Unable to determine the target from provided asset_type: {t}'.format(t=asset_type))
 
         # Valid values for visibility
         valid_visibility = ['OWNER', 'OWNING_PROJECT', 'TRUSTED_PROJECTS', 'COMMUNITY']
@@ -1068,7 +1059,7 @@ class Cons3rtApi(object):
 
         # Attempt to update the asset ID
         try:
-            self.cons3rt_client.update_asset_visibility(asset_id=asset_id, visibility=visibility, asset_type=target)
+            self.cons3rt_client.update_asset_visibility(asset_id=asset_id, visibility=visibility)
         except Cons3rtClientError as exc:
             msg = 'Unable to update the visibility for asset ID: {i}'.format(i=str(asset_id))
             raise Cons3rtApiError(msg) from exc
