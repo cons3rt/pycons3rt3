@@ -1068,25 +1068,28 @@ class Cons3rtClient:
         except Cons3rtClientError as exc:
             msg = 'The HTTP response contains a bad status code'
             raise Cons3rtClientError(msg) from exc
-        software_asset_ids = json.loads(result)
-        return software_asset_ids
+        software_assets = json.loads(result)
+        return software_assets
 
-    def retrieve_all_software_assets(self, asset_type=None, community=False, category_ids=None, expanded=False):
+    def retrieve_all_software_assets(self, asset_type=None, community=False, category_ids=None, expanded=False,
+                                     max_results=None):
         """Get a list of software assets with expanded info
 
         :param asset_type: (str) the software asset type, defaults to null
         :param community: (bool) the boolean to include community assets
         :param category_ids: (list) the list of categories to filter by
         :param expanded: (bool) whether to retrieve expanded info
+        :param max_results: (int) maximum number of results to return
         :return: List of software asset IDs
+        :raises: Cons3rtClientError
         """
-        software_asset_ids = []
+        software_assets = []
         page_num = 0
         max_results_per_page = 40
         while True:
             try:
                 print('Retrieving software assets: page {p}'.format(p=str(page_num)))
-                software_asset_ids_page = self.retrieve_software_assets(
+                software_assets_page = self.retrieve_software_assets(
                     asset_type=asset_type,
                     community=community,
                     category_ids=category_ids,
@@ -1097,14 +1100,19 @@ class Cons3rtClient:
             except Cons3rtClientError as exc:
                 msg = 'Problem querying software assets on page: {n}'.format(n=str(page_num))
                 raise Cons3rtClientError(msg) from exc
-            software_asset_ids += software_asset_ids_page
-            if len(software_asset_ids_page) < max_results_per_page:
+            software_assets += software_assets_page
+            if len(software_assets_page) < max_results_per_page:
                 break
-            else:
-                page_num += 1
-            print('Found {n} software assets...'.format(n=str(len(software_asset_ids))))
-        print('Retrieved a total of {n} software assets'.format(n=str(len(software_asset_ids))))
-        return software_asset_ids
+            if max_results:
+                if len(software_assets) >= max_results:
+                    break
+            page_num += 1
+            print('Found {n} software assets...'.format(n=str(len(software_assets))))
+        if max_results:
+            if len(software_assets) > max_results:
+                software_assets = software_assets[:max_results]
+        print('Retrieved a total of {n} software assets'.format(n=str(len(software_assets))))
+        return software_assets
 
     def retrieve_container_assets(self, asset_type=None, community=False, category_ids=None, expanded=False,
                                   max_results=40, page_num=0):
@@ -1117,6 +1125,7 @@ class Cons3rtClient:
         :param max_results: (int) the max number of results desired
         :param page_num: (int) the page number requested
         :return: List of container asset IDs
+        :raises: Cons3rtClientError
         """
         if expanded:
             target = 'containers/expanded?'
@@ -1144,25 +1153,28 @@ class Cons3rtClient:
         except Cons3rtClientError as exc:
             msg = 'The HTTP response contains a bad status code'
             raise Cons3rtClientError(msg) from exc
-        container_asset_ids = json.loads(result)
-        return container_asset_ids
+        container_assets = json.loads(result)
+        return container_assets
 
-    def retrieve_all_container_assets(self, asset_type=None, community=False, category_ids=None, expanded=False):
+    def retrieve_all_container_assets(self, asset_type=None, community=False, category_ids=None, expanded=False,
+                                      max_results=None):
         """Get a list of container assets with expanded info
 
         :param asset_type: (str) the container asset type, defaults to null
         :param community: (bool) the boolean to include community assets
         :param category_ids: (list) the list of categories to filter by
         :param expanded: (bool) whether to retrieve expanded info
+        :param max_results: (int) maximum number of results to return
         :return: List of container asset IDs
+        :raises: Cons3rtClientError
         """
-        container_asset_ids = []
+        container_assets = []
         page_num = 0
         max_results_per_page = 40
         while True:
             try:
                 print('Retrieving container assets: page {p}'.format(p=str(page_num)))
-                container_asset_ids_page = self.retrieve_container_assets(
+                container_asset_page = self.retrieve_container_assets(
                     asset_type=asset_type,
                     community=community,
                     category_ids=category_ids,
@@ -1173,14 +1185,19 @@ class Cons3rtClient:
             except Cons3rtClientError as exc:
                 msg = 'Problem querying container assets on page: {n}'.format(n=str(page_num))
                 raise Cons3rtClientError(msg) from exc
-            container_asset_ids += container_asset_ids_page
-            if len(container_asset_ids_page) < max_results_per_page:
+            container_assets += container_asset_page
+            if len(container_asset_page) < max_results_per_page:
                 break
-            else:
-                page_num += 1
-                print('Found {n} container assets...'.format(n=str(len(container_asset_ids))))
-        print('Retrieved a total of {n} container assets'.format(n=str(len(container_asset_ids))))
-        return container_asset_ids
+            if max_results:
+                if len(container_assets) >= max_results:
+                    break
+            page_num += 1
+            print('Found {n} container assets...'.format(n=str(len(container_assets))))
+        if max_results:
+            if len(container_assets) > max_results:
+                container_assets = container_assets[:max_results]
+        print('Retrieved a total of {n} container assets'.format(n=str(len(container_assets))))
+        return container_assets
 
     def retrieve_asset_categories(self):
         """Retrieves a list of the asset categories in the site

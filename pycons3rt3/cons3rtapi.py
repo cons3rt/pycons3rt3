@@ -2077,41 +2077,53 @@ class Cons3rtApi(object):
             raise Cons3rtApiError(msg) from exc
         return result
 
-    def retrieve_software_assets(self, asset_type=None, community=False, category_ids=None):
+    def retrieve_software_assets(self, asset_type=None, community=False, expanded=False, category_ids=None,
+                                 max_results=None):
         """Get a list of software assets
 
         :param asset_type: (str) the software asset type, defaults to null
         :param community: (bool) the boolean to include community assets
+        :param expanded: (bool) the boolean to include project assets
         :param category_ids: (list) the list of categories to filter by
+        :param max_results: (int) maximum number of software assets to return
         :return: List of software asset IDs
         :raises: Cons3rtApiError
         """
         log = logging.getLogger(self.cls_logger + '.retrieve_software_assets')
         log.info('Attempting to query CONS3RT to retrieve software assets...')
         try:
-            software_asset_ids = self.cons3rt_client.retrieve_all_software_assets(
-                asset_type=asset_type, community=community, category_ids=category_ids, expanded=False
+            software_assets = self.cons3rt_client.retrieve_all_software_assets(
+                asset_type=asset_type,
+                community=community,
+                category_ids=category_ids,
+                expanded=expanded,
+                max_results=max_results
             )
         except Cons3rtClientError as exc:
             msg = 'There was a problem querying for software assets'
             raise Cons3rtApiError(msg) from exc
-        log.info('Retrieved {n} software assets'.format(n=str(len(software_asset_ids))))
-        return software_asset_ids
+        log.info('Retrieved {n} software assets'.format(n=str(len(software_assets))))
+        return software_assets
 
-    def retrieve_expanded_software_assets(self, asset_type=None, community=False, category_ids=None):
+    def retrieve_expanded_software_assets(self, asset_type=None, community=False, category_ids=None, max_results=None):
         """Get a list of software assets with expanded info
 
         :param asset_type: (str) the software asset type, defaults to null
         :param community: (bool) the boolean to include community assets
         :param category_ids: (list) the list of categories to filter by
+        :param max_results: (int) maximum number of software assets to return
         :return: List of software asset IDs
         :raises: Cons3rtApiError
         """
         log = logging.getLogger(self.cls_logger + '.retrieve_expanded_software_assets')
-        log.info('Attempting to query CONS3RT to retrieve expanded data on software assets...')
+        log.info('Attempting to query CONS3RT to retrieve expanded software assets...')
         try:
-            software_asset_ids = self.cons3rt_client.retrieve_all_software_assets(
-                asset_type=asset_type, community=community, category_ids=category_ids, expanded=True
+            software_asset_ids = self.retrieve_software_assets(
+                asset_type=asset_type,
+                community=community,
+                category_ids=category_ids,
+                expanded=True,
+                max_results=max_results
             )
         except Cons3rtClientError as exc:
             msg = 'There was a problem querying for expanded software assets'
@@ -2125,47 +2137,59 @@ class Cons3rtApi(object):
         return self.retrieve_expanded_software_assets(asset_type=asset_type, community=community,
                                                       category_ids=category_ids)
 
-    def retrieve_container_assets(self, asset_type=None, community=False, category_ids=None):
+    def retrieve_container_assets(self, asset_type=None, community=False, expanded=False, category_ids=None,
+                                  max_results=None):
         """Get a list of container assets
 
         :param asset_type: (str) the container asset type, defaults to null
         :param community: (bool) the boolean to include community assets
+        :param expanded: (bool) the boolean to include project assets
         :param category_ids: (list) the list of categories to filter by
+        :param max_results: (int) maximum number of container assets to return
         :return: List of container asset IDs
         :raises: Cons3rtApiError
         """
         log = logging.getLogger(self.cls_logger + '.retrieve_container_assets')
         log.info('Attempting to query CONS3RT to retrieve container assets...')
         try:
-            container_asset_ids = self.cons3rt_client.retrieve_all_container_assets(
-                asset_type=asset_type, community=community, category_ids=category_ids, expanded=False
+            container_assets = self.cons3rt_client.retrieve_all_container_assets(
+                asset_type=asset_type,
+                community=community,
+                expanded=expanded,
+                category_ids=category_ids,
+                max_results=max_results
             )
         except Cons3rtClientError as exc:
             msg = 'There was a problem querying for container assets'
             raise Cons3rtApiError(msg) from exc
-        log.info('Retrieved {n} container assets'.format(n=str(len(container_asset_ids))))
-        return container_asset_ids
+        log.info('Retrieved {n} container assets'.format(n=str(len(container_assets))))
+        return container_assets
 
-    def retrieve_expanded_container_assets(self, asset_type=None, community=False, category_ids=None):
+    def retrieve_expanded_container_assets(self, asset_type=None, community=False, category_ids=None, max_results=None):
         """Get a list of container assets with expanded info
 
         :param asset_type: (str) the container asset type, defaults to null
         :param community: (bool) the boolean to include community assets
         :param category_ids: (list) the list of categories to filter by
+        :param max_results: (int) maximum number of container assets to return
         :return: List of container asset IDs
         :raises: Cons3rtApiError
         """
         log = logging.getLogger(self.cls_logger + '.retrieve_expanded_container_assets')
         log.info('Attempting to query CONS3RT to retrieve expanded data on container assets...')
         try:
-            container_asset_ids = self.cons3rt_client.retrieve_all_container_assets(
-                asset_type=asset_type, community=community, category_ids=category_ids, expanded=True
+            container_assets = self.retrieve_container_assets(
+                asset_type=asset_type,
+                community=community,
+                category_ids=category_ids,
+                expanded=True,
+                max_results=max_results
             )
         except Cons3rtClientError as exc:
             msg = 'There was a problem querying for expanded container assets'
             raise Cons3rtApiError(msg) from exc
-        log.info('Retrieved {n} container assets'.format(n=str(len(container_asset_ids))))
-        return container_asset_ids
+        log.info('Retrieved {n} container assets'.format(n=str(len(container_assets))))
+        return container_assets
 
     def retrieve_asset_categories(self):
         """Retrieves a list of the asset categories in the site

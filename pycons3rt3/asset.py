@@ -503,7 +503,8 @@ def import_asset(cons3rt_api, asset_info):
                 community=False,
                 latest=True,
                 asset_name=asset_info.name,
-                category_ids=None
+                category_ids=None,
+                max_results=200
             )
         except AssetError as exc:
             print('WARNING: Problem querying for the imported asset ID, will have to be manually added to '
@@ -708,7 +709,7 @@ def query_assets_args(args, id_only=False):
 
 
 def query_assets(asset_type, asset_subtype=None, expanded=False, community=False, latest=False, asset_name=None,
-                 category_ids=None):
+                 category_ids=None, max_results=None):
     """Queries assets and prints IDs of assets matching the query
 
     :param asset_type: (str) asset type
@@ -718,6 +719,7 @@ def query_assets(asset_type, asset_subtype=None, expanded=False, community=False
     :param latest: (bool) set true to return just the latest asset (highest asset ID number)
     :param asset_name: (str) name to filter results on
     :param category_ids: (list) list of category IDs to filter on
+    :param max_results: (int) maximum number of assets to query for
     :return: (list) of assets
     :raises: AssetError
     """
@@ -727,39 +729,25 @@ def query_assets(asset_type, asset_subtype=None, expanded=False, community=False
         raise AssetError('Invalid asset_type found, valid asset types: {t}'.format(t=','.join(valid_asset_types)))
     assets = []
     c = Cons3rtApi()
-    if asset_type == 'software' and expanded:
-        try:
-            assets = c.retrieve_expanded_software_assets(
-                asset_type=asset_subtype,
-                community=community,
-                category_ids=category_ids
-            )
-        except Cons3rtApiError as exc:
-            raise AssetError('Problem retrieving expanded software assets') from exc
-    elif asset_type == 'software' and not expanded:
+    if asset_type == 'software':
         try:
             assets = c.retrieve_software_assets(
                 asset_type=asset_subtype,
                 community=community,
-                category_ids=category_ids
+                expanded=expanded,
+                category_ids=category_ids,
+                max_results=max_results
             )
         except Cons3rtApiError as exc:
             raise AssetError('Problem retrieving software assets') from exc
-    elif asset_type == 'containers' and expanded:
-        try:
-            assets = c.retrieve_expanded_container_assets(
-                asset_type=asset_subtype,
-                community=community,
-                category_ids=category_ids
-            )
-        except Cons3rtApiError as exc:
-            raise AssetError('Problem retrieving expanded container assets') from exc
-    elif asset_type == 'containers' and not expanded:
+    elif asset_type == 'containers':
         try:
             assets = c.retrieve_container_assets(
                 asset_type=asset_subtype,
                 community=community,
-                category_ids=category_ids
+                expanded=expanded,
+                category_ids=category_ids,
+                max_results=max_results
             )
         except Cons3rtApiError as exc:
             raise AssetError('Problem retrieving container assets') from exc
