@@ -492,17 +492,154 @@ class Cons3rtClient:
                 retval = vr['id']
         return retval
 
-    def list_virtualization_realms_for_cloud(self, cloud_id):
+    def list_virtualization_realms_for_cloud(self, cloud_id, max_results=40, page_num=0):
         """Queries CONS3RT for a list of Virtualization Realms for a specified Cloud ID
 
         :param cloud_id: (int) Cloud ID to query
-        :return:
+        :param max_results: (int) maximum number of results to retrieve
+        :param page_num: (int) page number to return
+        :return: (list) of virtualization realms
         """
         response = self.http_client.http_get(
             rest_user=self.user,
-            target='clouds/' + str(cloud_id) + '/virtualizationrealms')
+            target='clouds/{i}/virtualizationrealms?maxresults={m}&page={p}'.format(
+                i=str(cloud_id),
+                m=str(max_results),
+                p=str(page_num)
+            ))
         content = self.http_client.parse_response(response=response)
         vrs = json.loads(content)
+        return vrs
+
+    def list_all_virtualization_realms_for_cloud(self, cloud_id):
+        """Returns a list of virtualization realms in the provided cloud ID
+
+        :param cloud_id: (int) ID of the cloud
+        :return: (list) of virtualization realms
+        :raises: Cons3rtClientError
+        """
+        vrs = []
+        page_num = 0
+        max_results = 40
+        while True:
+            print('Retrieving virtualization realms for cloud {i}: page {p}'.format(
+                i=str(cloud_id), p=str(page_num)))
+            try:
+                page_of_vrs = self.list_virtualization_realms_for_cloud(
+                    cloud_id=cloud_id,
+                    max_results=max_results,
+                    page_num=page_num
+                )
+            except Cons3rtClientError as exc:
+                msg = 'Problem querying CONS3RT for a list of virtualization realms in cloud ID: {i}, ' \
+                      'page: {p}, max results: {m}'.format(i=str(cloud_id), p=str(page_num), m=str(max_results))
+                raise Cons3rtClientError(msg) from exc
+            vrs += page_of_vrs
+            if len(page_of_vrs) < max_results:
+                break
+            else:
+                page_num += 1
+            print('Found {n} virtualization realms in cloud {i}...'.format(n=str(len(vrs)), i=str(cloud_id)))
+        return vrs
+
+    def list_virtualization_realms_for_project(self, project_id, max_results=40, page_num=0):
+        """Queries CONS3RT for a list of Virtualization Realms for a specified project ID
+
+        :param project_id: (int) project ID to query
+        :param max_results: (int) maximum number of results to retrieve
+        :param page_num: (int) page number to return
+        :return: (list) of virtualization realms
+        """
+        response = self.http_client.http_get(
+            rest_user=self.user,
+            target='projects/{i}/virtualizationrealms?maxresults={m}&page={p}'.format(
+                i=str(project_id),
+                m=str(max_results),
+                p=str(page_num)
+            ))
+        content = self.http_client.parse_response(response=response)
+        vrs = json.loads(content)
+        return vrs
+
+    def list_all_virtualization_realms_for_project(self, project_id):
+        """Returns a list of virtualization realms in the provided project ID
+
+        :param project_id: (int) ID of the project
+        :return: (list) of virtualization realms
+        :raises: Cons3rtClientError
+        """
+        vrs = []
+        page_num = 0
+        max_results = 40
+        while True:
+            print('Retrieving virtualization realms for project {i}: page {p}'.format(
+                i=str(project_id), p=str(page_num)))
+            try:
+                page_of_vrs = self.list_virtualization_realms_for_project(
+                    project_id=project_id,
+                    max_results=max_results,
+                    page_num=page_num
+                )
+            except Cons3rtClientError as exc:
+                msg = 'Problem querying CONS3RT for a list of virtualization realms in project ID: {i}, ' \
+                      'page: {p}, max results: {m}'.format(i=str(project_id), p=str(page_num), m=str(max_results))
+                raise Cons3rtClientError(msg) from exc
+            vrs += page_of_vrs
+            if len(page_of_vrs) < max_results:
+                break
+            else:
+                page_num += 1
+            print('Found {n} virtualization realms in project {i}...'.format(n=str(len(vrs)), i=str(project_id)))
+        return vrs
+
+    def list_virtualization_realms_for_team(self, team_id, max_results=40, page_num=0):
+        """Queries CONS3RT for a list of Virtualization Realms for a specified team ID
+
+        :param team_id: (int) project ID to query
+        :param max_results: (int) maximum number of results to retrieve
+        :param page_num: (int) page number to return
+        :return: (list) of virtualization realms
+        """
+        response = self.http_client.http_get(
+            rest_user=self.user,
+            target='teams/{i}/virtualizationrealms?maxresults={m}&page={p}'.format(
+                i=str(team_id),
+                m=str(max_results),
+                p=str(page_num)
+            ))
+        content = self.http_client.parse_response(response=response)
+        vrs = json.loads(content)
+        return vrs
+
+    def list_all_virtualization_realms_for_team(self, team_id):
+        """Returns a list of virtualization realms in the provided team ID
+
+        :param team_id: (int) ID of the team
+        :return: (list) of virtualization realms
+        :raises: Cons3rtClientError
+        """
+        vrs = []
+        page_num = 0
+        max_results = 40
+        while True:
+            print('Retrieving virtualization realms for team {i}: page {p}'.format(
+                i=str(team_id), p=str(page_num)))
+            try:
+                page_of_vrs = self.list_virtualization_realms_for_team(
+                    team_id=team_id,
+                    max_results=max_results,
+                    page_num=page_num
+                )
+            except Cons3rtClientError as exc:
+                msg = 'Problem querying CONS3RT for a list of virtualization realms in team ID: {i}, ' \
+                      'page: {p}, max results: {m}'.format(i=str(team_id), p=str(page_num), m=str(max_results))
+                raise Cons3rtClientError(msg) from exc
+            vrs += page_of_vrs
+            if len(page_of_vrs) < max_results:
+                break
+            else:
+                page_num += 1
+            print('Found {n} virtualization realms in team {i}...'.format(n=str(len(vrs)), i=str(team_id)))
         return vrs
 
     def add_virtualization_realm_admin(self, vr_id, username):
@@ -538,6 +675,35 @@ class Cons3rtClient:
         projects = json.loads(result)
         return projects
 
+    def list_all_projects_in_virtualization_realm(self, vr_id):
+        """Lists all projects in a virtualization realm
+
+        :param vr_id: (int) ID of the virtualization realm
+        :return:
+        """
+        projects = []
+        page_num = 0
+        max_results = 40
+        while True:
+            print('Retrieving projects: page {p}'.format(p=str(page_num)))
+            try:
+                page_of_projects = self.list_projects_in_virtualization_realm(
+                    vr_id=vr_id,
+                    max_results=max_results,
+                    page_num=page_num
+                )
+            except Cons3rtClientError as exc:
+                msg = 'Problem querying CONS3RT for a list of projects in virtualization realm ID: {i}, ' \
+                      'page: {p}, max results: {m}'.format(i=str(vr_id), p=str(page_num), m=str(max_results))
+                raise Cons3rtClientError(msg) from exc
+            projects += page_of_projects
+            if len(page_of_projects) < max_results:
+                break
+            else:
+                page_num += 1
+            print('Found {n} projects...'.format(n=str(len(projects))))
+        return projects
+
     def remove_project_from_virtualization_realm(self, vr_id, project_id):
         response = self.http_client.http_delete(
             rest_user=self.user,
@@ -557,6 +723,38 @@ class Cons3rtClient:
             msg = 'The HTTP response contains a bad status code'
             raise Cons3rtClientError(msg) from exc
         drs = json.loads(result)
+        return drs
+
+    def list_all_deployment_runs_in_virtualization_realm(self, vr_id, search_type='SEARCH_ALL'):
+        """Lists all of the deployment runs in a virtualization realm by page
+
+        :param vr_id: (int) ID of the virtualization realm
+        :param search_type: (str) search type
+        :return: (list) of deployment runs
+        :raises: Cons3rtClientError
+        """
+        drs = []
+        page_num = 0
+        max_results = 40
+        while True:
+            print('Retrieving deployment runs: page {p}'.format(p=str(page_num)))
+            try:
+                page_of_drs = self.list_deployment_runs_in_virtualization_realm(
+                    vr_id=vr_id,
+                    max_results=max_results,
+                    page_num=page_num,
+                    search_type=search_type
+                )
+            except Cons3rtClientError as exc:
+                msg = 'There was a problem querying CONS3RT for a list of runs in virtualization realm ID: {i}, ' \
+                      'page: {p}, max results: {m}'.format(i=str(vr_id), p=str(page_num), m=str(max_results))
+                raise Cons3rtClientError(msg) from exc
+            drs += page_of_drs
+            if len(page_of_drs) < max_results:
+                break
+            else:
+                page_num += 1
+            print('Found {n} deployment runs...'.format(n=str(len(drs))))
         return drs
 
     def list_networks_in_virtualization_realm(self, vr_id):
@@ -812,6 +1010,7 @@ class Cons3rtClient:
         users = []
         page_num = 0
         while True:
+            print('Retrieving users: page {p}'.format(p=str(page_num)))
             target = 'users?maxresults=100&page={p}'.format(p=str(page_num))
             try:
                 response = self.http_client.http_get(
@@ -828,6 +1027,7 @@ class Cons3rtClient:
                 break
             else:
                 page_num += 1
+            print('Found {n} users...'.format(n=str(len(users))))
         return users
 
     def retrieve_software_assets(self, asset_type=None, community=False, category_ids=None, expanded=False,
@@ -1052,10 +1252,10 @@ class Cons3rtClient:
 
         :param asset_id: (int) asset ID
         :param download_file: (str) path to the destination file
-        :return: (str) path to the downloaded asset zip
         :param background: (bool) set True to download in the background and receive an email when ready
         :param overwrite (bool) set True to overwrite the existing file
         :param suppress_status: (bool) Set to True to suppress printing download status
+        :return: (str) path to the downloaded asset zip
         :raises: Cons3rtClientError
         """
         target = 'assets/{i}/download'.format(i=str(asset_id))
@@ -1070,3 +1270,35 @@ class Cons3rtClient:
             msg = 'Problem downloading asset ID: {a}'.format(a=str(asset_id))
             raise Cons3rtClientError(msg) from exc
         return asset_zip
+
+    def perform_host_action(self, dr_id, dr_host_id, action, cpu=None, ram=None):
+        """Performs the provided host action on the host ID
+
+        :param dr_id: (int) ID of the deployment run
+        :param dr_host_id: (int) ID of the deployment run host
+        :param action: (str) host action to perform
+        :param cpu: (int) number of CPUs if the action if the action is resize
+        :param ram: (int) amount of ram in megabytes if the action is resize
+        :return: None
+        :raises Cons3rtClientError
+        """
+        target = 'drs/{i}/hostaction?deploymentrunhostid={r}&action={a}'.format(
+            i=str(dr_id), r=dr_host_id, a=action)
+        if action == 'RESIZE':
+            if not cpu:
+                raise Cons3rtClientError('Action RESIZE must include a value for cpu')
+            if not ram:
+                raise Cons3rtClientError('Action RESIZE must include a value for ram')
+            target += '&cpu={c}&ram={r}'.format(c=str(cpu), r=str(ram))
+        try:
+            response = self.http_client.http_put(rest_user=self.user, target=target)
+        except Cons3rtClientError as exc:
+            msg = 'Problem performing host action {a} on DR {i} host {h} '.format(
+                a=action, i=str(dr_id), h=str(dr_host_id))
+            raise Cons3rtClientError(msg) from exc
+        # Check the response
+        try:
+            self.http_client.parse_response(response=response)
+        except Cons3rtClientError as exc:
+            msg = 'The HTTP response contains a bad status code'
+            raise Cons3rtClientError(msg) from exc

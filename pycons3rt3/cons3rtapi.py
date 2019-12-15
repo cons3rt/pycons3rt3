@@ -1,5 +1,6 @@
 #!/usr/bin/env python
 
+import datetime
 import json
 import logging
 import os
@@ -623,6 +624,61 @@ class Cons3rtApi(object):
             raise Cons3rtApiError(msg) from exc
         return team_details
 
+    def list_projects_in_team(self, team_id):
+        """Returns a list of project IDs
+
+        :param team_id: (int) ID of the team
+        :return: (list) of dict containing owned project data
+        """
+        log = logging.getLogger(self.cls_logger + '.list_projects_in_team')
+
+        # Ensure the team_id is an int
+        if not isinstance(team_id, int):
+            try:
+                team_id = int(team_id)
+            except ValueError as exc:
+                msg = 'team_id arg must be an Integer, found: {t}'.format(t=team_id.__class__.__name__)
+                raise Cons3rtApiError(msg) from exc
+
+        # Get team details
+        log.info('Getting details for team ID: {i}'.format(i=str(team_id)))
+        try:
+            team_details = self.get_team_details(team_id=team_id)
+        except Cons3rtApiError as exc:
+            raise Cons3rtApiError('Problem getting details for team ID: {i}'.format(i=str(team_id))) from exc
+
+        # Get the team name
+        team_name = 'unknown'
+        if 'name' not in team_details:
+            log.warning('name not found in team details')
+        else:
+            team_name = team_details['name']
+
+        # Get the owned projects, return empy list if not provided
+        owned_projects = []
+        if 'ownedProjects' not in team_details:
+            log.info('No owned projects found in team [{n}] with ID: {i}'.format(n=team_name, i=str(team_id)))
+            return owned_projects
+
+        # Ensure owned_projects is a list
+        if not isinstance(team_details['ownedProjects'], list):
+            raise Cons3rtApiError('ownedProjects expected to be a list, found: {t}'.format(
+                t=team_details['ownedProjects'].__class__.__name__))
+
+        for owned_project in team_details['ownedProjects']:
+            if 'id' not in owned_project:
+                log.warning('id not found in owned project: {p}'.format(p=str(owned_project)))
+                continue
+            if 'name' not in owned_project:
+                log.warning('name not found in owned project: {p}'.format(p=str(owned_project)))
+                continue
+            log.info('Found owned project [{n}] with ID: {i}'.format(
+                n=owned_project['name'], i=str(owned_project['id'])))
+            owned_projects.append(owned_project)
+        log.info('Found {n} projects owned by team [{t}] with ID: {i}'.format(
+            n=str(len(owned_projects)), t=team_name, i=str(team_id)))
+        return owned_projects
+
     def get_system_details(self, system_id):
         """Query CONS3RT to retrieve system details
 
@@ -802,30 +858,33 @@ class Cons3rtApi(object):
         # Attempt to get a list of deployment runs
         log.info('Attempting to get a list of deployment runs with search_type {s} in '
                  'virtualization realm ID: {i}'.format(i=str(vr_id), s=search_type))
-
-        drs = []
-        page_num = 0
-        max_results = 40
-        while True:
-            log.debug('Attempting to list runs in virtualization realm ID: {i}, page: {p}, max results: {m}'.format(
-                i=str(vr_id), p=str(page_num), m=str(max_results)))
-            try:
-                page_of_drs = self.cons3rt_client.list_deployment_runs_in_virtualization_realm(
-                    vr_id=vr_id,
-                    max_results=max_results,
-                    page_num=page_num,
-                    search_type=search_type
-                )
-            except Cons3rtClientError as exc:
-                msg = 'There was a problem querying CONS3RT for a list of runs in virtualization realm ID: {i}, ' \
-                      'page: {p}, max results: {m}'.format(i=str(vr_id), p=str(page_num), m=str(max_results))
-                raise Cons3rtClientError(msg) from exc
-            drs += page_of_drs
-            if len(page_of_drs) < max_results:
-                break
-            else:
-                page_num += 1
+        try:
+            drs = self.cons3rt_client.list_all_deployment_runs_in_virtualization_realm(
+                vr_id=vr_id,
+                search_type=search_type
+            )
+        except Cons3rtClientError as exc:
+            msg = 'Problem listing runs in virtualization realm ID: {i} with search type {t}'.format(
+                i=str(vr_id), t=search_type)
+            raise Cons3rtClientError(msg) from exc
         log.info('Found {n} runs in virtualization realm ID: {i}'.format(n=str(len(drs)), i=str(vr_id)))
+        return drs
+
+    def list_active_deployment_runs_in_virtualization_realm(self, vr_id):
+        """Query CONS3RT to return a list of active deployment runs in a virtualization realm
+
+        :param: vr_id: (int) virtualization realm ID
+        :return: (list) of deployment runs
+        :raises: Cons3rtApiError
+        """
+        try:
+            drs = self.list_deployment_runs_in_virtualization_realm(
+                vr_id=vr_id,
+                search_type='SEARCH_ACTIVE'
+            )
+        except Cons3rtApiError as exc:
+            raise Cons3rtApiError('Problem retrieving active runs from virtualization realm ID: {i}'.format(
+                i=str(vr_id))) from exc
         return drs
 
     def retrieve_deployment_run_details(self, dr_id):
@@ -865,10 +924,44 @@ class Cons3rtApi(object):
         log = logging.getLogger(self.cls_logger + '.list_virtualization_realms_for_cloud')
         log.info('Attempting to list virtualization realms for cloud ID: {i}'.format(i=cloud_id))
         try:
-            vrs = self.cons3rt_client.list_virtualization_realms_for_cloud(cloud_id=cloud_id)
+            vrs = self.cons3rt_client.list_all_virtualization_realms_for_cloud(cloud_id=cloud_id)
         except Cons3rtClientError as exc:
             msg = 'Unable to query CONS3RT for a list of Virtualization Realms for Cloud ID: {c}'.format(
                 c=cloud_id)
+            raise Cons3rtApiError(msg) from exc
+        return vrs
+
+    def list_virtualization_realms_for_project(self, project_id):
+        """Query CONS3RT to return a list of VRs for a specified Cloud ID
+
+        :param project_id: (int) project ID
+        :return: (list) of Virtualization Realm data
+        :raises: Cons3rtApiError
+        """
+        log = logging.getLogger(self.cls_logger + '.list_virtualization_realms_for_project')
+        log.info('Attempting to list virtualization realms for project ID: {i}'.format(i=project_id))
+        try:
+            vrs = self.cons3rt_client.list_all_virtualization_realms_for_project(project_id=project_id)
+        except Cons3rtClientError as exc:
+            msg = 'Unable to query CONS3RT for a list of Virtualization Realms for project ID: {c}'.format(
+                c=project_id)
+            raise Cons3rtApiError(msg) from exc
+        return vrs
+
+    def list_virtualization_realms_for_team(self, team_id):
+        """Query CONS3RT to return a list of VRs for a specified team ID
+
+        :param team_id: (int) team ID
+        :return: (list) of Virtualization Realm data
+        :raises: Cons3rtApiError
+        """
+        log = logging.getLogger(self.cls_logger + '.list_virtualization_realms_for_team')
+        log.info('Attempting to list virtualization realms for team ID: {i}'.format(i=team_id))
+        try:
+            vrs = self.cons3rt_client.list_all_virtualization_realms_for_team(team_id=team_id)
+        except Cons3rtClientError as exc:
+            msg = 'Unable to query CONS3RT for a list of Virtualization Realms for team ID: {c}'.format(
+                c=team_id)
             raise Cons3rtApiError(msg) from exc
         return vrs
 
@@ -1028,7 +1121,6 @@ class Cons3rtApi(object):
             except ValueError as exc:
                 msg = 'asset_id arg must be an Integer'
                 raise Cons3rtApiError(msg) from exc
-
 
         #  Ensure the asset_zip_file arg is a string
         if not isinstance(visibility, str):
@@ -2167,7 +2259,7 @@ class Cons3rtApi(object):
         """From deployment properties on this host, gets the run ID
 
         :return: None
-        :raises: Cons3rtClientError
+        :raises: Cons3rtApiError
         """
         log = logging.getLogger(self.cls_logger + '.release_myself')
         log.info('Attempting to release this run...')
@@ -2180,8 +2272,191 @@ class Cons3rtApi(object):
         """From deployment properties on this host, gets the run ID and attempts to self-release
 
         :return: None
-        :raises: Cons3rtClientError
+        :raises: Cons3rtApiError
         """
         log = logging.getLogger(self.cls_logger + '.release_myself')
         log.info('Attempting to release this run...')
         dep = Deployment()
+
+    def list_hosts_in_run(self, dr_id):
+        """Returns a list of host in a deployment run
+
+        :param dr_id: (int) ID of the deployment run
+        :return: (list) of host dict data in the provided deployment run ID
+        :raises: Cons3rtApiError
+        """
+        log = logging.getLogger(self.cls_logger + '.list_hosts_in_run')
+
+        # Ensure the dr_id is an int
+        if not isinstance(dr_id, int):
+            try:
+                dr_id = int(dr_id)
+            except ValueError as exc:
+                msg = 'dr_id arg must be an Integer, found: {t}'.format(t=dr_id.__class__.__name__)
+                raise Cons3rtApiError(msg) from exc
+
+        log.info('Retrieving details on run ID: {i}'.format(i=str(dr_id)))
+        try:
+            dr_details = self.retrieve_deployment_run_details(dr_id=dr_id)
+        except Cons3rtApiError as exc:
+            raise Cons3rtApiError('Problem retrieving details on run ID: {i}'.format(i=str(dr_id))) from exc
+
+        if 'deploymentRunHosts' not in dr_details:
+            raise Cons3rtApiError('deploymentRunHosts not found in run details: {d}'.format(d=str(dr_details)))
+
+        if not isinstance(dr_details['deploymentRunHosts'], list):
+            raise Cons3rtApiError('expected deploymentRunHosts to be a list, found: {t}'.format(
+                t=dr_details['deploymentRunHosts'].__class__.__name__))
+
+        hosts = []
+        for run_host in dr_details['deploymentRunHosts']:
+            if 'id' not in run_host:
+                log.warning('id not found in run host details: {d}'.format(d=run_host))
+                continue
+            hosts.append(run_host)
+        log.info('Found {n} IDs in DR ID: {i}'.format(n=str(len(hosts)), i=str(dr_id)))
+        return hosts
+
+    def perform_host_action(self, dr_id, dr_host_id, action, cpu=None, ram=None):
+        """Performs the provided host action on the host ID
+
+        :param dr_id: (int) ID of the deployment run
+        :param dr_host_id: (int) ID of the deployment run host
+        :param action: (str) host action to perform
+        :param cpu: (int) number of CPUs if the action if the action is resize
+        :param ram: (int) amount of ram in megabytes if the action is resize
+        :return: None
+        :raises Cons3rtApiError
+        """
+        log = logging.getLogger(self.cls_logger + '.perform_host_action')
+
+        # Ensure the dr_id is an int
+        if not isinstance(dr_id, int):
+            try:
+                dr_id = int(dr_id)
+            except ValueError as exc:
+                msg = 'dr_id arg must be an Integer, found: {t}'.format(t=dr_id.__class__.__name__)
+                raise Cons3rtApiError(msg) from exc
+
+        # Ensure the dr_host_id is an int
+        if not isinstance(dr_host_id, int):
+            try:
+                dr_host_id = int(dr_host_id)
+            except ValueError as exc:
+                msg = 'dr_host_id arg must be an Integer, found: {t}'.format(t=dr_host_id.__class__.__name__)
+                raise Cons3rtApiError(msg) from exc
+
+        # Ensure action is a string
+        if not isinstance(action, str):
+            msg = 'action arg must be an string, found: {t}'.format(t=action.__class__.__name__)
+            raise Cons3rtApiError(msg)
+
+        # Ensure CPU and RAM provided for RESIZE action
+        if action == 'RESIZE':
+            if not cpu:
+                raise Cons3rtApiError('Action RESIZE must include a value for cpu')
+            if not ram:
+                raise Cons3rtApiError('Action RESIZE must include a value for ram')
+
+        # Perform the host action
+        log.info('Performing [{a}] on DR ID {r} host ID: {h}...'.format(
+            a=action, r=str(dr_id), h=str(dr_host_id)))
+        try:
+            self.cons3rt_client.perform_host_action(
+                dr_id=dr_id,
+                dr_host_id=dr_host_id,
+                action=action,
+                cpu=cpu,
+                ram=ram
+            )
+        except Cons3rtClientError as exc:
+            msg = 'Problem performing action [{a}] on DR ID {r} host ID: {h}'.format(
+                a=action, r=str(dr_id), h=str(dr_host_id))
+            raise Cons3rtApiError(msg) from exc
+        log.info('Completed [{a}] on DR ID {r} host ID: {h}'.format(a=action, r=str(dr_id), h=str(dr_host_id)))
+
+    def perform_host_action_for_run(self, dr_id, action, cpu=None, ram=None):
+        """Performs the provided host action on the dr_id
+
+        :param dr_id: (int) ID of the deployment run
+        :param action: (str) host action to perform
+        :param cpu: (int) number of CPUs if the action if the action is resize
+        :param ram: (int) amount of ram in megabytes if the action is resize
+        :return: (list) of dict data on request results
+        :raises Cons3rtApiError
+        """
+        log = logging.getLogger(self.cls_logger + '.perform_host_action_for_run')
+        log.info('Getting a list of host IDs in run: {i}'.format(i=str(dr_id)))
+        try:
+            hosts = self.list_hosts_in_run(dr_id=dr_id)
+        except Cons3rtApiError as exc:
+            raise Cons3rtApiError('Problem listing hosts in run: {i}'.format(i=str(dr_id))) from exc
+
+        log.info('Retrieving the deployment run details...')
+        try:
+            dr_info = self.retrieve_deployment_run_details(dr_id=dr_id)
+        except Cons3rtApiError as exc:
+            raise Cons3rtApiError('Problem retrieving details of run: {i}'.format(i=str(dr_id))) from exc
+
+        # Set the host action delay higher for vCloud and OpenStack
+        host_action_delay_sec = 5
+        vr_type = None
+        if 'virtualizationRealm' in dr_info:
+            if 'virtualizationRealmType' in dr_info['virtualizationRealm']:
+                vr_type = dr_info['virtualizationRealm']['virtualizationRealmType']
+                if vr_type == 'VCloud' or vr_type == 'OpenStack':
+                    host_action_delay_sec = 60
+        log.info('Found virtualization realm type: {t}'.format(t=vr_type))
+        log.info('Using host action delay: {s} sec'.format(s=str(host_action_delay_sec)))
+        results = []
+
+        # Perform actions on each host ID
+        for host in hosts:
+            request_info = {
+                'dr_id': dr_id,
+                'dr_name': dr_info['name'],
+                'host_id': host['id'],
+                'host_role': host['systemRole'],
+                'action': action,
+                'request_time': datetime.datetime.now().strftime('%Y%m%d-%H%M%S')
+            }
+            try:
+                self.perform_host_action(
+                    dr_id=dr_id,
+                    dr_host_id=host['id'],
+                    action=action,
+                    cpu=cpu,
+                    ram=ram
+                )
+            except Cons3rtApiError as exc:
+                err_msg = 'Problem performing host action [{a}] on host ID: {i}\n{e}'.format(
+                    a=action, i=str(host['id']), e=str(exc))
+                log.warning(err_msg)
+                request_info['err_msg'] = err_msg
+                request_info['result'] = 'FAIL'
+                continue
+            else:
+                request_info['err_msg'] = 'None'
+                request_info['result'] = 'OK'
+            results.append(request_info)
+            log.info('Waiting {s} sec to perform the next host action for run ID {i}...'.format(
+                s=str(host_action_delay_sec), i=str(dr_id)))
+            time.sleep(host_action_delay_sec)
+        log.info('Completed host action [{a}] on run ID: {i}'.format(a=action, i=str(dr_id)))
+        return results
+
+    def create_run_snapshots(self, dr_id):
+        """Attempts to creates snapshots for all hosts in the provided DR ID
+
+        :param dr_id: (int) ID of the deployment run
+        :return: (list) of dict data on request results
+        :raises Cons3rtApiError
+        """
+        try:
+            results = self.perform_host_action_for_run(
+                dr_id=dr_id,
+                action='CREATE_SNAPSHOT'
+            )
+        except Cons3rtApiError as exc:
+            raise Cons3rtApiError('Problem creating snapshot for run ID: {i}'.format(i=str(dr_id))) from exc
+        return results
