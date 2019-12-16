@@ -350,6 +350,7 @@ def make_asset_zip(asset_dir_path, destination_directory=None):
                         'External media file not found: {f}'.format(f=local_media_file)
                     )
                 shutil.copy2(local_media_file, media_dir)
+                print('Staged media file: {f}'.format(f=local_media_file))
                 media_files_copied.append(local_media_file)
 
     # Attempt to create the zip
@@ -601,8 +602,7 @@ def import_update(asset_dir, dest_dir, visibility=None, import_only=False):
             traceback.print_exc()
             return 1
         print('Set visibility for asset ID {i} to: {v}'.format(i=str(asset_data['asset_id']), v=visibility))
-    print('Completed import/update for asset {n} with ID: {i}'.format(
-        n=asset_data['asset_id'], i=str(asset_info.asset_id)))
+    print('Completed import/update for asset ID: {i}'.format(i=str(asset_info.asset_id)))
     return 0
 
 
