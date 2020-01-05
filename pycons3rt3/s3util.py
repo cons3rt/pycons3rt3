@@ -21,6 +21,7 @@ import time
 
 import boto3
 from botocore.client import ClientError
+from botocore.exceptions import EndpointConnectionError
 
 from .logify import Logify
 from .exceptions import S3UtilError
@@ -85,7 +86,7 @@ class S3Util(object):
                      self.bucket_name, count, max_tries)
             try:
                 self.s3client.head_bucket(Bucket=self.bucket_name)
-            except ClientError as exc:
+            except (ClientError, EndpointConnectionError) as exc:
                 error_code = int(exc.response['Error']['Code'])
                 log.debug(
                     'Connecting to bucket %s produced response code: %s',
