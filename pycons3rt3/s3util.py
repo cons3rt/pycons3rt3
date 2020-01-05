@@ -17,6 +17,7 @@ Classes:
 import logging
 import re
 import os
+import socket
 import time
 
 import boto3
@@ -86,7 +87,7 @@ class S3Util(object):
                      self.bucket_name, count, max_tries)
             try:
                 self.s3client.head_bucket(Bucket=self.bucket_name)
-            except (ClientError, EndpointConnectionError) as exc:
+            except ClientError as exc:
                 error_code = int(exc.response['Error']['Code'])
                 log.debug(
                     'Connecting to bucket %s produced response code: %s',
@@ -106,6 +107,10 @@ class S3Util(object):
                 else:
                     msg = 'Connecting to S3 bucket {b} returned code: {c}'.format(b=self.bucket_name, c=error_code)
                     raise S3UtilError(msg) from exc
+            except EndpointConnectionError as exc:
+                raise S3UtilError from exc
+            except socket.gaierror as exc:
+                raise S3UtilError from exc
             else:
                 log.info('Found bucket: %s', self.bucket_name)
                 return
