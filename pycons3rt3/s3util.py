@@ -23,6 +23,7 @@ import time
 import boto3
 from botocore.client import ClientError
 from botocore.exceptions import EndpointConnectionError
+from s3transfer.exceptions import RetriesExceededError
 
 from .logify import Logify
 from .exceptions import S3UtilError
@@ -126,7 +127,8 @@ class S3Util(object):
         :param key: (str) S3 key for the file to be downloaded
         :param dest_dir: (str) Full path destination directory
         :return: (str) Downloaded file destination if the file was
-            downloaded successfully, None otherwise.
+            downloaded successfully, None otherwise
+        :raises: S3UtilError
         """
         log = logging.getLogger(self.cls_logger + '.__download_from_s3')
         filename = key.split('/')[-1]
@@ -139,14 +141,14 @@ class S3Util(object):
         max_tries = 10
         count = 1
         while count <= max_tries:
-            log.info('Attempting to download file %s, try %s of %s', key,
-                     count, max_tries)
+            log.info('Attempting to download file %s, try %s of %s', key, count, max_tries)
             try:
                 self.s3client.download_file(
                     Bucket=self.bucket_name, Key=key, Filename=destination)
-            except ClientError as exc:
+            except (ClientError, RetriesExceededError) as exc:
                 if count >= max_tries:
-                    msg = 'Unable to download key {k} from S3 bucket {b}'.format(k=key, b=self.bucket_name)
+                    msg = 'Unable to download key [{k}] from S3 bucket [{b}] after {n} attempts'.format(
+                        k=key, b=self.bucket_name, n=str(max_tries))
                     raise S3UtilError(msg) from exc
                 else:
                     log.warning('Download failed, re-trying...\n{e}'.format(e=str(exc)))
@@ -172,6 +174,7 @@ class S3Util(object):
         :param dest_dir: (str) Full path destination directory
         :return: (str) Downloaded file destination if the file was
             downloaded successfully, None otherwise.
+        :raises: S3UtilError
         """
         log = logging.getLogger(self.cls_logger + '.download_file_by_key')
         if not isinstance(key, str):
@@ -185,8 +188,8 @@ class S3Util(object):
             return None
         try:
             dest_path = self.__download_from_s3(key, dest_dir)
-        except S3UtilError:
-            raise
+        except S3UtilError as exc:
+            raise S3UtilError('Problem downloading S3 key: {k}'.format(k=key)) from exc
         return dest_path
 
     def download_file(self, regex, dest_dir):
@@ -217,7 +220,11 @@ class S3Util(object):
         if key is None:
             log.warning('Could not find a matching S3 key for: %s', regex)
             return None
-        return self.__download_from_s3(key, dest_dir)
+        try:
+            dest_path = self.__download_from_s3(key, dest_dir)
+        except S3UtilError as exc:
+            raise S3UtilError('Problem downloading S3 key: {k}'.format(k=key)) from exc
+        return dest_path
 
     def find_key(self, regex):
         """Attempts to find a single S3 key based on the passed regex
