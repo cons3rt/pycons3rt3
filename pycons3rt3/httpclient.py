@@ -392,20 +392,34 @@ class Client:
 
     def parse_response(self, response):
         log = logging.getLogger(self.cls_logger + '.parse_response')
-        log.debug('Parsing response with content: {s}'.format(s=response.content))
-        if response.status_code == requests.codes.ok:
-            log.debug('Received an OK HTTP Response Code!')
-            return response.content
-        elif response.status_code == 202:
-            log.debug('Received an ACCEPTED HTTP Response Code!')
-            return response.content
+
+        # Determine is there is content and if it needs to be decoded
+        if response.content:
+            log.debug('Parsing response with content: {s}'.format(s=response.content))
+            if isinstance(response.content, bytes):
+                log.debug('Decoding bytes: {b}'.format(b=response.content))
+                decoded_content = response.content.decode('utf-8')
+            else:
+                decoded_content = response.content
         else:
+            decoded_content = None
+
+        # Raise an exception if a bad HTTP code was received
+        if response.status_code not in [requests.codes.ok, 202]:
             msg = 'Received HTTP code [{n}] with headers:\n{h}'.format(
                 n=str(response.status_code), h=response.headers)
-            if response.content:
-                msg += '\nand content:\n{c}'.format(c=response.content)
+            if decoded_content:
+                msg += '\nand content:\n{c}'.format(c=decoded_content)
             log.warning(msg)
             raise Cons3rtClientError(msg)
+
+        # Return the decoded content
+        if response.status_code == requests.codes.ok:
+            log.debug('Received an OK HTTP Response Code')
+        elif response.status_code == 202:
+            log.debug('Received an ACCEPTED HTTP Response Code (202)')
+        log.debug('Parsed decoded content: {c}'.format(c=decoded_content))
+        return decoded_content
 
     def http_download(self, rest_user, target, download_file, overwrite=True, suppress_status=True):
         """Runs an HTTP GET request to the CONS3RT ReST API
