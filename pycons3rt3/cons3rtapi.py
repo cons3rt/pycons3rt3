@@ -135,12 +135,17 @@ class Cons3rtApi(object):
         # Check for root CA certificate bundle path
         if 'root_ca_bundle' in self.config_data.keys():
             root_ca_bundle_path = self.config_data['root_ca_bundle']
-            # Ensure the root_ca_bundle points to an actual file
-            if not os.path.isfile(root_ca_bundle_path):
-                msg = 'config.json provided a root_ca_bundle, but the cert file was not found: {f}'.format(
-                    f=root_ca_bundle_path)
-                raise Cons3rtApiError(msg)
-            log.info('Found root CA certificate file: {f}'.format(f=root_ca_bundle_path))
+
+            if root_ca_bundle_path.lower() == 'false':
+                log.warning('WARNING: Found root_ca_bundle set to False, will not verify SSL connections')
+                root_ca_bundle_path = False
+            else:
+                # Ensure the root_ca_bundle points to an actual file
+                if not os.path.isfile(root_ca_bundle_path):
+                    msg = 'config.json provided a root_ca_bundle, but the cert file was not found: {f}'.format(
+                        f=root_ca_bundle_path)
+                    raise Cons3rtApiError(msg)
+                log.info('Found root CA certificate file: {f}'.format(f=root_ca_bundle_path))
         else:
             root_ca_bundle_path = None
 
