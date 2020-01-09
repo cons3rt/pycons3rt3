@@ -132,7 +132,19 @@ class Cons3rtApi(object):
                     f=cert_file_path))
             log.info('Found certificate file: {f}'.format(f=cert_file_path))
 
-        # Ensure that either a username or cert_file_path was found
+        # Check for root CA certificate bundle path
+        if 'root_ca_bundle' in self.config_data.keys():
+            root_ca_bundle_path = self.config_data['root_ca_bundle']
+            # Ensure the root_ca_bundle points to an actual file
+            if not os.path.isfile(root_ca_bundle_path):
+                msg = 'config.json provided a root_ca_bundle, but the cert file was not found: {f}'.format(
+                    f=root_ca_bundle_path)
+                raise Cons3rtApiError(msg)
+            log.info('Found root CA certificate file: {f}'.format(f=root_ca_bundle_path))
+        else:
+            root_ca_bundle_path = None
+
+            # Ensure that either a username or cert_file_path was found
         if username is None and cert_file_path is None:
             raise Cons3rtApiError('The config.json file must contain values for either name or cert')
 
@@ -158,9 +170,19 @@ class Cons3rtApi(object):
 
             # Create a cert-based auth or username-based auth user depending on the config
             if cert_file_path:
-                self.user_list.append(RestUser(token=token, project=project_name, cert_file_path=cert_file_path))
+                self.user_list.append(RestUser(
+                    token=token,
+                    project=project_name,
+                    cert_file_path=cert_file_path,
+                    cert_bundle=root_ca_bundle_path
+                ))
             elif username:
-                self.user_list.append(RestUser(token=token, project=project_name, username=username))
+                self.user_list.append(RestUser(
+                    token=token,
+                    project=project_name,
+                    username=username,
+                    cert_bundle=root_ca_bundle_path
+                ))
 
         # Ensure that at least one valid project/token was found
         if len(self.user_list) < 1:

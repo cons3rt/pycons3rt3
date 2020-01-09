@@ -109,6 +109,16 @@ def manual_config():
 
         cons3rt_config['name'] = username_input.strip()
 
+    # Collect root CA cert bundle path if needed
+    root_ca_certs_input = input('If a root CA certificate if needed, enter full path to the file in pem format '
+                                '(press enter to skip: ')
+    if root_ca_certs_input:
+        if not os.path.isfile(root_ca_certs_input):
+            print('ERROR: Your root CA certificate bundle was not found: {c}'.format(c=root_ca_certs_input))
+            return 1
+        else:
+            cons3rt_config['root_ca_bundle'] = root_ca_certs_input
+
     # Get the Project
     project_input = input('Enter your CONS3RT project name: ')
 
