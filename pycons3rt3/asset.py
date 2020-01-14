@@ -602,7 +602,7 @@ def import_update(asset_dir, dest_dir, visibility=None, import_only=False):
             traceback.print_exc()
             return 1
         print('Set visibility for asset ID {i} to: {v}'.format(i=str(asset_data['asset_id']), v=visibility))
-    print('Completed import/update for asset ID: {i}'.format(i=str(asset_info.asset_id)))
+    print('Completed import/update for asset ID: {i}'.format(i=str(asset_data['asset_id'])))
     return 0
 
 
@@ -857,7 +857,7 @@ def main():
         return 4
 
     # Set visibility
-    visibility = 'OWNER'
+    visibility = None
     if args.visibility:
         visibility = args.visibility
 

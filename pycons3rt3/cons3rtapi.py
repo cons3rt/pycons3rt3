@@ -147,7 +147,8 @@ class Cons3rtApi(object):
                     raise Cons3rtApiError(msg)
                 log.info('Found root CA certificate file: {f}'.format(f=root_ca_bundle_path))
         else:
-            root_ca_bundle_path = None
+            log.info('Using the built-in root certificates for server-side SSL verification')
+            root_ca_bundle_path = True
 
             # Ensure that either a username or cert_file_path was found
         if username is None and cert_file_path is None:
