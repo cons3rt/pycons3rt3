@@ -1060,18 +1060,18 @@ class Cons3rtApi(object):
             try:
                 asset_id = int(asset_id)
             except ValueError as exc:
-                msg = 'asset_id arg must be an Integer'
-                raise ValueError(msg) from exc
+                msg = 'asset_id arg must be an Integer, found: {t}'.format(t=asset_zip_file.__class__.__name__)
+                raise Cons3rtApiError(msg) from exc
 
         #  Ensure the asset_zip_file arg is a string
         if not isinstance(asset_zip_file, str):
-            msg = 'The json_file arg must be a string'
-            raise ValueError(msg)
+            msg = 'The asset_zip_file arg must be a string, found: {t}'.format(t=asset_zip_file.__class__.__name__),
+            raise Cons3rtApiError(msg)
 
         # Ensure the asset_zip_file file exists
         if not os.path.isfile(asset_zip_file):
             msg = 'Asset zip file file not found: {f}'.format(f=asset_zip_file)
-            raise OSError(msg)
+            raise Cons3rtApiError(msg)
 
         # Attempt to update the asset ID
         try:
