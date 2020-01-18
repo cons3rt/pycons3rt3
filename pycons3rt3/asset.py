@@ -539,7 +539,7 @@ def update_asset(cons3rt_api, asset_info):
     return True
 
 
-def import_update(asset_dir, dest_dir, visibility=None, import_only=False):
+def import_update(asset_dir, dest_dir, visibility=None, import_only=False, log_level=None):
     """Creates an asset zip, and attempts to import/update the asset
 
     :param asset_dir: (str) path to asset directory
@@ -548,7 +548,8 @@ def import_update(asset_dir, dest_dir, visibility=None, import_only=False):
     :param import_only: (bool) Whe True, import even if an existing ID is found
     :return: (int) 0 = Success, non-zero otherwise
     """
-    Logify.set_log_level(log_level='WARNING')
+    if log_level:
+        Logify.set_log_level(log_level=log_level)
     try:
         asset_info = make_asset_zip(asset_dir_path=asset_dir, destination_directory=dest_dir)
     except AssetZipCreationError as exc:
@@ -867,13 +868,14 @@ def main():
     if command == 'create':
         res = create(asset_dir=asset_dir, dest_dir=dest_dir)
     elif command == 'import':
-        res = import_update(asset_dir=asset_dir, dest_dir=dest_dir, import_only=True, visibility=visibility)
+        res = import_update(asset_dir=asset_dir, dest_dir=dest_dir, import_only=True, visibility=visibility,
+                            log_level='WARNING')
     elif command == 'query':
         res = query_assets_args(args)
     elif command == 'queryids':
         res = query_assets_args(args, id_only=True)
     elif command == 'update':
-        res = import_update(asset_dir=asset_dir, dest_dir=dest_dir, visibility=visibility)
+        res = import_update(asset_dir=asset_dir, dest_dir=dest_dir, visibility=visibility, log_level='WARNING')
     elif command == 'validate':
         res = validate(asset_dir=asset_dir)
     return res

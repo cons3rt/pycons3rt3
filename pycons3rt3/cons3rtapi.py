@@ -69,7 +69,7 @@ class Scenario(object):
 
 class Cons3rtApi(object):
 
-    def __init__(self, url=None, base_dir=None, user=None, config_file=cons3rtapi_config_file, project=None):
+    def __init__(self, url=None, base_dir=None, user=None, config_file=None, project=None):
         self.cls_logger = mod_logger + '.Cons3rtApi'
         self.user = user
         self.url_base = url
@@ -79,7 +79,10 @@ class Cons3rtApi(object):
         self.timeout = ''
         self.queries = ''
         self.virtrealm = ''
-        self.config_file = config_file
+        if not config_file:
+            self.config_file = cons3rtapi_config_file
+        else:
+            self.config_file = config_file
         self.config_data = {}
         self.user_list = []
         if self.user is None:
@@ -1060,7 +1063,7 @@ class Cons3rtApi(object):
             try:
                 asset_id = int(asset_id)
             except ValueError as exc:
-                msg = 'asset_id arg must be an Integer, found: {t}'.format(t=asset_zip_file.__class__.__name__)
+                msg = 'asset_id arg must be an Integer, found: {t}'.format(t=asset_id.__class__.__name__)
                 raise Cons3rtApiError(msg) from exc
 
         #  Ensure the asset_zip_file arg is a string
