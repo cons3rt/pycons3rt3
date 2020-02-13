@@ -3,7 +3,7 @@ botocore
 cryptography
 netifaces
 jinja2
-PyYAML
+PyYAML==5.2
 requests
 requests[security]
 requests_toolbelt
