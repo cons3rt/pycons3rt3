@@ -112,6 +112,20 @@ class SlackMessage(object):
         self.payload['icon_url'] = icon_url
         log.debug('Set Icon URL to: {u}'.format(u=icon_url))
 
+    def set_channel(self, channel):
+        """Sets the channel for the message
+
+        :param channel: (str) Slack channel name
+        :return: None
+        """
+        log = logging.getLogger(self.cls_logger + '.set_channel')
+        if not isinstance(channel, str):
+            msg = 'channel arg must be a string'
+            log.error(msg)
+            raise ValueError(msg)
+        self.payload['channel'] = channel
+        log.debug('Set channel to: {c}'.format(c=channel))
+
     def add_attachment(self, attachment):
         """Adds an attachment to the SlackMessage payload
 
