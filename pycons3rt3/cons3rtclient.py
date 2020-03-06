@@ -711,6 +711,18 @@ class Cons3rtClient:
         result = self.http_client.parse_response(response=response)
         return result
 
+    def list_deployment_runs_for_deployment(self, deployment_id):
+        response = self.http_client.http_get(
+            rest_user=self.user,
+            target='deployments/{i}/runs'.format(i=str(deployment_id)))
+        try:
+            result = self.http_client.parse_response(response=response)
+        except Cons3rtClientError as exc:
+            msg = 'The HTTP response contains a bad status code'
+            raise Cons3rtClientError(msg) from exc
+        drs = json.loads(result)
+        return drs
+
     def list_deployment_runs_in_virtualization_realm(self, vr_id, search_type='SEARCH_ALL', max_results=40, page_num=0):
         response = self.http_client.http_get(
             rest_user=self.user,

@@ -854,6 +854,65 @@ class Cons3rtApi(object):
             raise Cons3rtApiError(msg) from exc
         return deployment_bindings
 
+    def list_deployment_runs_for_deployment(self, deployment_id):
+        """Query CONS3RT to return a list of deployment runs for a deployment
+
+        :param: deployment_id: (int) deployment ID
+        :returns: (list) of deployment runs
+        :raises: Cons3rtApiError
+        """
+        log = logging.getLogger(self.cls_logger + '.list_deployment_runs_for_deployment')
+
+        # Ensure the deployment_id is an int
+        if not isinstance(deployment_id, int):
+            try:
+                deployment_id = int(deployment_id)
+            except ValueError as exc:
+                msg = 'deployment_id arg must be an Integer, found: {t}'.format(t=deployment_id.__class__.__name__)
+                raise Cons3rtApiError(msg) from exc
+
+        try:
+            drs = self.cons3rt_client.list_deployment_runs_for_deployment(deployment_id=deployment_id)
+        except Cons3rtClientError as exc:
+            msg = 'Problem listing runs for deployment ID: {i}'.format(i=str(deployment_id))
+            raise Cons3rtClientError(msg) from exc
+        log.info('Found {n} runs for deployment ID: {i}'.format(n=str(len(drs)), i=str(deployment_id)))
+        return drs
+
+    def get_active_run_id_from_deployment(self, deployment_id):
+        """Given a deployment ID, determine its active run ID
+
+        :param: deployment_id: (int) deployment ID
+        :returns: (int) run ID or None if no active run exists
+        :raises: Cons3rtApiError
+        """
+        log = logging.getLogger(self.cls_logger + '.get_active_run_id_from_deployment')
+
+        # Ensure the deployment_id is an int
+        if not isinstance(deployment_id, int):
+            try:
+                deployment_id = int(deployment_id)
+            except ValueError as exc:
+                msg = 'deployment_id arg must be an Integer, found: {t}'.format(t=deployment_id.__class__.__name__)
+                raise Cons3rtApiError(msg) from exc
+
+        try:
+            drs = self.list_deployment_runs_for_deployment(deployment_id=deployment_id)
+        except Cons3rtClientError as exc:
+            msg = 'Problem listing runs for deployment ID: {i}'.format(i=str(deployment_id))
+            raise Cons3rtClientError(msg) from exc
+
+        # Check for a DR with an acitve status
+        active_statii = ['SUBMITTED', 'PROVISIONING_HOSTS', 'HOSTS_PROVISIONED', 'RESERVED', 'TESTING', 'TESTED']
+
+        for dr in drs:
+            if 'deploymentRunStatus' in dr:
+                if dr['deploymentRunStatus'] in active_statii:
+                    log.info('Found a DR with an active status: {i}'.format(i=str(dr['id'])))
+                    return dr['id']
+        log.info('No active DR found for deployment ID: {i}'.format(i=str(deployment_id)))
+        return
+
     def list_deployment_runs_in_virtualization_realm(self, vr_id, search_type='SEARCH_ALL'):
         """Query CONS3RT to return a list of deployment runs in a virtualization realm
 
@@ -2332,6 +2391,7 @@ class Cons3rtApi(object):
         log = logging.getLogger(self.cls_logger + '.release_myself')
         log.info('Attempting to release this run...')
         dep = Deployment()
+
 
     def list_hosts_in_run(self, dr_id):
         """Returns a list of host in a deployment run
