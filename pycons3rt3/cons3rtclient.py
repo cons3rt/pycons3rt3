@@ -471,13 +471,26 @@ class Cons3rtClient:
     def retrieve_deployment_run_details(self, dr_id):
         """Queries CONS3RT for details on a deployment run ID
 
-        :param: (int) deployment run ID
-        :return: (list) Containing Deployment info
+        :param dr_id: (int) deployment run ID
+        :return: (dict) Containing Deployment Run Info
         """
         response = self.http_client.http_get(rest_user=self.user, target='drs/{i}'.format(i=str(dr_id)))
         content = self.http_client.parse_response(response=response)
         dr_details = json.loads(content)
         return dr_details
+
+    def retrieve_deployment_run_host_details(self, dr_id, drh_id):
+        """Queries CONS3RT for details on a deployment run host ID
+
+        :param dr_id: (int) deployment run ID
+        :param drh_id: (int) deployment run host ID
+        :return: (dict) Containing Deployment Run Host Info
+        """
+        response = self.http_client.http_get(rest_user=self.user, target='drs/{d}/host/{h}'.format(
+            d=str(dr_id), h=str(drh_id)))
+        content = self.http_client.parse_response(response=response)
+        drh_details = json.loads(content)
+        return drh_details
 
     def get_virtualization_realm_id(self, cloud_id, vr_name):
         retval = None

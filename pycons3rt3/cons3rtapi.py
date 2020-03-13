@@ -1004,6 +1004,43 @@ class Cons3rtApi(object):
             raise Cons3rtApiError(msg) from exc
         return dr_details
 
+    def retrieve_deployment_run_host_details(self, dr_id, drh_id):
+        """Query CONS3RT to return details of a deployment run host
+
+        :param: dr_id: (int) deployment run ID
+        :param: drh_id: (int) deployment run host ID
+        :return: (dict) of deployment run host detailed info
+        :raises: Cons3rtApiError
+        """
+        log = logging.getLogger(self.cls_logger + '.retrieve_deployment_run_host_details')
+
+        # Ensure the dr_id is an int
+        if not isinstance(dr_id, int):
+            try:
+                dr_id = int(dr_id)
+            except ValueError as exc:
+                msg = 'dr_id arg must be an Integer, found: {t}'.format(t=dr_id.__class__.__name__)
+                raise Cons3rtApiError(msg) from exc
+
+        # Ensure the drh_id is an int
+        if not isinstance(drh_id, int):
+            try:
+                drh_id = int(drh_id)
+            except ValueError as exc:
+                msg = 'drh_id arg must be an Integer, found: {t}'.format(t=drh_id.__class__.__name__)
+                raise Cons3rtApiError(msg) from exc
+
+        # Query for DR details
+        log.info('Attempting to retrieve details for deployment run ID [{d}] host ID: {h}'.format(
+            d=str(dr_id), h=str(drh_id)))
+        try:
+            drh_details = self.cons3rt_client.retrieve_deployment_run_host_details(dr_id=dr_id, drh_id=drh_id)
+        except Cons3rtClientError as exc:
+            msg = 'Unable to query CONS3RT for a details of deployment run host ID: {i}'.format(
+                i=str(drh_id))
+            raise Cons3rtApiError(msg) from exc
+        return drh_details
+
     def list_virtualization_realms_for_cloud(self, cloud_id):
         """Query CONS3RT to return a list of VRs for a specified Cloud ID
 
