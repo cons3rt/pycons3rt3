@@ -2681,7 +2681,6 @@ class Cons3rtApi(object):
                 log.warning(err_msg)
                 request_info['err_msg'] = err_msg
                 request_info['result'] = 'FAIL'
-                continue
             else:
                 request_info['err_msg'] = 'None'
                 request_info['result'] = 'OK'
