@@ -228,6 +228,7 @@ class Cons3rtApi(object):
             if rest_user.project_name == project_name:
                 log.info('Found matching rest user: {u}'.format(u=str(rest_user)))
                 self.user = rest_user
+                self.cons3rt_client = Cons3rtClient(base=self.url_base, user=self.user)
                 found = True
                 break
         if found:
