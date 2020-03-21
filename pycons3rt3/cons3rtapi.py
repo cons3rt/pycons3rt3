@@ -914,6 +914,42 @@ class Cons3rtApi(object):
         log.info('No active DR found for deployment ID: {i}'.format(i=str(deployment_id)))
         return
 
+    def list_inactive_run_ids_for_deployment(self, deployment_id):
+        """Given a deployment ID, return a list of inactive deployment run IDs
+
+        :param: deployment_id: (int) deployment ID
+        :returns: (list) of inactive deployment runs or None if no inactive runs exist
+        :raises: Cons3rtApiError
+        """
+        log = logging.getLogger(self.cls_logger + '.list_inactive_run_ids_for_deployment')
+
+        # Ensure the deployment_id is an int
+        if not isinstance(deployment_id, int):
+            try:
+                deployment_id = int(deployment_id)
+            except ValueError as exc:
+                msg = 'deployment_id arg must be an Integer, found: {t}'.format(t=deployment_id.__class__.__name__)
+                raise Cons3rtApiError(msg) from exc
+
+        try:
+            drs = self.list_deployment_runs_for_deployment(deployment_id=deployment_id)
+        except Cons3rtClientError as exc:
+            msg = 'Problem listing runs for deployment ID: {i}'.format(i=str(deployment_id))
+            raise Cons3rtClientError(msg) from exc
+
+        # Check for a DR with an acitve status
+        active_statii = ['SUBMITTED', 'PROVISIONING_HOSTS', 'HOSTS_PROVISIONED', 'RESERVED', 'TESTING', 'TESTED']
+
+        inactive_drs = []
+        for dr in drs:
+            if 'deploymentRunStatus' in dr:
+                if dr['deploymentRunStatus'] not in active_statii:
+                    log.info('Found a DR with an inactive status: {i}'.format(i=str(dr['id'])))
+                    inactive_drs.append(dr)
+        log.info('Found {n} inactive DRs found for deployment ID: {i}'.format(
+            n=str(len(inactive_drs)), i=str(deployment_id)))
+        return inactive_drs
+
     def list_deployment_runs_in_virtualization_realm(self, vr_id, search_type='SEARCH_ALL'):
         """Query CONS3RT to return a list of deployment runs in a virtualization realm
 
@@ -1864,10 +1900,8 @@ class Cons3rtApi(object):
         try:
             result = self.cons3rt_client.release_deployment_run(dr_id=dr_id)
         except Cons3rtClientError as exc:
-            msg = 'Unable to release deployment run ID: {i}'.format(
-                i=str(dr_id))
+            msg = 'Unable to release deployment run ID: {i}'.format(i=str(dr_id))
             raise Cons3rtApiError(msg) from exc
-
         if result:
             log.info('Successfully released deployment run ID: {i}'.format(i=str(dr_id)))
         else:
@@ -2410,15 +2444,23 @@ class Cons3rtApi(object):
     def get_my_run_id(self):
         """From deployment properties on this host, gets the run ID
 
-        :return: None
-        :raises: Cons3rtApiError
+        :return: (int) run ID or None
         """
-        log = logging.getLogger(self.cls_logger + '.release_myself')
+        log = logging.getLogger(self.cls_logger + '.get_my_run_id')
         log.info('Attempting to release this run...')
         try:
             dep = Deployment()
         except DeploymentError as exc:
-            pass
+            log.error('Problem loading deployment info, no run ID found\n{e}'.format(e=str(exc)))
+            return
+        run_id = dep.get_value('cons3rt.deploymentRun.id')
+        try:
+            run_id = int(run_id)
+        except ValueError:
+            log.error('Unable to convert run ID {i} to an Integer'.format(i=run_id))
+            return
+        log.info('Found my own deployment run ID: {i}'.format(i=str(run_id)))
+        return run_id
 
     def release_myself(self):
         """From deployment properties on this host, gets the run ID and attempts to self-release
@@ -2428,8 +2470,60 @@ class Cons3rtApi(object):
         """
         log = logging.getLogger(self.cls_logger + '.release_myself')
         log.info('Attempting to release this run...')
-        dep = Deployment()
+        run_id = self.get_my_run_id()
+        if not run_id:
+            raise Cons3rtApiError('Problem getting my run ID to release myself')
+        log.info('Attempting to release myself, deployment run ID: {i}'.format(i=str(run_id)))
+        try:
+            self.release_deployment_run(dr_id=run_id)
+        except Cons3rtApiError as exc:
+            raise Cons3rtApiError('Problem releasing deployment run ID: {i}'.format(i=str(run_id))) from exc
+        log.info('Requested release of myself, deployment run ID: {i}'.format(i=str(run_id)))
 
+    def delete_inactive_runs_for_myself(self):
+        """Deletes inactive deployment runs for my deployment
+
+        :return: None
+        :raises: Cons3rtApiError
+        """
+        log = logging.getLogger(self.cls_logger + '.delete_inactive_runs_for_myself')
+        log.info('Attempting to delete inactive deployment runs for my deployment...')
+        my_run_id = self.get_my_run_id()
+        if not my_run_id:
+            raise Cons3rtApiError('Problem getting my run ID to delete myself')
+        try:
+            run_details = self.retrieve_deployment_run_details(dr_id=my_run_id)
+        except Cons3rtApiError as exc:
+            msg = 'Problem retrieving details on this deployment run ID: {i}'.format(i=str(my_run_id))
+            raise Cons3rtApiError(msg) from exc
+        try:
+            self.delete_inactive_runs_for_deployment(deployment_id=run_details['deployment']['id'])
+        except Cons3rtApiError as exc:
+            msg = 'Problem deleting inactive deployment runs for my deployment ID: {i}'.format(
+                i=str(run_details['deployment']['id']))
+            raise Cons3rtApiError(msg) from exc
+        log.info('Completed deleting inactive deployment runs for my deployment ID: {i}'.format(
+            i=str(run_details['deployment']['id'])))
+
+    def delete_inactive_runs_for_deployment(self, deployment_id):
+        """Deletes only the inactive runs for the deployment ID
+
+        :return: None
+        :raises: Cons3rtApiError
+        """
+        log = logging.getLogger(self.cls_logger + '.delete_inactive_runs_for_deployment')
+        try:
+            inactive_dr_list = self.list_inactive_run_ids_for_deployment(deployment_id=deployment_id)
+        except Cons3rtApiError as exc:
+            msg = 'Problem listing inactive deployment runs for deployment ID: {i}'.format(i=str(deployment_id))
+            raise Cons3rtApiError(msg) from exc
+        for inactive_dr in inactive_dr_list:
+            log.info('Deleting inactive run for deployment ID {d}: {r}'.format(
+                d=str(deployment_id), r=str(inactive_dr['id'])))
+            try:
+                self.delete_inactive_run(dr_id=inactive_dr['id'])
+            except Cons3rtApiError as exc:
+                log.warning('Problem deleting inactive run ID: {i}\n{e}'.format(i=str(inactive_dr['id']), e=str(exc)))
 
     def list_hosts_in_run(self, dr_id):
         """Returns a list of host in a deployment run
