@@ -19,8 +19,10 @@ mod_logger = Logify.get_name() + '.httpclient'
 
 class Client:
 
-    def __init__(self, base):
+    def __init__(self, base, max_retry_attempts=10, retry_time_sec=5):
         self.base = base
+        self.max_retry_attempts = max_retry_attempts
+        self.retry_time_sec = retry_time_sec
 
         if not self.base.endswith('/'):
             self.base = self.base + '/'
@@ -98,14 +100,26 @@ class Client:
         # Determine the headers
         headers = self.get_auth_headers(rest_user=rest_user)
 
-        try:
-            response = requests.get(url, headers=headers, cert=rest_user.cert_file_path, verify=rest_user.cert_bundle)
-        except RequestException as exc:
-            raise Cons3rtClientError(str(exc)) from exc
-        except SSLError as exc:
-            msg = 'There was an SSL error making an HTTP GET to URL: {u}'.format(u=url)
-            raise Cons3rtClientError(msg) from exc
-        return response
+        attempt_num = 1
+        err_msg_tally = ''
+        while True:
+            if attempt_num >= self.max_retry_attempts:
+                msg = 'Max attempts exceeded: {n}\n{e}'.format(n=str(self.max_retry_attempts), e=err_msg_tally)
+                raise Cons3rtClientError(msg)
+            err_msg = ''
+            try:
+                response = requests.get(url, headers=headers, cert=rest_user.cert_file_path,
+                                        verify=rest_user.cert_bundle)
+            except RequestException as exc:
+                err_msg += 'RequestException on GET attempt #{n}\n{e}'.format(n=str(attempt_num), e=str(exc))
+            except SSLError as exc:
+                err_msg += 'SSLError on GET attempt #{n}\n{e}'.format(n=str(attempt_num), e=str(exc))
+            else:
+                return response
+            err_msg_tally += err_msg + '\n'
+            log.warning('Problem encountered, retrying in {n} sec: {e}'.format(n=str(self.retry_time_sec), e=err_msg))
+            attempt_num += 1
+            time.sleep(self.retry_time_sec)
 
     def http_get_download(self, rest_user, target):
         """Runs an HTTP GET request to the CONS3RT ReST API
@@ -115,7 +129,6 @@ class Client:
         :return: http response
         """
         log = logging.getLogger(self.cls_logger + '.http_get_download')
-
         self.validate_target(target)
 
         # Set the URL
@@ -126,29 +139,46 @@ class Client:
         headers = self.get_auth_headers(rest_user=rest_user)
         headers['Accept'] = 'application/octet-stream'
 
-        try:
-            response = requests.get(url, headers=headers, cert=rest_user.cert_file_path, verify=rest_user.cert_bundle)
-        except SSLError as exc:
-            msg = 'There was an SSL error making an HTTP GET to URL: {u}'.format(u=url)
-            raise Cons3rtClientError(msg) from exc
-        except requests.ConnectionError as exc:
-            msg = 'Connection error encountered making HTTP GET to URL: {u}'.format(u=url)
-            raise Cons3rtClientError(msg) from exc
-        except requests.Timeout as exc:
-            msg = 'There was a timeout making an HTTP GET to URL: {u}'.format(u=url)
-            raise Cons3rtClientError(msg) from exc
-        except RequestException as exc:
-            msg = 'There was a general RequestException making an HTTP GET to URL: {u}'.format(u=url)
-            raise Cons3rtClientError(msg) from exc
-        except Exception as exc:
-            msg = 'Generic error caught making an HTTP GET to URL: {u}'.format(u=url)
-            raise Cons3rtClientError(msg) from exc
-        return response
+        attempt_num = 1
+        err_msg_tally = ''
+        while True:
+            if attempt_num >= self.max_retry_attempts:
+                msg = 'Max attempts exceeded: {n}\n{e}'.format(n=str(self.max_retry_attempts), e=err_msg_tally)
+                raise Cons3rtClientError(msg)
+            err_msg = ''
+            try:
+                response = requests.get(url, headers=headers, cert=rest_user.cert_file_path,
+                                        verify=rest_user.cert_bundle)
+            except SSLError as exc:
+                err_msg += 'SSlError on GET to URL: {u}\n{e}'.format(u=url, e=str(exc))
+            except requests.ConnectionError as exc:
+                err_msg += 'ConnectionError on GET to URL: {u}\n{e}'.format(u=url, e=str(exc))
+            except requests.Timeout as exc:
+                err_msg += 'There was a timeout on GET to URL: {u}\n{e}'.format(u=url, e=str(exc))
+            except RequestException as exc:
+                err_msg += 'RequestException on GET to URL: {u}\n{e}'.format(u=url, e=str(exc))
+            except Exception as exc:
+                err_msg += 'Generic exception on GET to URL: {u}\n{e}'.format(u=url, e=str(exc))
+            else:
+                return response
+            err_msg_tally += err_msg + '\n'
+            log.warning('Problem encountered, retrying in {n} sec: {e}'.format(n=str(self.retry_time_sec), e=err_msg))
+            attempt_num += 1
+            time.sleep(self.retry_time_sec)
 
     def http_delete(self, rest_user, target, content=None, keep_alive=False):
-        self.validate_target(target)
+        """Runs an HTTP DELETE request to the CONS3RT ReST API
 
+        :param rest_user: (RestUser) user info
+        :param target: (str) URL
+        :param content: (dict) content for the request
+        :param keep_alive: (bool) set True to send a keep alive with the request
+        :return: http response
+        """
+        log = logging.getLogger(self.cls_logger + '.http_get_download')
+        self.validate_target(target)
         url = self.base + target
+        log.debug('Querying http DELETE with URL: {u}'.format(u=url))
 
         headers = self.get_auth_headers(rest_user=rest_user)
         headers['Content-Type'] = 'application/json'
@@ -156,19 +186,30 @@ class Client:
         if keep_alive:
             headers['Connection'] = 'Keep-Alive'
 
-        try:
-            if content is None:
-                response = requests.delete(
-                    url, headers=headers, cert=rest_user.cert_file_path, verify=rest_user.cert_bundle)
+        attempt_num = 1
+        err_msg_tally = ''
+        while True:
+            if attempt_num >= self.max_retry_attempts:
+                msg = 'Max attempts exceeded: {n}\n{e}'.format(n=str(self.max_retry_attempts), e=err_msg_tally)
+                raise Cons3rtClientError(msg)
+            err_msg = ''
+            try:
+                if content is None:
+                    response = requests.delete(
+                        url, headers=headers, cert=rest_user.cert_file_path, verify=rest_user.cert_bundle)
+                else:
+                    response = requests.delete(
+                        url, headers=headers, data=content, cert=rest_user.cert_file_path, verify=rest_user.cert_bundle)
+            except RequestException as exc:
+                err_msg += 'RequestException on DELETE to URL: {u}\n{e}'.format(u=url, e=str(exc))
+            except SSLError as exc:
+                err_msg += 'SSLError on DELETE to URL: {u}\n{e}'.format(u=url, e=str(exc))
             else:
-                response = requests.delete(
-                    url, headers=headers, data=content, cert=rest_user.cert_file_path, verify=rest_user.cert_bundle)
-        except RequestException as exc:
-            raise Cons3rtClientError(str(exc)) from exc
-        except SSLError as exc:
-            msg = 'There was an SSL error making an HTTP GET to URL: {u}'.format(u=url)
-            raise Cons3rtClientError(msg) from exc
-        return response
+                return response
+            err_msg_tally += err_msg + '\n'
+            log.warning('Problem encountered, retrying in {n} sec: {e}'.format(n=str(self.retry_time_sec), e=err_msg))
+            attempt_num += 1
+            time.sleep(self.retry_time_sec)
 
     def http_post(self, rest_user, target, content_data=None, content_file=None, content_type='application/json'):
         """Makes an HTTP Post to the requested URL
@@ -181,8 +222,10 @@ class Client:
         :return: (str) HTTP Response or None
         :raises: Cons3rtClientError
         """
+        log = logging.getLogger(self.cls_logger + '.http_post')
         self.validate_target(target)
         url = self.base + target
+        log.debug('Querying http POST with URL: {u}'.format(u=url))
 
         headers = self.get_auth_headers(rest_user=rest_user)
         headers['Content-Type'] = '{t}'.format(t=content_type)
@@ -204,26 +247,33 @@ class Client:
         if content:
             headers['Content-Type'] = '{t}'.format(t=content_type)
 
-        # Make the put request
-        try:
-            response = requests.post(url, headers=headers, data=content, cert=rest_user.cert_file_path,
-                                     verify=rest_user.cert_bundle)
-        except SSLError as exc:
-            msg = 'There was an SSL error making an HTTP POST to URL: {u}'.format(u=url)
-            raise Cons3rtClientError(msg) from exc
-        except requests.ConnectionError as exc:
-            msg = 'Connection error encountered making HTTP POST'
-            raise Cons3rtClientError(msg) from exc
-        except requests.Timeout as exc:
-            msg = 'HTTP POST to URL {u} timed out'.format(u=url)
-            raise Cons3rtClientError(msg) from exc
-        except RequestException as exc:
-            msg = 'There was a problem making an HTTP POST to URL: {u}'.format(u=url)
-            raise Cons3rtClientError(msg) from exc
-        except Exception as exc:
-            msg = 'Generic error caught making an HTTP POST to URL: {u}'.format(u=url)
-            raise Cons3rtClientError(msg) from exc
-        return response
+        # Make the POST request
+        attempt_num = 1
+        err_msg_tally = ''
+        while True:
+            if attempt_num >= self.max_retry_attempts:
+                msg = 'Max attempts exceeded: {n}\n{e}'.format(n=str(self.max_retry_attempts), e=err_msg_tally)
+                raise Cons3rtClientError(msg)
+            err_msg = ''
+            try:
+                response = requests.post(url, headers=headers, data=content, cert=rest_user.cert_file_path,
+                                         verify=rest_user.cert_bundle)
+            except SSLError as exc:
+                err_msg += 'SSLError on POST to URL: {u}\n{e}'.format(u=url, e=str(exc))
+            except requests.ConnectionError as exc:
+                err_msg += 'ConnectionError on POST to URL: {u}\n{e}'.format(u=url, e=str(exc))
+            except requests.Timeout as exc:
+                err_msg += 'Timeout on POST to URL: {u}\n{e}'.format(u=url, e=str(exc))
+            except RequestException as exc:
+                err_msg += 'RequestException on POST to URL: {u}\n{e}'.format(u=url, e=str(exc))
+            except Exception as exc:
+                err_msg += 'Generic exception on POST to URL: {u}\n{e}'.format(u=url, e=str(exc))
+            else:
+                return response
+            err_msg_tally += err_msg + '\n'
+            log.warning('Problem encountered, retrying in {n} sec: {e}'.format(n=str(self.retry_time_sec), e=err_msg))
+            attempt_num += 1
+            time.sleep(self.retry_time_sec)
 
     def http_put(self, rest_user, target, content_data=None, content_file=None, content_type='application/json'):
         """Makes an HTTP Post to the requested URL
@@ -236,8 +286,10 @@ class Client:
         :return: (str) HTTP Response or None
         :raises: Cons3rtClientError
         """
+        log = logging.getLogger(self.cls_logger + '.http_put')
         self.validate_target(target)
         url = self.base + target
+        log.debug('Querying http PUT with URL: {u}'.format(u=url))
         headers = self.get_auth_headers(rest_user=rest_user)
         content = None
 
@@ -257,26 +309,33 @@ class Client:
         if content:
             headers['Content-Type'] = '{t}'.format(t=content_type)
 
-        # Make the put request
-        try:
-            response = requests.put(url, headers=headers, data=content, cert=rest_user.cert_file_path,
-                                    verify=rest_user.cert_bundle)
-        except SSLError as exc:
-            msg = 'There was an SSL error making an HTTP PUT to URL: {u}'.format(u=url)
-            raise Cons3rtClientError(msg) from exc
-        except requests.ConnectionError as exc:
-            msg = 'Connection error encountered making HTTP PUT'
-            raise Cons3rtClientError(msg) from exc
-        except requests.Timeout as exc:
-            msg = 'HTTP put to URL {u} timed out'.format(u=url)
-            raise Cons3rtClientError(msg) from exc
-        except RequestException as exc:
-            msg = 'There was a problem making an HTTP put to URL: {u}'.format(u=url)
-            raise Cons3rtClientError(msg) from exc
-        except Exception as exc:
-            msg = 'Generic error caught making an HTTP put to URL: {u}'.format(u=url)
-            raise Cons3rtClientError(msg) from exc
-        return response
+        # Make the PUT request
+        attempt_num = 1
+        err_msg_tally = ''
+        while True:
+            if attempt_num >= self.max_retry_attempts:
+                msg = 'Max attempts exceeded: {n}\n{e}'.format(n=str(self.max_retry_attempts), e=err_msg_tally)
+                raise Cons3rtClientError(msg)
+            err_msg = ''
+            try:
+                response = requests.put(url, headers=headers, data=content, cert=rest_user.cert_file_path,
+                                        verify=rest_user.cert_bundle)
+            except SSLError as exc:
+                err_msg += 'SSLError on PUT to URL: {u}\n{e}'.format(u=url, e=str(exc))
+            except requests.ConnectionError as exc:
+                err_msg += 'ConnectionError on PUT to URL: {u}\n{e}'.format(u=url, e=str(exc))
+            except requests.Timeout as exc:
+                err_msg += 'Timeout on PUT to URL: {u}\n{e}'.format(u=url, e=str(exc))
+            except RequestException as exc:
+                err_msg += 'RequestException on PUT to URL: {u}\n{e}'.format(u=url, e=str(exc))
+            except Exception as exc:
+                err_msg += 'Generic exception on PUT to URL: {u}\n{e}'.format(u=url, e=str(exc))
+            else:
+                return response
+            err_msg_tally += err_msg + '\n'
+            log.warning('Problem encountered, retrying in {n} sec: {e}'.format(n=str(self.retry_time_sec), e=err_msg))
+            attempt_num += 1
+            time.sleep(self.retry_time_sec)
 
     def http_multipart(self, method, rest_user, target, content_file):
         """Makes an HTTP Multipart request to upload a file
@@ -305,6 +364,7 @@ class Client:
         # Determine the full URL
         self.validate_target(target)
         url = self.base + target
+        log.debug('Querying http {m} to URL: {u}'.format(m=method, u=url))
 
         # Set headers
         headers = self.get_auth_headers(rest_user=rest_user)
@@ -438,8 +498,8 @@ class Client:
         log.info('Attempting to download target [{t}] to: {d}'.format(t=target, d=download_file))
         
         # Set up for download attempts
-        retry_sec = 5
-        max_retries = 6
+        retry_sec = self.retry_time_sec
+        max_retries = self.max_retry_attempts
         try_num = 1
         download_success = False
         dl_err = None
