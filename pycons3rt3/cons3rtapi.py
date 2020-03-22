@@ -1041,6 +1041,40 @@ class Cons3rtApi(object):
             raise Cons3rtApiError(msg) from exc
         return dr_details
 
+    def retrieve_custom_properties_from_deployment_run_details(self, dr_details):
+        """Returns a list of custom properties given deployment run details
+
+        :param dr_details: (dict) deployment run details data
+        :return: (list) of custom deployment properties or None
+        """
+        log = logging.getLogger(self.cls_logger + '.retrieve_custom_properties_from_deployment_run_details')
+        if 'id' not in dr_details:
+            log.warning('id not found in deployment run detail data: {d}'.format(d=str(dr_details)))
+            return
+        if 'properties' not in dr_details:
+            log.warning('No properties found for deployment run ID: {i}'.format(i=str(dr_details['id'])))
+            return
+        custom_props = []
+        for dep_prop in dr_details['properties']:
+            if 'cons3rt.fap.' in dep_prop['key']:
+                continue
+            elif 'cons3rt.deploymentRun.' in dep_prop['key']:
+                continue
+            elif 'cons3rt.cloud.' in dep_prop['key']:
+                continue
+            elif 'cons3rt.deploymentRun.' in dep_prop['key']:
+                continue
+            elif 'guac.ipaddress' in dep_prop['key']:
+                continue
+            elif 'cons3rt.deployment' in dep_prop['key']:
+                continue
+            elif 'cons3rt.user' in dep_prop['key']:
+                continue
+            elif 'cons3rt.siteAddress' in dep_prop['key']:
+                continue
+            custom_props.append(dep_prop)
+            return custom_props
+
     def retrieve_deployment_run_host_details(self, dr_id, drh_id):
         """Query CONS3RT to return details of a deployment run host
 
@@ -2444,10 +2478,11 @@ class Cons3rtApi(object):
     def get_my_run_id(self):
         """From deployment properties on this host, gets the run ID
 
+        cons3rt.deploymentRun.id
+
         :return: (int) run ID or None
         """
         log = logging.getLogger(self.cls_logger + '.get_my_run_id')
-        log.info('Attempting to release this run...')
         try:
             dep = Deployment()
         except DeploymentError as exc:
@@ -2462,6 +2497,30 @@ class Cons3rtApi(object):
         log.info('Found my own deployment run ID: {i}'.format(i=str(run_id)))
         return run_id
 
+    def get_my_project(self):
+        """From deployment properties on this host, gets the project ID and name
+
+        cons3rt.deploymentRun.project.id
+        cons3rt.deploymentRun.project.name
+
+        :return: (tuple) int project ID and string project name or None, None
+        """
+        log = logging.getLogger(self.cls_logger + '.get_my_project_id')
+        try:
+            dep = Deployment()
+        except DeploymentError as exc:
+            log.error('Problem loading deployment info, no project ID found\n{e}'.format(e=str(exc)))
+            return None, None
+        project_id = dep.get_value('cons3rt.deploymentRun.project.id')
+        try:
+            project_id = int(project_id)
+        except ValueError:
+            log.error('Unable to convert project ID {i} to an Integer'.format(i=project_id))
+            return
+        log.info('Found my own project ID: {i}'.format(i=str(project_id)))
+        project_name = dep.get_value('cons3rt.deploymentRun.project.name')
+        return project_id, project_name
+
     def release_myself(self):
         """From deployment properties on this host, gets the run ID and attempts to self-release
 
@@ -2470,6 +2529,8 @@ class Cons3rtApi(object):
         """
         log = logging.getLogger(self.cls_logger + '.release_myself')
         log.info('Attempting to release this run...')
+        project_id, project_name = self.get_my_project()
+        self.set_project_token(project_name=project_name)
         run_id = self.get_my_run_id()
         if not run_id:
             raise Cons3rtApiError('Problem getting my run ID to release myself')
@@ -2488,6 +2549,8 @@ class Cons3rtApi(object):
         """
         log = logging.getLogger(self.cls_logger + '.delete_inactive_runs_for_myself')
         log.info('Attempting to delete inactive deployment runs for my deployment...')
+        project_id, project_name = self.get_my_project()
+        self.set_project_token(project_name=project_name)
         my_run_id = self.get_my_run_id()
         if not my_run_id:
             raise Cons3rtApiError('Problem getting my run ID to delete myself')
@@ -2563,6 +2626,52 @@ class Cons3rtApi(object):
             hosts.append(run_host)
         log.info('Found {n} IDs in DR ID: {i}'.format(n=str(len(hosts)), i=str(dr_id)))
         return hosts
+
+    def list_detailed_hosts_in_run(self, dr_id):
+        """Returns a list of host details in a deployment run
+
+        :param dr_id: (int) ID of the deployment run
+        :return: (list) of detailed host dict data in the provided deployment run ID
+        :raises: Cons3rtApiError
+        """
+        log = logging.getLogger(self.cls_logger + '.list_detailed_hosts_in_run')
+
+        # Ensure the dr_id is an int
+        if not isinstance(dr_id, int):
+            try:
+                dr_id = int(dr_id)
+            except ValueError as exc:
+                msg = 'dr_id arg must be an Integer, found: {t}'.format(t=dr_id.__class__.__name__)
+                raise Cons3rtApiError(msg) from exc
+
+        log.info('Retrieving details on run ID: {i}'.format(i=str(dr_id)))
+        try:
+            dr_details = self.retrieve_deployment_run_details(dr_id=dr_id)
+        except Cons3rtApiError as exc:
+            raise Cons3rtApiError('Problem retrieving details on run ID: {i}'.format(i=str(dr_id))) from exc
+
+        if 'deploymentRunHosts' not in dr_details:
+            raise Cons3rtApiError('deploymentRunHosts not found in run details: {d}'.format(d=str(dr_details)))
+
+        if not isinstance(dr_details['deploymentRunHosts'], list):
+            raise Cons3rtApiError('expected deploymentRunHosts to be a list, found: {t}'.format(
+                t=dr_details['deploymentRunHosts'].__class__.__name__))
+
+        host_details_list = []
+        for run_host in dr_details['deploymentRunHosts']:
+            if 'id' not in run_host:
+                log.warning('id not found in run host details: {d}'.format(d=run_host))
+                continue
+            try:
+                host_details = self.retrieve_deployment_run_host_details(dr_id=dr_id, drh_id=run_host['id'])
+            except Cons3rtApiError as exc:
+                msg = 'Problem retrieving details on host ID {h} in deployment run: {r}'.format(
+                    h=str(run_host['id']), r=str(dr_id))
+                raise Cons3rtApiError(msg) from exc
+
+            host_details_list.append(host_details)
+        log.info('Retrieved details for {n} hosts in DR ID: {i}'.format(n=str(len(host_details_list)), i=str(dr_id)))
+        return host_details_list
 
     def perform_host_action(self, dr_id, dr_host_id, action, cpu=None, ram=None):
         """Performs the provided host action on the host ID
@@ -2706,3 +2815,252 @@ class Cons3rtApi(object):
         except Cons3rtApiError as exc:
             raise Cons3rtApiError('Problem creating snapshot for run ID: {i}'.format(i=str(dr_id))) from exc
         return results
+
+    def list_project_virtualization_realms_for_team(self, team_id):
+        """Given a team ID, returns a list of the virtualization realms that the team's projects
+        are allowed to deplpy into
+
+        Note: This is a different list then the team's managed virtualization realms
+
+        :param team_id: (int) ID of the team
+        :return: (list) of virtualization realms
+        :raises: Cons3rtApiError
+        """
+        log = logging.getLogger(self.cls_logger + '.list_project_virtualization_realms_for_team')
+
+        # Ensure the team_id is an int
+        if not isinstance(team_id, int):
+            try:
+                team_id = int(team_id)
+            except ValueError as exc:
+                msg = 'team_id arg must be an Integer, found: {t}'.format(t=team_id.__class__.__name__)
+                raise Cons3rtApiError(msg) from exc
+
+        log.info('Attempting to get a list of projects in team ID: {i}'.format(i=str(team_id)))
+        project_names = []
+        try:
+            projects = self.list_projects_in_team(team_id=team_id)
+        except Cons3rtApiError as exc:
+            msg = 'Problem getting a list of projects in team ID: {i}'.format(i=str(team_id))
+            raise Cons3rtApiError(msg) from exc
+        log.info('Found {n} projects in team ID: {i}'.format(n=str(len(projects)), i=str(team_id)))
+        for project in projects:
+            project_names.append(project['name'])
+            log.info('Found project [{n}] with ID: {i}'.format(i=str(project['id']), n=project['name']))
+        log.info('Attempting to get a list of VRs accessible by projects in team ID: {i}'.format(i=str(team_id)))
+        vrs = []
+        vr_project_list = []
+        for project in projects:
+            try:
+                vr_project_list += self.list_virtualization_realms_for_project(project_id=project['id'])
+            except Cons3rtApiError as exc:
+                msg = 'Problem listing virtualization realms for project: {i}'.format(i=str(project['id']))
+                raise Cons3rtApiError(msg) from exc
+        for found_vr in vr_project_list:
+            already_added = False
+            for vr in vrs:
+                if vr['id'] == found_vr['id']:
+                    already_added = True
+            if not already_added:
+                vrs.append(found_vr)
+        log.info('Found {n} unique VRs accessible from projects in team ID: {i}'.format(
+            n=str(len(vrs)), i=str(team_id)))
+        for vr in vrs:
+            log.info('Found VR [{n}] with ID: {i}'.format(n=vr['name'], i=str(vr['id'])))
+        return vrs
+
+    def list_active_runs_in_team(self, team_id):
+        """Returns a list of active deployment runs in the provided team ID
+
+        May include remote access runs and other VR-DRs not owned by the team's projects
+
+        :param team_id: (int) ID of the team
+        :return: (list) of deployment runs
+        :raises: Cons3rtApiError
+        """
+        log = logging.getLogger(self.cls_logger + '.list_active_runs_in_team')
+
+        # Ensure the team_id is an int
+        if not isinstance(team_id, int):
+            try:
+                team_id = int(team_id)
+            except ValueError as exc:
+                msg = 'team_id arg must be an Integer, found: {t}'.format(t=team_id.__class__.__name__)
+                raise Cons3rtApiError(msg) from exc
+
+        # List all the virtualization realms that this team's projects can deploy into
+        try:
+            vrs = self.list_project_virtualization_realms_for_team(team_id=team_id)
+        except Cons3rtApiError as exc:
+            msg = 'Problem listing project virtualization realms for team: {i}'.format(i=str(team_id))
+            raise Cons3rtApiError(msg) from exc
+
+        # Get a list of DR IDs
+        log.info('Retrieving the list of active DRs in each virtualization realm...')
+        drs = []
+        for vr in vrs:
+            try:
+                vr_drs = self.list_active_deployment_runs_in_virtualization_realm(vr_id=vr['id'])
+            except Cons3rtApiError as exc:
+                msg = 'Problem listing active DRs from VR ID: {i}'.format(i=str(vr['id']))
+                raise Cons3rtApiError(msg) from exc
+            log.info('Found {n} DRs in VR ID: {i}'.format(n=str(len(vr_drs)), i=str(vr['id'])))
+            for vr_dr in vr_drs:
+                drs.append(vr_dr)
+        log.info('Found {n} active deployment runs in team ID: {i}'.format(i=str(team_id), n=str(len(drs))))
+        return drs
+
+    def list_active_runs_in_project(self, project_id):
+        """Returns a list of active deployment runs in the provided project ID
+
+        :param project_id: (int) ID of the team
+        :return: (list) of deployment runs
+        :raises: Cons3rtApiError
+        """
+        log = logging.getLogger(self.cls_logger + '.list_active_runs_in_project')
+
+        # Ensure the team_id is an int
+        if not isinstance(project_id, int):
+            try:
+                project_id = int(project_id)
+            except ValueError as exc:
+                msg = 'project_id arg must be an Integer, found: {t}'.format(t=project_id.__class__.__name__)
+                raise Cons3rtApiError(msg) from exc
+
+        # List all the virtualization realms that this project can deploy into
+        try:
+            vrs = self.list_virtualization_realms_for_project(project_id=project_id)
+        except Cons3rtApiError as exc:
+            msg = 'Problem listing project virtualization realms for project: {i}'.format(i=str(project_id))
+            raise Cons3rtApiError(msg) from exc
+
+        # Get a list of DR IDs
+        log.info('Retrieving the list of DRs in each virtualization realm...')
+        drs = []
+        for vr in vrs:
+            try:
+                vr_drs = self.list_active_deployment_runs_in_virtualization_realm(vr_id=vr['id'])
+            except Cons3rtApiError as exc:
+                msg = 'Problem listing active DRs from VR ID: {i}'.format(i=str(vr['id']))
+                raise Cons3rtApiError(msg) from exc
+            log.info('Found {n} active DRs in VR ID: {i}'.format(n=str(len(vr_drs)), i=str(vr['id'])))
+            for vr_dr in vr_drs:
+                if 'project' not in vr_dr:
+                    log.warning('Found DR with no project data: {d}'.format(d=str(vr_dr)))
+                    continue
+                if 'id' not in vr_dr['project']:
+                    log.warning('No ID in DR project data: {d}'.format(d=str(vr_dr)))
+                    continue
+                if project_id == vr_dr['project']['id']:
+                    log.info('Found project {p} DR: {i}'.format(p=str(project_id), i=str(vr_dr['id'])))
+                    drs.append(vr_dr)
+                else:
+                    log.info('Found DR ID {i} not in project ID: {p}'.format(p=str(project_id), i=str(vr_dr['id'])))
+        log.info('Found {n} deployment runs in project ID: {i}'.format(i=str(project_id), n=str(len(drs))))
+        return drs
+
+    def list_host_details_in_team(self, team_id):
+        """Lists details for every deployment run host deployed in the provided team ID
+
+        :param team_id: (int) ID of the team
+        :return: (list) of deployment run details, and a list of host details
+        [
+            "run": {run details}
+            "hosts": [{host details}]
+        ]
+        :raises: Cons3rtApiError
+        """
+        log = logging.getLogger(self.cls_logger + '.list_host_details_in_team')
+
+        # Ensure the team_id is an int
+        if not isinstance(team_id, int):
+            try:
+                team_id = int(team_id)
+            except ValueError as exc:
+                msg = 'team_id arg must be an Integer, found: {t}'.format(t=team_id.__class__.__name__)
+                raise Cons3rtApiError(msg) from exc
+
+        log.info('Attempting to list all host details for team ID: {i}'.format(i=str(team_id)))
+        try:
+            drs = self.list_active_runs_in_team(team_id=team_id)
+        except Cons3rtApiError as exc:
+            msg = 'Problem listing active runs in team ID: {i}'.format(i=str(team_id))
+            raise Cons3rtApiError(msg) from exc
+
+        team_drh_list = []
+        team_drh_count = 0
+        for dr in drs:
+            if 'id' not in dr:
+                log.warning('id not found in DR data: {d}'.format(d=str(dr)))
+                continue
+            log.info('Retrieving details for run ID: {i}'.format(i=str(dr['id'])))
+            try:
+                dr_details = self.retrieve_deployment_run_details(dr_id=dr['id'])
+            except Cons3rtApiError as exc:
+                msg = 'Problem retrieving details on run ID: {i}'.format(i=str(dr['id']))
+                raise Cons3rtApiError(msg) from exc
+            try:
+                dr_drh_list = self.list_detailed_hosts_in_run(dr_id=dr['id'])
+            except Cons3rtApiError as exc:
+                msg = 'Problem listing detailed host data for DR ID: {i}'.format(i=str(dr['id']))
+                raise Cons3rtApiError(msg) from exc
+            team_drh_list.append({
+                'run': dr_details,
+                'hosts': dr_drh_list
+            })
+            team_drh_count += len(dr_drh_list)
+        log.info('Found {n} deployment run hosts in team ID {i}'.format(i=str(team_id), n=str(team_drh_count)))
+        return team_drh_list
+
+    def list_host_details_in_project(self, project_id):
+        """Lists details for every deployment run host deployed in the provided project ID
+
+        :param project_id: (int) ID of the project
+        :return: (list) of deployment run details, and a list of host details
+        [
+            "run": {run details}
+            "hosts": [{host details}]
+        ]
+        :raises: Cons3rtApiError
+        """
+        log = logging.getLogger(self.cls_logger + '.list_host_details_in_project')
+
+        # Ensure the project_id is an int
+        if not isinstance(project_id, int):
+            try:
+                project_id = int(project_id)
+            except ValueError as exc:
+                msg = 'project_id arg must be an Integer, found: {t}'.format(t=project_id.__class__.__name__)
+                raise Cons3rtApiError(msg) from exc
+
+        log.info('Attempting to list all host details for project ID: {i}'.format(i=str(project_id)))
+        try:
+            drs = self.list_active_runs_in_project(project_id=project_id)
+        except Cons3rtApiError as exc:
+            msg = 'Problem listing active runs in project ID: {i}'.format(i=str(project_id))
+            raise Cons3rtApiError(msg) from exc
+
+        project_drh_list = []
+        project_drh_count = 0
+        for dr in drs:
+            if 'id' not in dr:
+                log.warning('id not found in DR data: {d}'.format(d=str(dr)))
+                continue
+            log.info('Retrieving details for run ID: {i}'.format(i=str(dr['id'])))
+            try:
+                dr_details = self.retrieve_deployment_run_details(dr_id=dr['id'])
+            except Cons3rtApiError as exc:
+                msg = 'Problem retrieving details on run ID: {i}'.format(i=str(dr['id']))
+                raise Cons3rtApiError(msg) from exc
+            try:
+                dr_drh_list = self.list_detailed_hosts_in_run(dr_id=dr['id'])
+            except Cons3rtApiError as exc:
+                msg = 'Problem listing detailed host data for DR ID: {i}'.format(i=str(dr['id']))
+                raise Cons3rtApiError(msg) from exc
+            project_drh_list.append({
+                'run': dr_details,
+                'hosts': dr_drh_list
+            })
+            project_drh_count += len(dr_drh_list)
+        log.info('Found {n} deployment run hosts in project ID {i}'.format(i=str(project_id), n=str(project_drh_count)))
+        return project_drh_list
