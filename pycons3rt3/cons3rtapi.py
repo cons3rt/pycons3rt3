@@ -2489,6 +2489,9 @@ class Cons3rtApi(object):
             log.error('Problem loading deployment info, no run ID found\n{e}'.format(e=str(exc)))
             return
         run_id = dep.get_value('cons3rt.deploymentRun.id')
+        if not run_id:
+            log.warning('Deployment property not found: cons3rt.deploymentRun.id')
+            return
         try:
             run_id = int(run_id)
         except ValueError:
@@ -2815,6 +2818,76 @@ class Cons3rtApi(object):
         except Cons3rtApiError as exc:
             raise Cons3rtApiError('Problem creating snapshot for run ID: {i}'.format(i=str(dr_id))) from exc
         return results
+
+    def create_run_snapshots_multiple(self, drs):
+        """Attempts to creates snapshots for all hosts in the provided DR list
+
+        :param drs: (list) deployment runs dicts of DR data
+        :return: (list) of dict data on request results
+        :raises Cons3rtApiError
+        """
+        log = logging.getLogger(self.cls_logger + '.create_run_snapshots_multiple')
+
+        # Amount of time to wait in between run snapshots
+        inter_run_snapshot_delay_sec = 30
+
+        # Ensure required data was provided
+        if not isinstance(drs, list):
+            raise Cons3rtApiError('Provided drs must be a list, found: {t}'.format(t=drs.__class__.__name__))
+        for dr in drs:
+            if not isinstance(dr, dict):
+                raise Cons3rtApiError('Provided dr data was not a dict, found: {t}'.format(t=dr.__class__.__name__))
+            if 'id' not in dr:
+                raise Cons3rtApiError('id not found in DR data: {d}'.format(d=str(dr)))
+            if 'deploymentRunStatus' not in dr:
+                raise Cons3rtApiError('deploymentRunStatus not found in DR data: {d}'.format(d=str(dr)))
+            if 'project' not in dr:
+                raise Cons3rtApiError('project not found in DR data: {d}'.format(d=str(dr)))
+            if 'name' not in dr['project']:
+                raise Cons3rtApiError('project name not found in DR data: {d}'.format(d=str(dr)))
+
+        # Get the run ID if available
+        my_run_id = self.get_my_run_id()
+
+        # Filter runs to be snapshotted by status and remove this run ID
+        snapshot_approved_statii = ['RESERVED', 'TESTED']
+        snapshot_drs = []
+        for dr in drs:
+            if my_run_id == dr['id']:
+                log.info('Not including MY OWN run ID on the snapshot DR list: {i}'.format(i=str(my_run_id)))
+                continue
+            if dr['deploymentRunStatus'] not in snapshot_approved_statii:
+                log.info('Not including run ID {i} with status {s} on the snapshot DR list'.format(
+                    i=str(dr['id']), s=dr['deploymentRunStatus']))
+                continue
+            log.info('Adding DR to list of DRs to be snapshotted: {i}'.format(i=str(dr['id'])))
+            snapshot_drs.append(dr)
+
+        # Create snapshots for each run, with a delay in between, and collect results
+        all_results = []
+        for dr in snapshot_drs:
+            log.info('Attempting to create snapshots for hosts in DR ID: {i}'.format(i=str(dr['id'])))
+            try:
+                self.set_project_token(project_name=dr['project']['name'])
+                results = self.create_run_snapshots(dr_id=dr['id'])
+            except Cons3rtApiError as exc:
+                raise Cons3rtApiError('Problem creating snapshots for run ID: {i}'.format(i=str(dr['id']))) from exc
+            else:
+                all_results += results
+            log.info('Waiting {t} seconds to move on to the next DR...'.format(t=str(inter_run_snapshot_delay_sec)))
+            time.sleep(inter_run_snapshot_delay_sec)
+        successful_snapshots_count = 0
+        failed_snapshots_count = 0
+        for result in all_results:
+            if result['result'] == 'FAIL':
+                failed_snapshots_count += 1
+            else:
+                successful_snapshots_count += 1
+        log.info('Requested {n} total snapshots'.format(n=str(len(all_results))))
+        log.info('Completed with {s} successful snapshots and {f} failed snapshots'.format(
+            s=str(successful_snapshots_count),
+            f=str(failed_snapshots_count)))
+        return all_results
 
     def list_project_virtualization_realms_for_team(self, team_id):
         """Given a team ID, returns a list of the virtualization realms that the team's projects
