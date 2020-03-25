@@ -2771,13 +2771,33 @@ class Cons3rtApi(object):
 
         # Perform actions on each host ID
         for host in hosts:
+            required_fields = ['id', 'systemRole', 'disks']
+            requirements = True
+            for required_field in required_fields:
+                if required_field not in host:
+                    log.warning('Required data {f} not found in host data: {d}'.format(f=required_field, d=str(host)))
+                    requirements = False
+                    break
+            if not requirements:
+                continue
+            total_disk_capacity_mb = 0
+            for disk in host['disks']:
+                if 'capacityInMegabytes' not in disk:
+                    log.warning('No capacityInMegabytes found in disk data: {d}'.format(d=str(disk)))
+                    continue
+                total_disk_capacity_mb += disk['capacityInMegabytes']
+            total_disk_capacity_gb = total_disk_capacity_mb / 1024
+            log.info('Found {n} disks with capacity {g} for host: {h}'.format(
+                h=str(host['id']), n=str(len(host['disks'])), g=str(total_disk_capacity_gb)))
             request_info = {
                 'dr_id': dr_id,
                 'dr_name': dr_info['name'],
                 'host_id': host['id'],
                 'host_role': host['systemRole'],
                 'action': action,
-                'request_time': datetime.datetime.now().strftime('%Y%m%d-%H%M%S')
+                'request_time': datetime.datetime.now().strftime('%Y%m%d-%H%M%S'),
+                'num_disks': len(host['disks']),
+                'storage_gb': total_disk_capacity_gb
             }
             try:
                 self.perform_host_action(
@@ -2878,15 +2898,21 @@ class Cons3rtApi(object):
             time.sleep(inter_run_snapshot_delay_sec)
         successful_snapshots_count = 0
         failed_snapshots_count = 0
+        snapshot_disk_count = 0
+        snapshot_disk_capacity_gb = 0
         for result in all_results:
             if result['result'] == 'FAIL':
                 failed_snapshots_count += 1
             else:
                 successful_snapshots_count += 1
+                snapshot_disk_count += result['num_disks']
+                snapshot_disk_capacity_gb += result['storage_gb']
         log.info('Requested {n} total snapshots'.format(n=str(len(all_results))))
         log.info('Completed with {s} successful snapshots and {f} failed snapshots'.format(
             s=str(successful_snapshots_count),
             f=str(failed_snapshots_count)))
+        log.info('Snapshots succeeded on a total of {n} disks with a total storage capacity of {g} GBs'.format(
+            n=str(snapshot_disk_count), g=str(snapshot_disk_capacity_gb)))
         return all_results
 
     def list_project_virtualization_realms_for_team(self, team_id):
