@@ -2807,7 +2807,7 @@ class Cons3rtApi(object):
                     continue
                 total_disk_capacity_mb += disk['capacityInMegabytes']
             total_disk_capacity_gb = total_disk_capacity_mb / 1024
-            log.info('Found {n} disks with capacity {g} for host: {h}'.format(
+            log.info('Found {n} disks with capacity {g} GBs for host: {h}'.format(
                 h=str(host['id']), n=str(len(host['disks'])), g=str(total_disk_capacity_gb)))
             request_info = {
                 'dr_id': dr_id,
@@ -2997,14 +2997,14 @@ class Cons3rtApi(object):
         log.info('Found {n} Openstack DRs'.format(n=str(len(openstack_drs))))
         log.info('Found {n} Amazon DRs'.format(n=str(len(aws_drs))))
         log.info('Found {n} Azure DRs'.format(n=str(len(azure_drs))))
-        log.info('Found {n} Other DRs'.format(n=str(len(other_drs))))
+        log.info('Found {n} DRs with VR type not specified'.format(n=str(len(other_drs))))
 
         all_results = []
         if len(aws_drs) > 0:
             log.info('Performing host actions {a} on AWS runs...'.format(a=action))
             try:
                 all_results += self.perform_host_action_for_run_list_with_delay(
-                    drs=drs,
+                    drs=action_drs,
                     action=action,
                     inter_run_action_delay_sec=self.get_inter_host_action_delay_for_cloud_type(cloud_type='Amazon')
                 )
@@ -3015,7 +3015,7 @@ class Cons3rtApi(object):
             log.info('Performing host actions {a} on Azure runs...'.format(a=action))
             try:
                 all_results += self.perform_host_action_for_run_list_with_delay(
-                    drs=drs,
+                    drs=action_drs,
                     action=action,
                     inter_run_action_delay_sec=self.get_inter_host_action_delay_for_cloud_type(cloud_type='Azure')
                 )
@@ -3026,7 +3026,7 @@ class Cons3rtApi(object):
             log.info('Performing host actions {a} on Openstack runs...'.format(a=action))
             try:
                 all_results += self.perform_host_action_for_run_list_with_delay(
-                    drs=drs,
+                    drs=action_drs,
                     action=action,
                     inter_run_action_delay_sec=self.get_inter_host_action_delay_for_cloud_type(cloud_type='Openstack')
                 )
@@ -3038,7 +3038,7 @@ class Cons3rtApi(object):
             log.info('Performing host actions {a} on VCloud runs...'.format(a=action))
             try:
                 all_results += self.perform_host_action_for_run_list_with_delay(
-                    drs=drs,
+                    drs=action_drs,
                     action=action,
                     inter_run_action_delay_sec=self.get_inter_host_action_delay_for_cloud_type(cloud_type='VCloud')
                 )
@@ -3050,7 +3050,7 @@ class Cons3rtApi(object):
             log.info('Performing host actions {a} on runs with unknown cloud type...'.format(a=action))
             try:
                 all_results += self.perform_host_action_for_run_list_with_delay(
-                    drs=drs,
+                    drs=action_drs,
                     action=action,
                     inter_run_action_delay_sec=self.get_inter_host_action_delay_for_cloud_type(cloud_type='other')
                 )
