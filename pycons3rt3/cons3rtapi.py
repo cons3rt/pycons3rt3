@@ -2734,13 +2734,34 @@ class Cons3rtApi(object):
             raise Cons3rtApiError(msg) from exc
         log.info('Completed [{a}] on DR ID {r} host ID: {h}'.format(a=action, r=str(dr_id), h=str(dr_host_id)))
 
-    def perform_host_action_for_run(self, dr_id, action, cpu=None, ram=None):
+    @staticmethod
+    def get_inter_host_action_delay_for_cloud_type(cloud_type):
+        """Returns the ideal delay time between host actions based on cloud type
+
+        :param cloud_type: (str) cloud type
+        :return: (int) delay in seconds
+        """
+        worst_case_delay_sec = 180
+        cloud_type = cloud_type.lower()
+        if cloud_type in ['vcloud', 'vmware']:
+            return worst_case_delay_sec
+        elif cloud_type == 'openStack':
+            return worst_case_delay_sec
+        elif cloud_type in ['aws, amazon']:
+            return 10
+        elif cloud_type == 'azure':
+            return 10
+        else:
+            return worst_case_delay_sec
+
+    def perform_host_action_for_run(self, dr_id, action, cpu=None, ram=None, inter_host_action_delay_sec=None):
         """Performs the provided host action on the dr_id
 
         :param dr_id: (int) ID of the deployment run
         :param action: (str) host action to perform
         :param cpu: (int) number of CPUs if the action if the action is resize
         :param ram: (int) amount of ram in megabytes if the action is resize
+        :param inter_host_action_delay_sec: (int) number of seconds between hosts
         :return: (list) of dict data on request results
         :raises Cons3rtApiError
         """
@@ -2758,15 +2779,14 @@ class Cons3rtApi(object):
             raise Cons3rtApiError('Problem retrieving details of run: {i}'.format(i=str(dr_id))) from exc
 
         # Set the host action delay higher for vCloud and OpenStack
-        host_action_delay_sec = 5
-        vr_type = None
-        if 'virtualizationRealm' in dr_info:
-            if 'virtualizationRealmType' in dr_info['virtualizationRealm']:
-                vr_type = dr_info['virtualizationRealm']['virtualizationRealmType']
-                if vr_type == 'VCloud' or vr_type == 'OpenStack':
-                    host_action_delay_sec = 60
-        log.info('Found virtualization realm type: {t}'.format(t=vr_type))
-        log.info('Using host action delay: {s} sec'.format(s=str(host_action_delay_sec)))
+        if not inter_host_action_delay_sec:
+            inter_host_action_delay_sec = 180
+            if 'virtualizationRealm' in dr_info:
+                if 'virtualizationRealmType' in dr_info['virtualizationRealm']:
+                    vr_type = dr_info['virtualizationRealm']['virtualizationRealmType']
+                    inter_host_action_delay_sec = self.get_inter_host_action_delay_for_cloud_type(cloud_type=vr_type)
+                    log.info('Found virtualization realm type: {t}'.format(t=vr_type))
+        log.info('Using inter host action delay: {s} sec'.format(s=str(inter_host_action_delay_sec)))
         results = []
 
         # Perform actions on each host ID
@@ -2818,10 +2838,40 @@ class Cons3rtApi(object):
                 request_info['result'] = 'OK'
             results.append(request_info)
             log.info('Waiting {s} sec to perform the next host action for run ID {i}...'.format(
-                s=str(host_action_delay_sec), i=str(dr_id)))
-            time.sleep(host_action_delay_sec)
-        log.info('Completed host action [{a}] on run ID: {i}'.format(a=action, i=str(dr_id)))
+                s=str(inter_host_action_delay_sec), i=str(dr_id)))
+            time.sleep(inter_host_action_delay_sec)
+        log.info('Completed host action [{a}] on hosts in run ID: {i}'.format(a=action, i=str(dr_id)))
         return results
+
+    def perform_host_action_for_run_list_with_delay(self, drs, action, inter_run_action_delay_sec=30):
+        """Attempts to perform the provided action for all hosts in the provided DR list
+
+        :param drs: (list) deployment runs dicts of DR data
+        :param action: (str) host action to perform
+        :param inter_run_action_delay_sec: (int) Amount of time to wait in between run actions
+        :return: (list) of dict data on request results
+        :raises Cons3rtApiError
+        """
+        log = logging.getLogger(self.cls_logger + '.perform_host_action_for_run_list_with_delay')
+
+        log.info('Using inter-run delay of {t} seconds'.format(t=str(inter_run_action_delay_sec)))
+
+        # Perform actions for each run, with a delay in between, and collect results
+        all_results = []
+        for dr in drs:
+            log.info('Attempting to perform action [{a}] for hosts in DR ID: {i}'.format(
+                a=action, i=str(dr['id'])))
+            try:
+                self.set_project_token(project_name=dr['project']['name'])
+                results = self.perform_host_action_for_run(dr_id=dr['id'], action=action)
+            except Cons3rtApiError as exc:
+                raise Cons3rtApiError('Problem performing action {a} for run ID: {i}'.format(
+                    a=action, i=str(dr['id']))) from exc
+            else:
+                all_results += results
+            log.info('Waiting {t} seconds to move on to the next DR...'.format(t=str(inter_run_action_delay_sec)))
+            time.sleep(inter_run_action_delay_sec)
+        return all_results
 
     def create_run_snapshots(self, dr_id):
         """Attempts to creates snapshots for all hosts in the provided DR ID
@@ -2847,9 +2897,44 @@ class Cons3rtApi(object):
         :raises Cons3rtApiError
         """
         log = logging.getLogger(self.cls_logger + '.create_run_snapshots_multiple')
+        try:
+            all_results = self.perform_host_action_for_run_list(
+                drs=drs,
+                action='CREATE_SNAPSHOT'
+            )
+        except Cons3rtApiError as exc:
+            raise Cons3rtApiError('Problem creating snapshots on DR list') from exc
 
-        # Amount of time to wait in between run snapshots
-        inter_run_snapshot_delay_sec = 30
+        successful_snapshots_count = 0
+        failed_snapshots_count = 0
+        snapshot_disk_count = 0
+        snapshot_disk_capacity_gb = 0
+        for result in all_results:
+            if result['result'] == 'FAIL':
+                failed_snapshots_count += 1
+            else:
+                successful_snapshots_count += 1
+                snapshot_disk_count += result['num_disks']
+                snapshot_disk_capacity_gb += result['storage_gb']
+        log.info('Requested {n} total snapshots'.format(n=str(len(all_results))))
+        log.info('Completed with {s} successful snapshots and {f} failed snapshots'.format(
+            s=str(successful_snapshots_count),
+            f=str(failed_snapshots_count)))
+        log.info('Snapshots succeeded on a total of {n} disks with a total storage capacity of {g} GBs'.format(
+            n=str(snapshot_disk_count), g=str(snapshot_disk_capacity_gb)))
+        return all_results
+
+    def perform_host_action_for_run_list(self, drs, action):
+        """Attempts to perform the provided action for all hosts in the provided DR list
+
+        :param drs: (list) deployment runs dicts of DR data
+        :param action: (str) host action to perform
+        :return: (list) of dict data on request results
+        :raises Cons3rtApiError
+        """
+        log = logging.getLogger(self.cls_logger + '.perform_host_action_for_run_list')
+
+        log.info('Attempting to perform action {a} on run list'.format(a=action))
 
         # Ensure required data was provided
         if not isinstance(drs, list):
@@ -2869,50 +2954,109 @@ class Cons3rtApi(object):
         # Get the run ID if available
         my_run_id = self.get_my_run_id()
 
-        # Filter runs to be snapshotted by status and remove this run ID
-        snapshot_approved_statii = ['RESERVED', 'TESTED']
-        snapshot_drs = []
+        # Filter runs to take actions on by status and remove this run ID
+        action_approved_statii = ['RESERVED', 'TESTED']
+        action_drs = []
         for dr in drs:
             if my_run_id == dr['id']:
-                log.info('Not including MY OWN run ID on the snapshot DR list: {i}'.format(i=str(my_run_id)))
+                log.info('Not including MY OWN run ID on the action DR list: {i}'.format(i=str(my_run_id)))
                 continue
-            if dr['deploymentRunStatus'] not in snapshot_approved_statii:
-                log.info('Not including run ID {i} with status {s} on the snapshot DR list'.format(
+            if dr['deploymentRunStatus'] not in action_approved_statii:
+                log.info('Not including run ID {i} with status {s} on the action DR list'.format(
                     i=str(dr['id']), s=dr['deploymentRunStatus']))
                 continue
-            log.info('Adding DR to list of DRs to be snapshotted: {i}'.format(i=str(dr['id'])))
-            snapshot_drs.append(dr)
+            log.info('Adding DR to list of DRs to take action {a}: {i}'.format(a=action, i=str(dr['id'])))
+            action_drs.append(dr)
 
-        # Create snapshots for each run, with a delay in between, and collect results
-        all_results = []
-        for dr in snapshot_drs:
-            log.info('Attempting to create snapshots for hosts in DR ID: {i}'.format(i=str(dr['id'])))
-            try:
-                self.set_project_token(project_name=dr['project']['name'])
-                results = self.create_run_snapshots(dr_id=dr['id'])
-            except Cons3rtApiError as exc:
-                raise Cons3rtApiError('Problem creating snapshots for run ID: {i}'.format(i=str(dr['id']))) from exc
+        log.info('Sorting run list by cloud type')
+        vcloud_drs = []
+        openstack_drs = []
+        aws_drs = []
+        azure_drs = []
+        other_drs = []
+
+        # Split up DRs by VR type, each has a different delay
+        for dr in action_drs:
+            if 'virtualizationRealm' in dr:
+                if 'virtualizationRealmType' in dr['virtualizationRealm']:
+                    if dr['virtualizationRealm']['virtualizationRealmType'] == 'VCloud':
+                        vcloud_drs.append(dr)
+                    elif dr['virtualizationRealm']['virtualizationRealmType'] == 'OpenStack':
+                        openstack_drs.append(dr)
+                    elif dr['virtualizationRealm']['virtualizationRealmType'] == 'Amazon':
+                        aws_drs.append(dr)
+                    elif dr['virtualizationRealm']['virtualizationRealmType'] == 'Azure':
+                        azure_drs.append(dr)
+                    else:
+                        other_drs.append(dr)
+                else:
+                    other_drs.append(dr)
             else:
-                all_results += results
-            log.info('Waiting {t} seconds to move on to the next DR...'.format(t=str(inter_run_snapshot_delay_sec)))
-            time.sleep(inter_run_snapshot_delay_sec)
-        successful_snapshots_count = 0
-        failed_snapshots_count = 0
-        snapshot_disk_count = 0
-        snapshot_disk_capacity_gb = 0
+                other_drs.append(dr)
+        log.info('Found {n} VCloud DRs'.format(n=str(len(vcloud_drs))))
+        log.info('Found {n} Openstack DRs'.format(n=str(len(openstack_drs))))
+        log.info('Found {n} Amazon DRs'.format(n=str(len(aws_drs))))
+        log.info('Found {n} Azure DRs'.format(n=str(len(azure_drs))))
+        log.info('Found {n} Other DRs'.format(n=str(len(other_drs))))
+
+        all_results = []
+        if len(aws_drs) > 0:
+            log.info('Performing host actions {a} on AWS runs...'.format(a=action))
+            try:
+                all_results += self.perform_host_action_for_run_list_with_delay(
+                    drs=drs,
+                    action=action,
+                    inter_run_action_delay_sec=self.get_inter_host_action_delay_for_cloud_type(cloud_type='Amazon')
+                )
+            except Cons3rtApiError as exc:
+                raise Cons3rtApiError('Problem performing host action [{a}] for Amazon runs'.format(a=action)) from exc
+
+        if len(azure_drs) > 0:
+            log.info('Performing host actions {a} on Azure runs...'.format(a=action))
+            try:
+                all_results += self.perform_host_action_for_run_list_with_delay(
+                    drs=drs,
+                    action=action,
+                    inter_run_action_delay_sec=self.get_inter_host_action_delay_for_cloud_type(cloud_type='Azure')
+                )
+            except Cons3rtApiError as exc:
+                raise Cons3rtApiError('Problem performing host action [{a}] for Azure runs'.format(a=action)) from exc
+
+        if len(openstack_drs) > 0:
+            log.info('Performing host actions {a} on Openstack runs...'.format(a=action))
+            try:
+                all_results += self.perform_host_action_for_run_list_with_delay(
+                    drs=drs,
+                    action=action,
+                    inter_run_action_delay_sec=self.get_inter_host_action_delay_for_cloud_type(cloud_type='Openstack')
+                )
+            except Cons3rtApiError as exc:
+                raise Cons3rtApiError('Problem performing host action [{a}] for Openstack runs'.format(
+                    a=action)) from exc
+
+        if len(vcloud_drs) > 0:
+            log.info('Performing host actions {a} on VCloud runs...'.format(a=action))
+            try:
+                all_results += self.perform_host_action_for_run_list_with_delay(
+                    drs=drs,
+                    action=action,
+                    inter_run_action_delay_sec=self.get_inter_host_action_delay_for_cloud_type(cloud_type='VCloud')
+                )
+            except Cons3rtApiError as exc:
+                raise Cons3rtApiError('Problem performing host action [{a}] for VCloud runs'.format(
+                    a=action)) from exc
+        successful_action_count = 0
+        failed_action_count = 0
         for result in all_results:
             if result['result'] == 'FAIL':
-                failed_snapshots_count += 1
+                failed_action_count += 1
             else:
-                successful_snapshots_count += 1
-                snapshot_disk_count += result['num_disks']
-                snapshot_disk_capacity_gb += result['storage_gb']
-        log.info('Requested {n} total snapshots'.format(n=str(len(all_results))))
-        log.info('Completed with {s} successful snapshots and {f} failed snapshots'.format(
-            s=str(successful_snapshots_count),
-            f=str(failed_snapshots_count)))
-        log.info('Snapshots succeeded on a total of {n} disks with a total storage capacity of {g} GBs'.format(
-            n=str(snapshot_disk_count), g=str(snapshot_disk_capacity_gb)))
+                successful_action_count += 1
+        log.info('Requested {n} total hosts with action: {a}'.format(n=str(len(all_results)), a=action))
+        log.info('Completed [{a}] with {s} successful and {f} failed'.format(
+            a=action,
+            s=str(successful_action_count),
+            f=str(failed_action_count)))
         return all_results
 
     def list_project_virtualization_realms_for_team(self, team_id):
