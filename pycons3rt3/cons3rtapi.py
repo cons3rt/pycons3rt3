@@ -2966,7 +2966,13 @@ class Cons3rtApi(object):
                     i=str(dr['id']), s=dr['deploymentRunStatus']))
                 continue
             log.info('Adding DR to list of DRs to take action {a}: {i}'.format(a=action, i=str(dr['id'])))
-            action_drs.append(dr)
+            try:
+                dr_details = self.retrieve_deployment_run_details(dr_id=dr['id'])
+            except Cons3rtApiError as exc:
+                log.warning('Problem retrieving details on DR ID {i}\n{e}'.format(i=str(dr['id']), e=str(exc)))
+                action_drs.append(dr)
+            else:
+                action_drs.append(dr_details)
 
         log.info('Sorting run list by cloud type')
         vcloud_drs = []
