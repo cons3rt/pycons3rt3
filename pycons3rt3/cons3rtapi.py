@@ -3045,6 +3045,19 @@ class Cons3rtApi(object):
             except Cons3rtApiError as exc:
                 raise Cons3rtApiError('Problem performing host action [{a}] for VCloud runs'.format(
                     a=action)) from exc
+
+        if len(other_drs) > 0:
+            log.info('Performing host actions {a} on runs with unknown cloud type...'.format(a=action))
+            try:
+                all_results += self.perform_host_action_for_run_list_with_delay(
+                    drs=drs,
+                    action=action,
+                    inter_run_action_delay_sec=self.get_inter_host_action_delay_for_cloud_type(cloud_type='other')
+                )
+            except Cons3rtApiError as exc:
+                raise Cons3rtApiError('Problem performing host action [{a}] for other runs'.format(
+                    a=action)) from exc
+
         successful_action_count = 0
         failed_action_count = 0
         for result in all_results:
