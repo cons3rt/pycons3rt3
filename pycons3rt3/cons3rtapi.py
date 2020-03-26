@@ -2747,7 +2747,7 @@ class Cons3rtApi(object):
             return worst_case_delay_sec
         elif cloud_type == 'openStack':
             return worst_case_delay_sec
-        elif cloud_type in ['aws, amazon']:
+        elif cloud_type in ['aws', 'amazon']:
             return 10
         elif cloud_type == 'azure':
             return 10
@@ -2800,6 +2800,12 @@ class Cons3rtApi(object):
                     break
             if not requirements:
                 continue
+            # Skip if the host has an action in progress
+            if 'hostActionInProcess' in host:
+                if host['hostActionInProcess']:
+                    log.info('Skipping DR {d} host with a host action already in progress: {h}'.format(
+                        d=str(dr_id), h=str(host['id'])))
+                    continue
             total_disk_capacity_mb = 0
             for disk in host['disks']:
                 if 'capacityInMegabytes' not in disk:
