@@ -3332,3 +3332,81 @@ class Cons3rtApi(object):
             project_drh_count += len(dr_drh_list)
         log.info('Found {n} deployment run hosts in project ID {i}'.format(i=str(project_id), n=str(project_drh_count)))
         return project_drh_list
+
+    def update_virtualization_realm_reachability(self, vr_id):
+        """Updates the virtualization realm's reachability
+
+        :param vr_id: (int) ID of the virtualization realm
+        :return: None
+        :raises: Cons3rtClientError
+        """
+        log = logging.getLogger(self.cls_logger + '.update_virtualization_realm_reachability')
+
+        # Ensure the vr_id is an int
+        if not isinstance(vr_id, int):
+            try:
+                vr_id = int(vr_id)
+            except ValueError as exc:
+                msg = 'vr_id arg must be an Integer, found: {t}'.format(t=vr_id.__class__.__name__)
+                raise Cons3rtApiError(msg) from exc
+
+        log.info('Updating reachability status for virtualization realm ID: {i}'.format(i=str(vr_id)))
+        try:
+            self.cons3rt_client.update_virtualization_realm_reachability(vr_id=vr_id)
+        except Cons3rtClientError as exc:
+            msg = 'Problem updating reachability for virtualization realm ID: {i}'.format(i=str(vr_id))
+            raise Cons3rtApiError(msg) from exc
+
+    def update_virtualization_realm_reachability_for_cloud(self, cloud_id):
+        """Updates virtualization realm reachability for all active VRs in the provided cloud ID
+
+        :param cloud_id: (int) ID of the cloud
+        :return: None
+        :raises: Cons3rtClientError
+        """
+        log = logging.getLogger(self.cls_logger + '.update_virtualization_realm_reachability')
+
+        # Delay between each reachability check
+        inter_vr_delay_sec = 5
+
+        # Ensure the cloud_id is an int
+        if not isinstance(cloud_id, int):
+            try:
+                cloud_id = int(cloud_id)
+            except ValueError as exc:
+                msg = 'cloud_id arg must be an Integer, found: {t}'.format(t=cloud_id.__class__.__name__)
+                raise Cons3rtApiError(msg) from exc
+
+        log.info('Listing virtualization realms for cloud ID: {i}'.format(i=str(cloud_id)))
+        try:
+            vrs = self.list_virtualization_realms_for_cloud(cloud_id=cloud_id)
+        except Cons3rtApiError as exc:
+            msg = 'Problem retrieving the list of virtualization realms for cloud ID: {i}'.format(i=str(cloud_id))
+            raise Cons3rtApiError(msg) from exc
+
+        active_vrs = []
+        for vr in vrs:
+            if 'state' not in vr.keys() or 'id' not in vr.keys():
+                log.warning('Virtualization realm has no state or id data: {d}'.format(d=str(vr)))
+                continue
+            if vr['state'] == 'ACTIVE':
+                log.info('Adding active virtualization realm to the reachability update list: {i}'.format(
+                    i=str(vr['id'])))
+                active_vrs.append(vr)
+            else:
+                log.info('Excluding virtualization from the reachability update list in state [{s}]: {i}'.format(
+                    s=str(vr['state']), i=str(vr['id'])))
+                continue
+
+        # Update reachability for each VR
+        log.info('Updating reachability status for {n} active virtualization realms in cloud ID: {i}'.format(
+            n=str(len(active_vrs)), i=str(cloud_id)))
+        for vr in active_vrs:
+            try:
+                self.update_virtualization_realm_reachability(vr_id=vr['id'])
+            except Cons3rtClientError as exc:
+                msg = 'Problem updating reachability for virtualization realm ID: {i}'.format(i=str(vr['id']))
+                raise Cons3rtApiError(msg) from exc
+            log.info('Requested reachability update for virtualization realm ID: {i}'.format(i=str(vr['id'])))
+            time.sleep(inter_vr_delay_sec)
+        log.info('Completed virtualization realm reachability updates for cloud ID: {i}'.format(i=str(cloud_id)))

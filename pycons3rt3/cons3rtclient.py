@@ -809,6 +809,22 @@ class Cons3rtClient:
         templates = json.loads(result)
         return templates
 
+    def update_virtualization_realm_reachability(self, vr_id):
+        """Updates the virtualization realm's reachability
+
+        :param vr_id: (int) ID of the virtualization realm
+        :return: result
+        :raises: Cons3rtClientError
+        """
+        target = 'virtualizationrealms/{i}/updatereachability'.format(i=str(vr_id))
+        response = self.http_client.http_put(rest_user=self.user, target=target)
+        try:
+            result = self.http_client.parse_response(response=response)
+        except Cons3rtClientError as exc:
+            msg = 'The HTTP response contains a bad status code'
+            raise Cons3rtClientError(msg) from exc
+        return result
+
     def release_deployment_run(self, dr_id):
         response = self.http_client.http_put(
             rest_user=self.user,
