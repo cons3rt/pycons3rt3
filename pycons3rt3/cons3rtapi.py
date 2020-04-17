@@ -569,6 +569,62 @@ class Cons3rtApi(object):
         log.info('Found {n} projects in virtualization realm ID: {i}'.format(n=str(len(projects)), i=str(vr_id)))
         return projects
 
+    def remove_all_projects_in_virtualization_realm(self, vr_id):
+        """Queries CONS3RT for a list of projects in the virtualization realm
+
+        :param vr_id: (int) virtualization realm ID
+        :return: (list) of projects removed from the VR
+        :raises: Cons3rtApiError
+        """
+        log = logging.getLogger(self.cls_logger + '.remove_all_projects_in_virtualization_realm')
+
+        # Ensure the vr_id is an int
+        if not isinstance(vr_id, int):
+            try:
+                vr_id = int(vr_id)
+            except ValueError as exc:
+                msg = 'vr_id arg must be an Integer, found: {t}'.format(t=vr_id.__class__.__name__)
+                raise Cons3rtApiError(msg) from exc
+
+        # Get a list of all the projects in the virtualization realm
+        vr_projects = self.list_projects_in_virtualization_realm(vr_id=vr_id)
+        for vr_project in vr_projects:
+            self.remove_project_from_virtualization_realm(project_id=vr_project['id'], vr_id=vr_id)
+        log.info('Completed removing all projects from VR ID: {i}'.format(i=str(vr_id)))
+
+    def remove_project_from_virtualization_realm(self, project_id, vr_id):
+        """Removes the project ID from the virtualization realm ID
+
+        :param project_id: (int) project ID
+        :param vr_id: (int) virtualization realm ID
+        :return: None
+        :raises: Cons3rtApiError
+        """
+        log = logging.getLogger(self.cls_logger + '.remove_project_from_virtualization_realm')
+
+        # Ensure the vr_id is an int
+        if not isinstance(vr_id, int):
+            try:
+                vr_id = int(vr_id)
+            except ValueError as exc:
+                msg = 'vr_id arg must be an Integer, found: {t}'.format(t=vr_id.__class__.__name__)
+                raise Cons3rtApiError(msg) from exc
+
+        # Ensure the project_id is an int
+        if not isinstance(project_id, int):
+            try:
+                project_id = int(project_id)
+            except ValueError as exc:
+                msg = 'project_id arg must be an Integer, found: {t}'.format(t=project_id.__class__.__name__)
+                raise Cons3rtApiError(msg) from exc
+
+        log.info('Removing project ID {p} from VR ID: {v}'.format(p=str(project_id), v=str(vr_id)))
+        try:
+            self.cons3rt_client.remove_project_from_virtualization_realm(vr_id=vr_id, project_id=project_id)
+        except Cons3rtClientError as exc:
+            msg = 'Problem removing project IF {p} from VR ID: {v}'.format(p=str(project_id), v=str(vr_id))
+            raise Cons3rtApiError(msg) from exc
+
     def list_clouds(self):
         """Query CONS3RT to return a list of the currently configured Clouds
 
@@ -595,6 +651,30 @@ class Cons3rtApi(object):
                 page_num += 1
         log.info('Found {n} clouds'.format(n=str(len(clouds))))
         return clouds
+
+    def retrieve_cloud_details(self, cloud_id):
+        """Returns details for the provided cloud ID
+
+        :param cloud_id: (int) Cloud ID
+        :return: (dict)
+        """
+        log = logging.getLogger(self.cls_logger + '.retrieve_cloud_details')
+
+        # Ensure the cloud_id is an int
+        if not isinstance(cloud_id, int):
+            try:
+                cloud_id = int(cloud_id)
+            except ValueError as exc:
+                msg = 'cloud_id arg must be an Integer, found: {t}'.format(t=cloud_id.__class__.__name__)
+                raise Cons3rtApiError(msg) from exc
+
+        log.debug('Attempting query cloud ID {i}'.format(i=str(cloud_id)))
+        try:
+            cloud_details = self.cons3rt_client.retrieve_cloud_details(cloud_id=cloud_id)
+        except Cons3rtClientError as exc:
+            msg = 'Unable to query CONS3RT for details on cloud ID: {i}'.format(i=str(cloud_id))
+            raise Cons3rtApiError(msg) from exc
+        return cloud_details
 
     def list_teams(self):
         """Query CONS3RT to return a list of Teams
@@ -1073,7 +1153,7 @@ class Cons3rtApi(object):
             elif 'cons3rt.siteAddress' in dep_prop['key']:
                 continue
             custom_props.append(dep_prop)
-            return custom_props
+        return custom_props
 
     def retrieve_deployment_run_host_details(self, dr_id, drh_id):
         """Query CONS3RT to return details of a deployment run host
@@ -1438,12 +1518,29 @@ class Cons3rtApi(object):
         """
         log = logging.getLogger(self.cls_logger + '.disable_remote_access')
 
+        already_disabled_statii = ['DISABLED', 'DISABLING']
+
         # Ensure the vr_id is an int
         if not isinstance(vr_id, int):
             try:
                 vr_id = int(vr_id)
             except ValueError as exc:
                 raise ValueError('vr_id arg must be an Integer') from exc
+
+        # Determine remote access status
+        try:
+            vr_details = self.get_virtualization_realm_details(vr_id=vr_id)
+        except Cons3rtApiError as exc:
+            msg = 'Cons3rtApiError: Unable to query VR details to determine the size'
+            raise Cons3rtApiError(msg) from exc
+
+        if 'remoteAccessStatus' not in vr_details.keys():
+            log.warning('remoteAccessStatus data not found in VR details, will attempt to disable: {d}'.format(
+                d=str(vr_details)))
+        else:
+            if vr_details['remoteAccessStatus'] in already_disabled_statii:
+                log.info('Remote access for VR ID {i} is already disabled or disabling'.format(i=str(vr_id)))
+                return
 
         # Attempt to disable remote access
         log.info('Attempting to disable remote access in virtualization realm ID: {i}'.format(i=vr_id))
@@ -1453,8 +1550,7 @@ class Cons3rtApi(object):
             msg = 'There was a problem disabling remote access in virtualization realm ID: {i}'.format(
                 i=vr_id)
             raise Cons3rtApiError(msg) from exc
-        log.info('Successfully disabled remote access in virtualization realm: {i}'.format(
-            i=vr_id))
+        log.info('Successfully disabled remote access in virtualization realm: {i}'.format(i=vr_id))
 
     def toggle_remote_access(self, vr_id, size=None):
         """Enables Remote Access for a specific virtualization realm, and uses SMALL
@@ -2020,7 +2116,7 @@ class Cons3rtApi(object):
         """Deletes all inactive runs in a virtualization realm
 
         :param vr_id: (int) virtualization realm ID
-        :return: None
+        :return: (int) number of runs deleted
         :raises: Cons3rtApiError
         """
         log = logging.getLogger(self.cls_logger + '.delete_inactive_runs_in_virtualization_realm')
@@ -2055,13 +2151,16 @@ class Cons3rtApi(object):
             except Cons3rtApiError as exc:
                 log.warning('Cons3rtApiError: Unable to delete run ID: {i}\n{e}'.format(i=str(dr_id), e=str(exc)))
                 continue
-        log.info('Completed deleting inactive DRs in VR ID: {i}'.format(i=str(vr_id)))
+        log.info('Completed deleting {n} inactive DRs in VR ID: {i}'.format(i=str(vr_id), n=str(len(drs))))
+        return len(drs)
 
-    def release_active_runs_in_virtualization_realm(self, vr_id):
+    def release_active_runs_in_virtualization_realm(self, vr_id, unlock=False):
         """Releases all active runs in a virtualization realm
 
         :param vr_id: (int) virtualization realm ID
+        :param unlock (bool) Set True to unset the run lock before releasing
         :return: None
+        :raises Cons3rtApiError
         """
         log = logging.getLogger(self.cls_logger + '.release_active_runs_in_virtualization_realm')
 
@@ -2072,6 +2171,11 @@ class Cons3rtApi(object):
             except ValueError as exc:
                 msg = 'vr_id arg must be an Integer, found: {t}'.format(t=vr_id.__class__.__name__)
                 raise Cons3rtApiError(msg) from exc
+
+        # Ensure unlock is a bool
+        if not isinstance(unlock, bool):
+            msg = 'unlock arg must be a bool, found: {t}'.format(t=unlock.__class__.__name__)
+            raise Cons3rtApiError(msg)
 
         # List active runs in the virtualization realm
         try:
@@ -2090,6 +2194,23 @@ class Cons3rtApi(object):
             except KeyError:
                 log.warning('Unable to determine the run ID from run: {r}'.format(r=str(dr)))
                 continue
+
+            # Unlock the run if specified
+            do_unlock = False
+            if unlock:
+                if 'locked' not in dr:
+                    log.warning('locked data not found in DR, unlock will be attempted: {d}'.format(d=str(dr)))
+                    do_unlock = True
+                elif dr['locked']:
+                    do_unlock = True
+            if do_unlock:
+                try:
+                    self.set_deployment_run_lock(dr_id=dr_id, lock=False)
+                except Cons3rtApiError as exc:
+                    msg = 'Problem removing run lock on run ID: {i}\n{e}'.format(i=str(dr_id), e=str(exc))
+                    log.warning(msg)
+                else:
+                    log.info('Removed run lock for run ID: {i}'.format(i=str(dr_id)))
             try:
                 self.release_deployment_run(dr_id=dr_id)
             except Cons3rtApiError as exc:
@@ -2097,6 +2218,174 @@ class Cons3rtApi(object):
                     i=str(dr_id), e=str(exc)))
                 continue
         log.info('Completed releasing or cancelling active DRs in VR ID: {i}'.format(i=str(vr_id)))
+
+    def clean_all_runs_in_virtualization_realm(self, vr_id, unlock=False):
+        """Releases all active runs in a virtualization realm
+
+        :param vr_id: (int) virtualization realm ID
+        :param unlock (bool) Set True to unset the run lock before releasing
+        :return: None
+        :raises Cons3rtApiError
+        """
+        log = logging.getLogger(self.cls_logger + '.clean_all_runs_in_virtualization_realm')
+
+        # Ensure the vr_id is an int
+        if not isinstance(vr_id, int):
+            try:
+                vr_id = int(vr_id)
+            except ValueError as exc:
+                msg = 'vr_id arg must be an Integer, found: {t}'.format(t=vr_id.__class__.__name__)
+                raise Cons3rtApiError(msg) from exc
+
+        # Ensure unlock is a bool
+        if not isinstance(unlock, bool):
+            msg = 'unlock arg must be a bool, found: {t}'.format(t=unlock.__class__.__name__)
+            raise Cons3rtApiError(msg)
+
+        if unlock:
+            log.info('Attempting to unlock, release, and delete all runs from VR ID: {i}'.format(i=str(vr_id)))
+        else:
+            log.info('Attempting release and delete all runs, except for locked runs from VR ID: {i}'.format(
+                i=str(vr_id)))
+
+        self.release_active_runs_in_virtualization_realm(vr_id=vr_id, unlock=unlock)
+
+        # Once a minute for 5 minutes, delete inactive runs (as runs release)
+        attempt_num = 1
+        max_attempts = 10
+        interval_sec = 60
+        while True:
+            if attempt_num > max_attempts:
+                msg = 'Maximum number of attempts {n} exceeded for deleting inactive runs from VR ID: {i}'.format(
+                    i=str(vr_id), n=str(max_attempts))
+                raise Cons3rtApiError(msg)
+            log.info('Attempting to delete inactive runs from VR ID {i}, attempt #{n} of {m}'.format(
+                i=str(vr_id), n=str(attempt_num), m=str(max_attempts)))
+            num_deleted = self.delete_inactive_runs_in_virtualization_realm(vr_id=vr_id)
+            if num_deleted < 1:
+                log.info('Completed deleting all inactive runs from VR ID: {i}'.format(i=str(vr_id)))
+                break
+            attempt_num += 1
+            log.info('Waiting {n} seconds to re-attempt inactive run deletion...'.format(n=str(interval_sec)))
+            time.sleep(interval_sec)
+        log.info('Completed cleaning all runs from VR ID: {i}'.format(i=str(vr_id)))
+
+    def set_virtualization_realm_state(self, vr_id, state):
+        """Sets the virtualization realm ID to the provided state
+
+        :param vr_id: (int) virtualization realm ID
+        :param state: (bool) Set True to activate, False to deactivate
+        :return: (bool) True if successful
+        """
+        log = logging.getLogger(self.cls_logger + '.set_virtualization_realm_state')
+
+        # Ensure the vr_id is an int
+        if not isinstance(vr_id, int):
+            try:
+                vr_id = int(vr_id)
+            except ValueError as exc:
+                msg = 'vr_id arg must be an Integer, found: {t}'.format(t=vr_id.__class__.__name__)
+                raise Cons3rtApiError(msg) from exc
+
+        # Ensure the state is a boolean
+        if not isinstance(state, bool):
+            msg = 'state arg must be a bool, found: {t}'.format(t=state.__class__.__name__)
+            raise Cons3rtApiError(msg)
+
+        try:
+            result = self.cons3rt_client.set_virtualization_realm_state(vr_id=vr_id, state=state)
+        except Cons3rtClientError as exc:
+            msg = 'Problem setting state to {s} for VR ID: {i}'.format(s=str(state), i=str(vr_id))
+            raise Cons3rtApiError(msg) from exc
+        if state:
+            state_str = 'active'
+        else:
+            state_str = 'inactive'
+        if result:
+            log.info('Set state to {s} for VR ID: {i}'.format(s=state_str, i=str(vr_id)))
+        else:
+            log.warning('Unable to set state to {s} for VR ID: {i}'.format(s=state_str, i=str(vr_id)))
+        return result
+
+    def prep_virtualization_realm_for_removal(self, vr_id):
+        """Cleans and de-allocates a virtualization realm
+
+        :param vr_id: (int) ID of the virtualization realm
+        :returns: (tuple) cloud ID, and details of the prepped virtualization realm or None
+        :return: Cons3rtApiError
+        """
+        log = logging.getLogger(self.cls_logger + '.prep_virtualization_realm_for_removal')
+
+        # Ensure the vr_id is an int
+        if not isinstance(vr_id, int):
+            try:
+                vr_id = int(vr_id)
+            except ValueError as exc:
+                msg = 'vr_id arg must be an Integer, found: {t}'.format(t=vr_id.__class__.__name__)
+                raise Cons3rtApiError(msg) from exc
+
+        # Get the cloud ID needed to de-allocation
+        vr_details = self.get_virtualization_realm_details(vr_id=vr_id)
+        if 'cloud' not in vr_details:
+            raise Cons3rtApiError('cloud data not found in VR details: {d}'.format(d=str(vr_details)))
+        if 'id' not in vr_details['cloud']:
+            msg = 'id not found in cloud data for VR {i} details: {d}'.format(i=str(vr_id), d=str(vr_details))
+            raise Cons3rtApiError(msg)
+        cloud_id = vr_details['cloud']['id']
+
+        # Clean out all DRs, remove all projects, deactivate
+        log.info('Preparing VR ID {i} for de-allocation or unregistering...'.format(i=str(vr_id)))
+        self.clean_all_runs_in_virtualization_realm(vr_id=vr_id, unlock=True)
+        self.disable_remote_access(vr_id=vr_id)
+        self.remove_all_projects_in_virtualization_realm(vr_id=vr_id)
+        state_result = self.set_virtualization_realm_state(vr_id=vr_id, state=False)
+        if not state_result:
+            msg = 'Unable to deactivate VR ID {i} before attempting to unregister/de-allocate'.format(i=str(vr_id))
+            raise Cons3rtApiError(msg)
+        log.info('Completed prepping VR ID {i} for unregister or de-allocation'.format(i=str(vr_id)))
+        return cloud_id, vr_details
+
+    def deallocate_virtualization_realm(self, vr_id):
+        """Cleans and de-allocates a virtualization realm
+
+        :param vr_id: (int) ID of the virtualization realm
+        :returns: (dict) details of the deallocated virtualization realm or None
+        :return: Cons3rtApiError
+        """
+        log = logging.getLogger(self.cls_logger + '.deallocate_virtualization_realm')
+        cloud_id, vr_details = self.prep_virtualization_realm_for_removal(vr_id=vr_id)
+        log.info('Attempting to de-allocate VR ID {v} from cloud ID: {c}'.format(v=str(vr_id), c=str(cloud_id)))
+        try:
+            result = self.cons3rt_client.deallocate_virtualization_realm(cloud_id=cloud_id, vr_id=vr_id)
+        except Cons3rtClientError as exc:
+            msg = 'Problem de-allocating VR ID {v} from cloud ID {c}'.format(v=str(vr_id), c=str(cloud_id))
+            raise Cons3rtApiError(msg) from exc
+        if result:
+            log.info('De-allocation of VR ID {v} from cloud ID {c} succeeded'.format(v=str(vr_id), c=str(cloud_id)))
+            return vr_details
+        else:
+            log.warning('De-allocation of VR ID {v} from cloud ID {c} failed'.format(v=str(vr_id), c=str(cloud_id)))
+
+    def unregister_virtualization_realm(self, vr_id):
+        """Cleans and de-allocates a virtualization realm
+
+        :param vr_id: (int) ID of the virtualization realm
+        :returns: (dict) details of the unregistered virtualization realm or None
+        :return: Cons3rtApiError
+        """
+        log = logging.getLogger(self.cls_logger + '.unregister_virtualization_realm')
+        cloud_id, vr_details = self.prep_virtualization_realm_for_removal(vr_id=vr_id)
+        log.info('Attempting to unregister VR ID {v} from cloud ID: {c}'.format(v=str(vr_id), c=str(cloud_id)))
+        try:
+            result = self.cons3rt_client.unregister_virtualization_realm(cloud_id=cloud_id, vr_id=vr_id)
+        except Cons3rtClientError as exc:
+            msg = 'Problem unregistering VR ID {v} from cloud ID {c}'.format(v=str(vr_id), c=str(cloud_id))
+            raise Cons3rtApiError(msg) from exc
+        if result:
+            log.info('Unregister of VR ID {v} from cloud ID {c} succeeded'.format(v=str(vr_id), c=str(cloud_id)))
+            return vr_details
+        else:
+            log.warning('Unregister of VR ID {v} from cloud ID {c} failed'.format(v=str(vr_id), c=str(cloud_id)))
 
     def list_networks_in_virtualization_realm(self, vr_id):
         """Lists all networks in a virtualization realm
@@ -2124,11 +2413,14 @@ class Cons3rtApi(object):
         log.debug('Found networks in VR ID {v}: {n}'.format(v=str(vr_id), n=networks))
         return networks
 
-    def list_templates_in_virtualization_realm(self, vr_id):
+    def list_templates_in_virtualization_realm(self, vr_id, include_registrations=True, include_subscriptions=True):
         """Lists all templates in a virtualization realm
 
         :param vr_id: (int) virtualization realm ID
+        :param include_registrations: (bool) Set True to include templates registered in this virtualization realm
+        :param include_subscriptions: (bool) Set True to include templates registered in this virtualization realm
         :return: list of templates (see API docs)
+        :raises: Cons3rtApiError
         """
         log = logging.getLogger(self.cls_logger + '.list_templates_in_virtualization_realm')
 
@@ -2141,14 +2433,315 @@ class Cons3rtApi(object):
                 raise Cons3rtApiError(msg) from exc
 
         # List templates in the virtualization realm
+        log.info('Listing templates in VR ID: {v}'.format(v=str(vr_id)))
         try:
-            templates = self.cons3rt_client.list_templates_in_virtualization_realm(vr_id=vr_id)
+            templates = self.cons3rt_client.list_templates_in_virtualization_realm(
+                vr_id=vr_id,
+                include_registrations=include_registrations,
+                include_subscriptions=include_subscriptions
+            )
         except Cons3rtApiError as exc:
-            msg = 'Cons3rtApiError: There was a problem listing templates in VR ID: {i}'.format(
-                i=str(vr_id))
+            msg = 'Problem listing templates in VR ID {i} with registrations={r} and subscriptions={s}'.format(
+                i=str(vr_id), r=str(include_registrations), s=str(include_subscriptions))
             raise Cons3rtApiError(msg) from exc
-        log.debug('Found templates in VR ID {v}: {t}'.format(v=str(vr_id), t=templates))
+        log.debug('Found {n} templates in VR ID {v} with registrations={r} and subscriptions={s}'.format(
+            v=str(vr_id), n=str(len(templates)), r=str(include_registrations), s=str(include_subscriptions)))
         return templates
+
+    def list_template_registrations_in_virtualization_realm(self, vr_id):
+        """Lists all template registrations in a virtualization realm
+
+        :param vr_id: (int) virtualization realm ID
+        :return: list of templates (see API docs)
+        :raises: Cons3rtApiError
+        """
+        log = logging.getLogger(self.cls_logger + '.list_template_registrations_in_virtualization_realm')
+
+        # Ensure the vr_id is an int
+        if not isinstance(vr_id, int):
+            try:
+                vr_id = int(vr_id)
+            except ValueError as exc:
+                msg = 'vr_id arg must be an Integer, found: {t}'.format(t=vr_id.__class__.__name__)
+                raise Cons3rtApiError(msg) from exc
+
+        # List templates in the virtualization realm
+        log.info('Listing template registrations in VR ID: {v}'.format(v=str(vr_id)))
+        try:
+            templates = self.cons3rt_client.list_template_registrations_in_virtualization_realm(vr_id=vr_id)
+        except Cons3rtApiError as exc:
+            msg = 'Problem listing template registrations in VR ID {i}'.format(i=str(vr_id))
+            raise Cons3rtApiError(msg) from exc
+        log.info('Found {n} template registrations in VR ID: {i}'.format(i=str(vr_id), n=str(len(templates))))
+        return templates
+
+    def list_template_subscriptions_in_virtualization_realm(self, vr_id):
+        """Lists all template subscriptions in a virtualization realm
+
+        :param vr_id: (int) virtualization realm ID
+        :return: list of templates (see API docs)
+        :raises: Cons3rtApiError
+        """
+        log = logging.getLogger(self.cls_logger + '.list_template_subscriptions_in_virtualization_realm')
+
+        # Ensure the vr_id is an int
+        if not isinstance(vr_id, int):
+            try:
+                vr_id = int(vr_id)
+            except ValueError as exc:
+                msg = 'vr_id arg must be an Integer, found: {t}'.format(t=vr_id.__class__.__name__)
+                raise Cons3rtApiError(msg) from exc
+
+        # List templates in the virtualization realm
+        log.info('Listing template subscriptions in VR ID {v}'.format(v=str(vr_id)))
+        try:
+            templates = self.cons3rt_client.list_template_subscriptions_in_virtualization_realm(vr_id=vr_id)
+        except Cons3rtApiError as exc:
+            msg = 'Problem listing template subscriptions in VR ID: {i}'.format(i=str(vr_id))
+            raise Cons3rtApiError(msg) from exc
+        log.info('Found {n} template subscriptions in VR ID: {i}'.format(i=str(vr_id), n=str(len(templates))))
+        return templates
+
+    def list_pending_template_subscriptions_in_virtualization_realm(self, vr_id):
+        """Lists template subscriptions in the provided virtualization realm ID
+
+        :param vr_id: (int) ID of the virtualization realm
+        :return: (list) of template data
+        :raises: Cons3rtClientError
+        """
+        log = logging.getLogger(self.cls_logger + '.list_pending_template_subscriptions_in_virtualization_realm')
+        # Ensure the vr_id is an int
+        if not isinstance(vr_id, int):
+            try:
+                vr_id = int(vr_id)
+            except ValueError as exc:
+                msg = 'vr_id arg must be an Integer, found: {t}'.format(t=vr_id.__class__.__name__)
+                raise Cons3rtApiError(msg) from exc
+
+        # List pending template subscriptions in the virtualization realm
+        log.info('Listing pending template subscriptions in VR ID: {v}'.format(v=str(vr_id)))
+        try:
+            templates = self.cons3rt_client.list_pending_template_subscriptions_in_virtualization_realm(vr_id=vr_id)
+        except Cons3rtApiError as exc:
+            msg = 'Problem listing pending template subscriptions in VR ID {i}'.format(i=str(vr_id))
+            raise Cons3rtApiError(msg) from exc
+        log.info('Found {n} pending template subscriptions in VR ID: {i}'.format(i=str(vr_id), n=str(len(templates))))
+        return templates
+
+    def retrieve_template_registration(self, vr_id, template_registration_id):
+        """Returns template registration details
+
+        :param vr_id: (int) virtualization realm ID
+        :param template_registration_id: (int) ID of the template registration
+        :return: (dict) of template registration data
+        :raises: Cons3rtApiError
+        """
+        log = logging.getLogger(self.cls_logger + '.retrieve_template_registration')
+
+        # Ensure the vr_id is an int
+        if not isinstance(vr_id, int):
+            try:
+                vr_id = int(vr_id)
+            except ValueError as exc:
+                msg = 'vr_id arg must be an Integer, found: {t}'.format(t=vr_id.__class__.__name__)
+                raise Cons3rtApiError(msg) from exc
+
+        # Ensure the template_registration_id is an int
+        if not isinstance(template_registration_id, int):
+            try:
+                template_registration_id = int(template_registration_id)
+            except ValueError as exc:
+                msg = 'template_registration_id arg must be an Integer, found: {t}'.format(
+                    t=template_registration_id.__class__.__name__)
+                raise Cons3rtApiError(msg) from exc
+
+        # Retrieve details on the template regitstration
+        log.info('Retrieving details on registration ID {r} in VR ID: {i}'.format(
+            r=str(template_registration_id), i=str(vr_id)))
+        try:
+            template_reg_details = self.cons3rt_client.retrieve_template_registration(
+                vr_id=vr_id, template_registration_id=template_registration_id)
+        except Cons3rtApiError as exc:
+            msg = 'Problem retrieving template registration ID {r} in VR ID {i}'.format(
+                r=str(template_registration_id), i=str(vr_id))
+            raise Cons3rtApiError(msg) from exc
+        return template_reg_details
+
+    def retrieve_template_subscription(self, vr_id, template_subscription_id):
+        """Returns template subscription details
+
+        :param vr_id: (int) virtualization realm ID
+        :param template_subscription_id: (int) ID of the template subscription
+        :return: (dict) of template subscription data
+        :raises: Cons3rtApiError
+        """
+        log = logging.getLogger(self.cls_logger + '.retrieve_template_subscription')
+
+        # Ensure the vr_id is an int
+        if not isinstance(vr_id, int):
+            try:
+                vr_id = int(vr_id)
+            except ValueError as exc:
+                msg = 'vr_id arg must be an Integer, found: {t}'.format(t=vr_id.__class__.__name__)
+                raise Cons3rtApiError(msg) from exc
+
+        # Ensure the template_subscription_id is an int
+        if not isinstance(template_subscription_id, int):
+            try:
+                template_subscription_id = int(template_subscription_id)
+            except ValueError as exc:
+                msg = 'template_subscription_id arg must be an Integer, found: {t}'.format(
+                    t=template_subscription_id.__class__.__name__)
+                raise Cons3rtApiError(msg) from exc
+
+        # Retrieve details on the template subscription
+        log.info('Retrieving details on subscription ID {r} in VR ID: {i}'.format(
+            r=str(template_subscription_id), i=str(vr_id)))
+        try:
+            template_sub_details = self.cons3rt_client.retrieve_template_subscription(
+                vr_id=vr_id, template_subscription_id=template_subscription_id)
+        except Cons3rtApiError as exc:
+            msg = 'Problem retrieving template subscription ID {r} in VR ID {i}'.format(
+                r=str(template_subscription_id), i=str(vr_id))
+            raise Cons3rtApiError(msg) from exc
+        return template_sub_details
+
+    def create_template_subscription(self, vr_id, template_registration_id):
+        """Retrieves template subscription data in the provided virtualization realm ID
+
+        :param vr_id: (int) ID of the virtualization realm
+        :param template_registration_id: (int) ID of the template subscription
+        :return: (dict) of template subscription data
+        :raises: Cons3rtApiError
+        """
+        log = logging.getLogger(self.cls_logger + '.create_template_subscription')
+
+        # Ensure the vr_id is an int
+        if not isinstance(vr_id, int):
+            try:
+                vr_id = int(vr_id)
+            except ValueError as exc:
+                msg = 'vr_id arg must be an Integer, found: {t}'.format(t=vr_id.__class__.__name__)
+                raise Cons3rtApiError(msg) from exc
+
+        # Ensure the template_registration_id is an int
+        if not isinstance(template_registration_id, int):
+            try:
+                template_registration_id = int(template_registration_id)
+            except ValueError as exc:
+                msg = 'template_registration_id arg must be an Integer, found: {t}'.format(
+                    t=template_registration_id.__class__.__name__)
+                raise Cons3rtApiError(msg) from exc
+
+        # Create the template subscription
+        log.info('Creating template subscription VR ID {i} to template registration ID: {r}'.format(
+            r=str(template_registration_id), i=str(vr_id)))
+        try:
+            is_success = self.cons3rt_client.create_template_subscription(
+                vr_id=vr_id,
+                template_registration_id=template_registration_id
+            )
+        except Cons3rtApiError as exc:
+            msg = 'Problem creating template subscription in VR ID {i} for template registratino ID: {r}'.format(
+                r=str(template_registration_id), i=str(vr_id))
+            raise Cons3rtApiError(msg) from exc
+        return is_success
+
+    def update_template_subscription(self, vr_id, template_subscription_id, offline, state='IN_DEVELOPMENT',
+                                     allow_gpu=False, max_cpus=32, max_ram_mb=249856):
+        """Updates template subscription data in the provided virtualization realm ID
+
+        :param vr_id: (int) ID of the virtualization realm
+        :param template_subscription_id: (int) ID of the template subscription
+        :param offline: (bool) Set True to set the template to offline, False for online
+        :param state: (str) Subscription state
+        :param allow_gpu: (bool) Set True to allow GPU bindings for this template subscription
+        :param max_cpus: (int) Set to the maximum number of CPUs allowed
+        :param max_ram_mb: (int) Set to the maximum RAM in megabytes allowed
+        :return: (dict) of template subscription data
+        :raises: Cons3rtApiError
+        """
+        log = logging.getLogger(self.cls_logger + '.retrieve_template_subscription')
+
+        # Ensure the vr_id is an int
+        if not isinstance(vr_id, int):
+            try:
+                vr_id = int(vr_id)
+            except ValueError as exc:
+                msg = 'vr_id arg must be an Integer, found: {t}'.format(t=vr_id.__class__.__name__)
+                raise Cons3rtApiError(msg) from exc
+
+        # Ensure the template_subscription_id is an int
+        if not isinstance(template_subscription_id, int):
+            try:
+                template_subscription_id = int(template_subscription_id)
+            except ValueError as exc:
+                msg = 'template_subscription_id arg must be an Integer, found: {t}'.format(
+                    t=template_subscription_id.__class__.__name__)
+                raise Cons3rtApiError(msg) from exc
+
+        # Ensure offline is a bool
+        if not isinstance(offline, bool):
+            msg = 'offline arg must be an bool, found: {t}'.format(t=offline.__class__.__name__)
+            raise Cons3rtApiError(msg)
+
+        # Ensure state is a string
+        if not isinstance(state, str):
+            msg = 'state arg must be a str, found: {t}'.format(t=state.__class__.__name__)
+            raise Cons3rtApiError(msg)
+
+        # Ensure allow_gpu is a bool
+        if not isinstance(allow_gpu, bool):
+            msg = 'allow_gpu arg must be an bool, found: {t}'.format(t=allow_gpu.__class__.__name__)
+            raise Cons3rtApiError(msg)
+
+        # Ensure the max_cpus is an int
+        if not isinstance(max_cpus, int):
+            try:
+                max_cpus = int(max_cpus)
+            except ValueError as exc:
+                msg = 'max_cpus arg must be an Integer, found: {t}'.format(
+                    t=max_cpus.__class__.__name__)
+                raise Cons3rtApiError(msg) from exc
+
+        # Ensure the max_ram_mb is an int
+        if not isinstance(max_ram_mb, int):
+            try:
+                max_ram_mb = int(max_ram_mb)
+            except ValueError as exc:
+                msg = 'max_ram_mb arg must be an Integer, found: {t}'.format(
+                    t=max_ram_mb.__class__.__name__)
+                raise Cons3rtApiError(msg) from exc
+
+        # Validate the state
+        valid_states = ['IN_DEVELOPMENT', 'CERTIFIED', 'DEPRECATED', 'RETIRED']
+        if state not in valid_states:
+            msg = 'Invalid state [{s}], expected: {e}'.format(s=state, e=','.join(valid_states))
+            raise Cons3rtApiError(msg)
+
+        # Validate the subscription data
+        subscription_data = {
+            'state': state,
+            'allowGpuUsage': allow_gpu,
+            'maxNumCpus': max_cpus,
+            'maxRamInMegabytes': max_ram_mb
+        }
+
+        # Update the template subscription
+        log.info('Updating template subscription ID {r} in VR ID {i} to: {o} with payload: {p}'.format(
+            r=str(template_subscription_id), i=str(vr_id), o=str(offline), p=str(subscription_data)))
+        try:
+            is_success = self.cons3rt_client.update_template_subscription(
+                vr_id=vr_id,
+                template_subscription_id=template_subscription_id,
+                offline=offline,
+                subscription_data=subscription_data
+            )
+        except Cons3rtApiError as exc:
+            msg = 'Problem updating template subscription ID {r} in VR ID {i} to: {o} with payload: {p}'.format(
+                r=str(template_subscription_id), i=str(vr_id), o=str(offline), p=str(subscription_data))
+            raise Cons3rtApiError(msg) from exc
+        return is_success
 
     def get_primary_network_in_virtualization_realm(self, vr_id):
         """Returns a dict of info about the primary network in a virtualization realm
@@ -3410,3 +4003,296 @@ class Cons3rtApi(object):
             log.info('Requested reachability update for virtualization realm ID: {i}'.format(i=str(vr['id'])))
             time.sleep(inter_vr_delay_sec)
         log.info('Completed virtualization realm reachability updates for cloud ID: {i}'.format(i=str(cloud_id)))
+
+    def share_template(self, provider_vr_id, template_registration_id, target_vr_ids):
+        """Shares the provided template registration with this provided list
+        of target virtualization realm IDs
+
+        :param provider_vr_id: (int) ID of the template provider virtualization realm
+        :param template_registration_id: (int) ID of the template registration
+        :param target_vr_ids: (list) of IDs (int) of virtualization realms to share with
+        :return: bool
+        :raises: Cons3rtApiError
+        """
+        log = logging.getLogger(self.cls_logger + '.share_template')
+
+        # Ensure the provider_vr_id is an int
+        if not isinstance(provider_vr_id, int):
+            try:
+                provider_vr_id = int(provider_vr_id)
+            except ValueError as exc:
+                msg = 'provider_vr_id arg must be an Integer, found: {t}'.format(t=provider_vr_id.__class__.__name__)
+                raise Cons3rtApiError(msg) from exc
+
+        # Ensure the template_registration_id is an int
+        if not isinstance(template_registration_id, int):
+            try:
+                template_registration_id = int(template_registration_id)
+            except ValueError as exc:
+                msg = 'template_registration_id arg must be an Integer, found: {t}'.format(
+                    t=template_registration_id.__class__.__name__)
+                raise Cons3rtApiError(msg) from exc
+
+        # Ensure the target VR IDs are a list of ints
+        if not isinstance(target_vr_ids, list):
+            raise Cons3rtApiError('Expected type list for target_vr_ids, found: {t}'.format(
+                t=target_vr_ids.__class__.__name__))
+
+        if len(target_vr_ids) < 1:
+            log.info('No Target VRs to share template ID {r} from VR ID: {i}'.format(
+                r=str(template_registration_id), i=str(provider_vr_id)))
+            return
+
+        # Ensure the target_vr_id is a list of ints
+        for target_vr_id in target_vr_ids:
+            if not isinstance(target_vr_id, int):
+                try:
+                    target_vr_id = int(target_vr_id)
+                except ValueError as exc:
+                    msg = 'target_vr_id arg must be an Integer, found: {t}'.format(
+                        t=target_vr_id.__class__.__name__)
+                    raise Cons3rtApiError(msg) from exc
+
+        target_vrs_str = ','.join(str(x) for x in target_vr_ids)
+        log.info('Sharing template registration ID {r} from VR ID: {i} to VR list: {s}'.format(
+            r=str(template_registration_id), i=str(provider_vr_id), s=target_vrs_str))
+        try:
+            result = self.cons3rt_client.share_template(
+                vr_id=provider_vr_id,
+                template_registration_id=template_registration_id,
+                target_vr_ids=target_vr_ids
+            )
+        except Cons3rtClientError as exc:
+            msg = 'Problem sharing template {r} from VR ID {i} to list: {s}'.format(
+                r=str(template_registration_id), i=str(provider_vr_id), s=target_vrs_str)
+            raise Cons3rtApiError(msg) from exc
+        if not result:
+            msg = 'Sharing template {r} from VR ID {i} to list [{s}] returned false'.format(
+                r=str(template_registration_id), i=str(provider_vr_id), s=target_vrs_str)
+            raise Cons3rtApiError(msg)
+
+    def share_template_to_vrs(self, provider_vr_id, template, vr_ids, subscribe=True, online=True):
+        """Share a template to virtualization realms
+
+        :param provider_vr_id: (int) ID of the virtualization realm where the template is registered
+        :param template: (dict) of template data
+        :param vr_ids: (list) VR IDs to share the templates with
+        :param subscribe: (bool) Set True to have the shared virtualization realm also subscribe to the template
+        :param online: (bool) Set True to bring the template online in the subscriber virtualization realm
+        :return: None
+        :raises: Cons3rtApiError
+        """
+        log = logging.getLogger(self.cls_logger + '.share_templates_to_vrs')
+        if not isinstance(provider_vr_id, int):
+            try:
+                provider_vr_id = int(provider_vr_id)
+            except ValueError as exc:
+                msg = 'provider_vr_id arg must be an Integer, found: {t}'.format(t=provider_vr_id.__class__.__name__)
+                raise Cons3rtApiError(msg) from exc
+        if not isinstance(template, dict):
+            raise Cons3rtApiError('template data expected dict found: {t}'.format(t=template.__class__.__name__))
+        if 'id' not in template.keys():
+            raise Cons3rtApiError('id not found in template data: {d}'.format(d=template))
+        if 'templateData' not in template.keys():
+            raise Cons3rtApiError('templateData not found in template data: {d}'.format(d=template))
+        if 'virtRealmTemplateName' not in template['templateData'].keys():
+            raise Cons3rtApiError('virtRealmTemplateName not found in template data: {d}'.format(d=template))
+        if not isinstance(vr_ids, list):
+            raise Cons3rtApiError('vr_ids arg expected int found: {t}'.format(t=vr_ids.__class__.__name__))
+        if not isinstance(subscribe, bool):
+            raise Cons3rtApiError('subscribe arg expected bool found: {t}'.format(t=subscribe.__class__.__name__))
+        if not isinstance(online, bool):
+            raise Cons3rtApiError('online arg expected bool found: {t}'.format(t=online.__class__.__name__))
+
+        template_name = template['templateData']['virtRealmTemplateName']
+        try:
+            reg_details = self.retrieve_template_registration(
+                vr_id=provider_vr_id,
+                template_registration_id=template['id']
+            )
+        except Cons3rtApiError as exc:
+            msg = 'Problem retrieving details on template {n} registration: {i}'.format(
+                n=template_name, i=str(template['id']))
+            raise Cons3rtApiError(msg) from exc
+
+        # Get a list of VR IDs
+        subscriber_vr_ids = []
+        for vr_id in vr_ids:
+            if vr_id != provider_vr_id:
+                subscriber_vr_ids.append(vr_id)
+
+        # Determine which VRs already have the template shared
+        vr_ids_to_share = []
+        if 'virtRealmsSharedTo' not in reg_details.keys():
+            log.info('Template {n} is not shared to any VRs from provider VR ID: {i}'.format(
+                n=template_name, i=str(provider_vr_id)))
+            vr_ids_to_share = list(subscriber_vr_ids)
+        else:
+            for subscriber_vr_id in subscriber_vr_ids:
+                already_shared = False
+                for already_shared_vr in reg_details['virtRealmsSharedTo']:
+                    if already_shared_vr['id'] == subscriber_vr_id:
+                        log.debug('Template {n} already shared to VR ID {i}'.format(
+                            n=template_name, i=str(subscriber_vr_id)))
+                        already_shared = True
+                        break
+                if not already_shared:
+                    vr_ids_to_share.append(subscriber_vr_id)
+
+        # Share the template with the list of VR IDs
+        if len(vr_ids_to_share) > 0:
+            log.info('Attempting to share template {n} to {v} VRs'.format(n=template_name, v=str(len(vr_ids_to_share))))
+            try:
+                self.share_template(
+                    provider_vr_id=provider_vr_id,
+                    template_registration_id=template['id'],
+                    target_vr_ids=vr_ids_to_share
+                )
+            except Cons3rtApiError as exc:
+                msg = 'Problem sharing template {i} from provider ID {p} to VR IDs: {v}'.format(
+                    i=str(template['id']), p=str(provider_vr_id), v=str(subscriber_vr_ids))
+                raise Cons3rtApiError(msg) from exc
+
+        if not subscribe:
+            log.info('Template [{n}] will not be subscribed to in the shared VRs'.format(n=template_name))
+            return
+
+        create_subscription_vr_ids = []
+        for subscriber_vr_id in subscriber_vr_ids:
+            subscriber_vr_existing_subs = self.list_template_subscriptions_in_virtualization_realm(
+                vr_id=subscriber_vr_id
+            )
+            existing_subscription = False
+            for subscriber_vr_existing_sub in subscriber_vr_existing_subs:
+                if subscriber_vr_existing_sub['templateRegistration']['templateUuid'] == reg_details['templateUuid']:
+                    log.info('Template {n} already subscribed in VR ID: {i}'.format(
+                        n=template_name, i=str(subscriber_vr_id)))
+                    existing_subscription = True
+            if not existing_subscription:
+                create_subscription_vr_ids.append(subscriber_vr_id)
+
+        for vr_id in create_subscription_vr_ids:
+            log.info('Subscribing to template {n} in VR ID: {i}'.format(n=template_name, i=str(vr_id)))
+            try:
+                subscription = self.create_template_subscription(
+                    vr_id=vr_id, template_registration_id=template['id']
+                )
+            except Cons3rtApiError as exc:
+                msg = 'Problem subscribing template [{n}] to VR ID: {i}'.format(n=template_name, i=str(vr_id))
+                raise Cons3rtApiError(msg) from exc
+
+            if not online:
+                log.info('Template [{n}] will not set online in VR ID: {i}'.format(n=template_name, i=str(vr_id)))
+                continue
+
+            for vr_id in subscriber_vr_ids:
+                log.info('Setting template {n} online in VR ID: {i}'.format(n=template_name, i=str(vr_id)))
+                try:
+                    self.update_template_subscription(
+                        vr_id=vr_id,
+                        template_subscription_id=subscription['id'],
+                        offline=False
+                    )
+                except Cons3rtApiError as exc:
+                    msg = 'Problem setting template [{n}] online in VR ID: {i}'.format(n=template_name, i=str(vr_id))
+                    raise Cons3rtApiError(msg) from exc
+        log.info('Completed sharing and subscribing template [{n}] from VR ID: {i}'.format(
+            n=template_name, i=str(provider_vr_id)))
+
+    def share_templates_to_vrs(self, provider_vr_id, templates, vr_ids, subscribe=True, online=True):
+        """Share a template to virtualization realms
+
+        :param provider_vr_id: (int) ID of the virtualization realm where the template is registered
+        :param templates: (list) of template data as dict
+        :param vr_ids: (list) VR IDs to share the templates with
+        :param subscribe: (bool) Set True to have the shared virtualization realm also subscribe to the template
+        :param online: (bool) Set True to bring the template online in the subscriber virtualization realm
+        :return: None
+        :raises: Cons3rtApiError
+        """
+        log = logging.getLogger(self.cls_logger + '.share_templates_to_vrs')
+        if not isinstance(templates, list):
+            raise Cons3rtApiError('templates arg must be an list, found: {t}'.format(
+                t=templates.__class__.__name__))
+        log.info('Sharing {n} templates from provider VR ID {i} to {v} VRs'.format(
+            n=str(len(templates)), i=str(provider_vr_id), v=str(len(vr_ids))))
+        for template in templates:
+            self.share_template_to_vrs(
+                provider_vr_id=provider_vr_id,
+                template=template,
+                vr_ids=vr_ids,
+                subscribe=subscribe,
+                online=online
+            )
+
+    def share_templates_to_vrs_in_cloud(self, cloud_id, provider_vr_id=None, templates=None, subscribe=True,
+                                        online=True):
+        """Shares a list of templates from a provider VR to all VRs in the provided cloud ID
+
+        :param cloud_id: (int) ID of the cloud to share with
+        :param provider_vr_id: (int) ID of the virtualization realm where the template is registered
+        :param templates: (list) of template objects (dicts)
+        :param subscribe: (bool) Set True to have the shared virtualization realm also subscribe to the template
+        :param online: (bool) Set True to bring the template online in the subscriber virtualization realm
+        :return: None
+        :raises: Cons3rtApiError
+        """
+        log = logging.getLogger(self.cls_logger + '.share_template_to_vrs_in_cloud')
+
+        # Ensure the cloud_id is an int
+        if not isinstance(cloud_id, int):
+            try:
+                cloud_id = int(cloud_id)
+            except ValueError as exc:
+                msg = 'cloud_id arg must be an Integer, found: {t}'.format(t=cloud_id.__class__.__name__)
+                raise Cons3rtApiError(msg) from exc
+
+        # Retrieve details on the provided cloud ID
+        try:
+            cloud_details = self.retrieve_cloud_details(cloud_id=cloud_id)
+        except Cons3rtApiError as exc:
+            msg = 'Problem retrieving cloud ID {i} details'.format(i=str(cloud_id))
+            raise Cons3rtApiError(msg) from exc
+
+        # Retrieve the list of virtualization realms
+        try:
+            cloud_vrs = self.list_virtualization_realms_for_cloud(cloud_id=cloud_id)
+        except Cons3rtApiError as exc:
+            msg = 'Problem list VRs from cloud ID {i} details'.format(i=str(cloud_id))
+            raise Cons3rtApiError(msg) from exc
+
+        if not provider_vr_id:
+            if 'templateVirtualizationRealm' not in cloud_details:
+                msg = 'provider_vr_id not provided and templateVirtualizationRealm not found in cloud details'
+                raise Cons3rtApiError(msg)
+            if 'id' not in cloud_details['templateVirtualizationRealm']:
+                msg = 'id not found in cloud template provided data: {d}'.format(
+                    d=cloud_details['templateVirtualizationRealm'])
+                raise Cons3rtApiError(msg)
+            provider_vr_id = cloud_details['templateVirtualizationRealm']['id']
+        log.info('Using template provider virtualization realm ID: {i}'.format(i=str(provider_vr_id)))
+
+        # Get a list of VR IDs
+        subscriber_vr_ids = []
+        for vr in cloud_vrs:
+            if vr['id'] != provider_vr_id:
+                subscriber_vr_ids.append(vr['id'])
+
+        # If a list of templates was provided, validate
+        if not templates:
+            log.info('Retrieving a list of template registrations in the provider VR')
+            try:
+                templates = self.list_template_registrations_in_virtualization_realm(vr_id=provider_vr_id)
+            except Cons3rtApiError as exc:
+                msg = 'Problem listing template registrations in the provider VR ID: {i}'.format(i=str(provider_vr_id))
+                raise Cons3rtApiError(msg) from exc
+
+        log.info('Attempting to share {n} templates from cloud ID: {i}'.format(n=str(len(templates)), i=str(cloud_id)))
+        self.share_templates_to_vrs(
+            provider_vr_id=provider_vr_id,
+            templates=templates,
+            vr_ids=subscriber_vr_ids,
+            subscribe=subscribe,
+            online=online
+        )
+        log.info('Completed sharing templates in cloud ID: {i}'.format(i=str(cloud_id)))

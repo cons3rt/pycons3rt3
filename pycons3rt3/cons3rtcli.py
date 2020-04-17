@@ -12,7 +12,8 @@ class Cons3rtCliError(Exception):
 
 class Cons3rtCli(object):
 
-    def __init__(self, args):
+    def __init__(self, args, subcommands=None):
+        self.subcommands = subcommands
         self.args = args
         self.ids = []
         try:
@@ -22,9 +23,12 @@ class Cons3rtCli(object):
                 e=str(exc)))
 
     def validate_args(self):
+        if not self.args:
+            self.err('No args provided')
+            return False
         try:
             self.ids = validate_ids(self.args)
-        except Cons3rtCliError as exc:
+        except Cons3rtCliError:
             traceback.print_exc()
             return False
         return True
@@ -137,7 +141,86 @@ class Cons3rtCli(object):
         print(msg)
 
 
+class CloudCli(Cons3rtCli):
+
+    def __init__(self, args, subcommands=None):
+        Cons3rtCli.__init__(self, args=args, subcommands=subcommands)
+        self.valid_subcommands = [
+            'template',
+            'list'
+        ]
+
+    def process_args(self):
+        if not self.validate_args():
+            return False
+        sub = self.process_subcommands()
+        if not sub:
+            return False
+        if len(self.ids) < 1:
+            self.err('No cloud ID(s) provided, use --id=123 or --ids=3,4,5')
+            return False
+        if self.args.list:
+            try:
+                self.list_clouds()
+            except Cons3rtCliError:
+                return False
+        return True
+
+    def process_subcommands(self):
+        if not self.subcommands:
+            return True
+        if len(self.subcommands) < 1:
+            return True
+        if self.subcommands[0] not in self.valid_subcommands:
+            self.err('Unrecognized command: {c}'.format(c=self.subcommands[0]))
+            return False
+        if self.subcommands[0] == 'template':
+            try:
+                self.templates()
+            except Cons3rtCliError:
+                return False
+        if self.subcommands[0] == 'list':
+            try:
+                self.list_clouds()
+            except Cons3rtCliError:
+                return False
+
+    def templates(self):
+        if not self.args.share:
+            msg = '--share arg is required for cloud template actions'
+            self.err(msg)
+            raise Cons3rtCliError(msg)
+        if self.args.all:
+            for cloud_id in self.ids:
+                try:
+                    self.c5t.share_templates_to_vrs_in_cloud(cloud_id=cloud_id)
+                except Cons3rtApiError as exc:
+                    msg = 'Problem sharing templates in cloud ID: {c}\n{e}'.format(c=str(cloud_id), e=str(exc))
+                    self.err(msg)
+                    raise Cons3rtCliError(msg) from exc
+
+    def list_clouds(self):
+        clouds = []
+        try:
+            clouds += self.c5t.list_clouds()
+        except Cons3rtApiError as exc:
+            msg = 'There was a problem listing clouds\n{e}'.format(e=str(exc))
+            self.err(msg)
+            raise Cons3rtCliError(msg) from exc
+        if len(clouds) > 0:
+            clouds = self.sort_by_id(clouds)
+            self.print_clouds(cloud_list=clouds)
+        print('Total number of clouds found: {n}'.format(n=str(len(clouds))))
+
+
 class CloudspaceCli(Cons3rtCli):
+
+    def __init__(self, args, subcommands=None):
+        Cons3rtCli.__init__(self, args=args, subcommands=subcommands)
+        self.valid_subcommands = [
+            'deallocate',
+            'unregister'
+        ]
 
     def process_args(self):
         if not self.validate_args():
@@ -145,21 +228,39 @@ class CloudspaceCli(Cons3rtCli):
         if len(self.ids) < 1:
             self.err('No Cloudspace ID(s) provided, use --id=123 or --ids=3,4,5')
             return False
-        if self.args.list_active_runs or self.args.list:
-            try:
-                self.list_active_runs()
-            except Cons3rtCliError:
-                return False
-        if self.args.release_active_runs:
-            try:
-                self.release_active_runs()
-            except Cons3rtCliError:
-                return False
-        if self.args.delete_inactive_runs:
-            try:
-                self.delete_inactive_runs()
-            except Cons3rtCliError:
-                return False
+        unlock = False
+        if self.args.unlock:
+            unlock = True
+        if self.subcommands:
+            if len(self.subcommands) > 0:
+                if self.subcommands[0] not in self.valid_subcommands:
+                    self.err('Unrecognized command: {c}'.format(c=self.subcommands[0]))
+                    return False
+                if self.subcommands[0] == 'deallocate':
+                    self.deallocate()
+                elif self.subcommands[0] == 'unregister':
+                    self.unregister()
+        else:
+            if self.args.list_active_runs or self.args.list:
+                try:
+                    self.list_active_runs()
+                except Cons3rtCliError:
+                    return False
+            if self.args.release_active_runs:
+                try:
+                    self.release_active_runs()
+                except Cons3rtCliError:
+                    return False
+            if self.args.delete_inactive_runs:
+                try:
+                    self.delete_inactive_runs()
+                except Cons3rtCliError:
+                    return False
+            if self.args.clean_all_runs:
+                try:
+                    self.clean_all_runs(unlock=unlock)
+                except Cons3rtCliError:
+                    return False
         return True
 
     def list_active_runs(self):
@@ -207,11 +308,32 @@ class CloudspaceCli(Cons3rtCli):
             self.err(msg)
             raise Cons3rtCliError(msg) from exc
 
+    def clean_all_runs(self, unlock):
+        for cloudspace_id in self.ids:
+            self.clean_all_runs_from_cloudspace(cloudspace_id, unlock)
+
+    def clean_all_runs_from_cloudspace(self, cloudspace_id, unlock):
+        try:
+            self.c5t.clean_all_runs_in_virtualization_realm(vr_id=cloudspace_id, unlock=unlock)
+        except Cons3rtApiError as exc:
+            msg = 'There was a problem cleaning all runs from cloudspace ID: {i}\n{e}'.format(
+                i=str(cloudspace_id), e=str(exc))
+            self.err(msg)
+            raise Cons3rtCliError(msg) from exc
+
+    def deallocate(self):
+        for cloudspace_id in self.ids:
+            self.c5t.deallocate_virtualization_realm(vr_id=cloudspace_id)
+
+    def unregister(self):
+        for cloudspace_id in self.ids:
+            self.c5t.unregister_virtualization_realm(vr_id=cloudspace_id)
+
 
 class ProjectCli(Cons3rtCli):
 
-    def __init__(self, args):
-        Cons3rtCli.__init__(self, args)
+    def __init__(self, args, subcommands):
+        Cons3rtCli.__init__(self, args=args, subcommands=subcommands)
 
     def process_args(self):
         if not self.validate_args():
@@ -245,41 +367,14 @@ class ProjectCli(Cons3rtCli):
         print('Total number of projects found: {n}'.format(n=str(len(projects))))
 
 
-class CloudCli(Cons3rtCli):
-
-    def __init__(self, args):
-        Cons3rtCli.__init__(self, args)
-
-    def process_args(self):
-        if not self.validate_args():
-            return False
-        if self.args.list:
-            try:
-                self.list_clouds()
-            except Cons3rtCliError:
-                return False
-        return True
-
-    def list_clouds(self):
-        clouds = []
-        try:
-            clouds += self.c5t.list_clouds()
-        except Cons3rtApiError as exc:
-            msg = 'There was a problem listing clouds\n{e}'.format(e=str(exc))
-            self.err(msg)
-            raise Cons3rtCliError(msg) from exc
-        if len(clouds) > 0:
-            clouds = self.sort_by_id(clouds)
-            self.print_clouds(cloud_list=clouds)
-        print('Total number of clouds found: {n}'.format(n=str(len(clouds))))
-
-
 class TeamCli(Cons3rtCli):
 
-    def __init__(self, args):
-        Cons3rtCli.__init__(self, args)
+    def __init__(self, args, subcommands=None):
+        Cons3rtCli.__init__(self, args=args, subcommands=subcommands)
 
     def process_args(self):
+        if self.subcommands:
+            self.process_subcommands()
         if not self.validate_args():
             return False
         if self.args.list:
@@ -288,6 +383,9 @@ class TeamCli(Cons3rtCli):
             except Cons3rtCliError:
                 return False
         return True
+
+    def process_subcommands(self):
+        print('Subcommands: ' + str(self.subcommands))
 
     def list_teams(self):
         teams = []
@@ -300,7 +398,7 @@ class TeamCli(Cons3rtCli):
         if len(teams) > 0:
             teams = self.sort_by_id(teams)
             self.print_teams(teams_list=teams)
-        print('Total number of clouds teams: {n}'.format(n=str(len(teams))))
+        print('Total number of teams: {n}'.format(n=str(len(teams))))
 
 
 def validate_id(args):
@@ -327,16 +425,17 @@ def validate_ids(args):
     :return: (list) of int IDs
     :raises: Cons3rtCliError
     """
-    lone_id = None
+    ids = []
     try:
         lone_id = validate_id(args)
     except Cons3rtCliError as exc:
         raise Cons3rtCliError('Problem validating the --id arg') from exc
-    if not args.ids and lone_id:
-        return [lone_id]
+    if not args.ids:
+        if lone_id:
+            return [lone_id]
+        return []
     elif not args.ids:
-        return
-    ids = []
+        return ids
     if lone_id:
         ids.append(lone_id)
     for an_id in args.ids.split(','):
