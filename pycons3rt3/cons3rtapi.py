@@ -2648,7 +2648,7 @@ class Cons3rtApi(object):
         return is_success
 
     def update_template_subscription(self, vr_id, template_subscription_id, offline, state='IN_DEVELOPMENT',
-                                     allow_gpu=False, max_cpus=32, max_ram_mb=249856):
+                                     allow_gpu=False, max_cpus=20, max_ram_mb=131072):
         """Updates template subscription data in the provided virtualization realm ID
 
         :param vr_id: (int) ID of the virtualization realm
@@ -2728,7 +2728,7 @@ class Cons3rtApi(object):
         }
 
         # Update the template subscription
-        log.info('Updating template subscription ID {r} in VR ID {i} to: {o} with payload: {p}'.format(
+        log.info('Updating template subscription ID {r} in VR ID {i} with offline set to: {o} with payload: {p}'.format(
             r=str(template_subscription_id), i=str(vr_id), o=str(offline), p=str(subscription_data)))
         try:
             is_success = self.cons3rt_client.update_template_subscription(
@@ -2742,6 +2742,84 @@ class Cons3rtApi(object):
                 r=str(template_subscription_id), i=str(vr_id), o=str(offline), p=str(subscription_data))
             raise Cons3rtApiError(msg) from exc
         return is_success
+
+    def delete_template_registration(self, vr_id, template_registration_id):
+        """Unregisters the template registration from the VR ID
+
+        NOTE: This does not support removeSubscriptions=False nor special permissions
+
+        :param vr_id: (int) ID of the virtualization realm
+        :param template_registration_id: (int) ID of the template registration
+        :return: bool
+        :raises: Cons3rtClientError
+        """
+        log = logging.getLogger(self.cls_logger + '.delete_template_registration')
+
+        # Ensure the vr_id is an int
+        if not isinstance(vr_id, int):
+            try:
+                vr_id = int(vr_id)
+            except ValueError as exc:
+                msg = 'vr_id arg must be an Integer, found: {t}'.format(t=vr_id.__class__.__name__)
+                raise Cons3rtApiError(msg) from exc
+
+        # Ensure the template_registration_id is an int
+        if not isinstance(template_registration_id, int):
+            try:
+                template_registration_id = int(template_registration_id)
+            except ValueError as exc:
+                msg = 'template_registration_id arg must be an Integer, found: {t}'.format(
+                    t=template_registration_id.__class__.__name__)
+                raise Cons3rtApiError(msg) from exc
+
+        # List templates in the virtualization realm
+        log.info('Deleting template registration {r} from VR ID {v}'.format(
+            r=str(template_registration_id), v=str(vr_id)))
+        try:
+            result = self.cons3rt_client.delete_template_registration(
+                vr_id=vr_id,
+                template_registration_id=template_registration_id
+            )
+        except Cons3rtApiError as exc:
+            msg = 'Problem template registration {r} from VR ID {v}'.format(
+                v=str(vr_id), r=str(template_registration_id))
+            raise Cons3rtApiError(msg) from exc
+        return result
+
+    def delete_all_template_registrations(self, vr_id):
+        """Delates all template registrations from the virtualization realm
+
+        :param vr_id: (int) ID of the virtualization realm
+        :return: bool
+        :raises Cons3rtApiError
+        """
+        log = logging.getLogger(self.cls_logger + '.delete_all_template_registrations')
+
+        # Ensure the vr_id is an int
+        if not isinstance(vr_id, int):
+            try:
+                vr_id = int(vr_id)
+            except ValueError as exc:
+                msg = 'vr_id arg must be an Integer, found: {t}'.format(t=vr_id.__class__.__name__)
+                raise Cons3rtApiError(msg) from exc
+
+        # Get the list of template registrations
+        template_registrations = self.list_template_registrations_in_virtualization_realm(vr_id=vr_id)
+        for template_registration in template_registrations:
+            if 'id' not in template_registration.keys():
+                msg = 'id not found in template registration data: {d}'.format(d=str(template_registration))
+                raise Cons3rtApiError(msg)
+            if 'templateData' not in template_registration:
+                msg = 'templateData not found in template registration data: {d}'.format(d=str(template_registration))
+                raise Cons3rtApiError(msg)
+            if 'virtRealmTemplateName' not in template_registration['templateData']:
+                msg = 'virtRealmTemplateName not found in template registration data: {d}'.format(
+                    d=str(template_registration))
+                raise Cons3rtApiError(msg)
+            template_name = template_registration['templateData']['virtRealmTemplateName']
+            log.info('Removing template registration [{n}] from VR ID: {i}'.format(n=template_name, i=str(vr_id)))
+            self.delete_template_registration(vr_id=vr_id, template_registration_id=template_registration['id'])
+        log.info('Completed removing all template registrations from VR ID: {i}'.format(i=str(vr_id)))
 
     def get_primary_network_in_virtualization_realm(self, vr_id):
         """Returns a dict of info about the primary network in a virtualization realm
@@ -4185,17 +4263,16 @@ class Cons3rtApi(object):
                 log.info('Template [{n}] will not set online in VR ID: {i}'.format(n=template_name, i=str(vr_id)))
                 continue
 
-            for vr_id in subscriber_vr_ids:
-                log.info('Setting template {n} online in VR ID: {i}'.format(n=template_name, i=str(vr_id)))
-                try:
-                    self.update_template_subscription(
-                        vr_id=vr_id,
-                        template_subscription_id=subscription['id'],
-                        offline=False
-                    )
-                except Cons3rtApiError as exc:
-                    msg = 'Problem setting template [{n}] online in VR ID: {i}'.format(n=template_name, i=str(vr_id))
-                    raise Cons3rtApiError(msg) from exc
+            log.info('Setting template {n} online in VR ID: {i}'.format(n=template_name, i=str(vr_id)))
+            try:
+                self.update_template_subscription(
+                    vr_id=vr_id,
+                    template_subscription_id=subscription['id'],
+                    offline=False
+                )
+            except Cons3rtApiError as exc:
+                msg = 'Problem setting template [{n}] online in VR ID: {i}'.format(n=template_name, i=str(vr_id))
+                raise Cons3rtApiError(msg) from exc
         log.info('Completed sharing and subscribing template [{n}] from VR ID: {i}'.format(
             n=template_name, i=str(provider_vr_id)))
 

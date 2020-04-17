@@ -156,14 +156,6 @@ class CloudCli(Cons3rtCli):
         sub = self.process_subcommands()
         if not sub:
             return False
-        if len(self.ids) < 1:
-            self.err('No cloud ID(s) provided, use --id=123 or --ids=3,4,5')
-            return False
-        if self.args.list:
-            try:
-                self.list_clouds()
-            except Cons3rtCliError:
-                return False
         return True
 
     def process_subcommands(self):
@@ -219,11 +211,16 @@ class CloudspaceCli(Cons3rtCli):
         Cons3rtCli.__init__(self, args=args, subcommands=subcommands)
         self.valid_subcommands = [
             'deallocate',
+            'list',
+            'template',
             'unregister'
         ]
 
     def process_args(self):
         if not self.validate_args():
+            return False
+        sub = self.process_subcommands()
+        if not sub:
             return False
         if len(self.ids) < 1:
             self.err('No Cloudspace ID(s) provided, use --id=123 or --ids=3,4,5')
@@ -262,6 +259,20 @@ class CloudspaceCli(Cons3rtCli):
                 except Cons3rtCliError:
                     return False
         return True
+
+    def process_subcommands(self):
+        if not self.subcommands:
+            return True
+        if len(self.subcommands) < 1:
+            return True
+        if self.subcommands[0] not in self.valid_subcommands:
+            self.err('Unrecognized command: {c}'.format(c=self.subcommands[0]))
+            return False
+        if self.subcommands[0] == 'template':
+            try:
+                self.templates()
+            except Cons3rtCliError:
+                return False
 
     def list_active_runs(self):
         for cloudspace_id in self.ids:
@@ -328,6 +339,15 @@ class CloudspaceCli(Cons3rtCli):
     def unregister(self):
         for cloudspace_id in self.ids:
             self.c5t.unregister_virtualization_realm(vr_id=cloudspace_id)
+
+    def templates(self):
+        if self.args.delete:
+            self.delete_templates()
+
+    def delete_templates(self):
+        for cloudspace_id in self.ids:
+            if self.args.all:
+                self.c5t.delete_all_template_registrations(vr_id=cloudspace_id)
 
 
 class ProjectCli(Cons3rtCli):

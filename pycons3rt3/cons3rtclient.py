@@ -976,6 +976,37 @@ class Cons3rtClient:
         is_success = json.loads(result)
         return is_success
 
+    def delete_template_registration(self, vr_id, template_registration_id):
+        """Unregisters the template registration from the VR ID
+
+        NOTE: This does not support removeSubscriptions=False nor special permissions
+
+        :param vr_id: (int) ID of the virtualization realm
+        :param template_registration_id: (int) ID of the template registration
+        :return: bool
+        :raises: Cons3rtClientError
+        """
+        target = 'virtualizationrealms/{v}/templates/registrations/{t}'.format(
+            v=str(vr_id), t=str(template_registration_id)
+        )
+        request_options = {
+            'removeSubscriptions': True
+        }
+        # Create JSON content
+        try:
+            json_content = json.dumps(request_options)
+        except SyntaxError as exc:
+            msg = 'There was a problem converting data to JSON: {d}'.format(d=str(request_options))
+            raise Cons3rtClientError(msg) from exc
+
+        response = self.http_client.http_delete(rest_user=self.user, target=target, content=json_content)
+        try:
+            result = self.http_client.parse_response(response=response)
+        except Cons3rtClientError as exc:
+            msg = 'The HTTP response contains a bad status code'
+            raise Cons3rtClientError(msg) from exc
+        return result
+
     def share_template(self, vr_id, template_registration_id, target_vr_ids):
         """Shares the provided template registration with this provided list
         of target virtualization realm IDs
@@ -984,6 +1015,7 @@ class Cons3rtClient:
         :param template_registration_id: (int) ID of the template registration
         :param target_vr_ids: (list) of IDs (int) of virtualization realms to share with
         :return: bool
+        :raises Cons3rtClientError
         """
         target = 'virtualizationrealms/{v}/templates/registrations/{r}/share?'.format(
             v=str(vr_id), r=str(template_registration_id))
