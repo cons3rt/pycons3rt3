@@ -258,6 +258,60 @@ class S3Util(object):
             log.info('Passed regex did not match any key: %s', regex)
             return None
 
+    def list_objects_metadata_with_token(self, prefix=None, continuation_token=None):
+        """Returns a list of S3 keys based on the provided token
+
+        :param prefix: (str) Prefix to search on
+        :param continuation_token: (str) S3 token to query on
+        :return: (dict) response object containing response data
+        """
+        if continuation_token:
+            return self.s3client.list_objects_v2(
+                Bucket=self.bucket_name,
+                Prefix=prefix,
+                ContinuationToken=continuation_token
+            )
+        else:
+            return self.s3client.list_objects_v2(
+                Bucket=self.bucket_name,
+                Prefix=prefix
+            )
+
+    def list_objects_metadata(self, prefix=None):
+        """Lists S3 objects metadata in the S3 bucket matching the provided prefix
+
+        :param prefix: (str) Prefix to search on
+        :return: (list) of S3 bucket object metadata
+        """
+        log = logging.getLogger(self.cls_logger + '.list_objects_metadata')
+        if not prefix:
+            prefix_str = 'None'
+        else:
+            prefix_str = prefix
+        continuation_token = None
+        next_query = True
+        object_metadata_list = []
+        log.info('Attempting to list S3 keys in bucket {b} matching prefix: {p}'.format(
+            b=self.bucket_name, p=prefix_str))
+        while True:
+            if not next_query:
+                break
+            response = self.list_objects_metadata_with_token(prefix=prefix, continuation_token=continuation_token)
+            if 'IsTruncated' not in response.keys():
+                log.warning('IsTruncated not found in response: {r}'.format(r=str(response.keys())))
+                return object_metadata_list
+            if 'Contents' not in response.keys():
+                log.warning('Contents not found in response: {r}'.format(r=str(response.keys())))
+                return object_metadata_list
+            next_query = response['IsTruncated']
+            object_metadata_list += response['Contents']
+            if 'NextContinuationToken' not in response.keys():
+                next_query = False
+            else:
+                continuation_token = response['NextContinuationToken']
+        log.info('Found {n} objects matching prefix: {p}'.format(n=str(len(object_metadata_list)), p=prefix_str))
+        return object_metadata_list
+
     def find_keys(self, regex, bucket_name=None):
         """Finds a list of S3 keys matching the passed regex
 
