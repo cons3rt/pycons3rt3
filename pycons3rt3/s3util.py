@@ -18,6 +18,7 @@ import logging
 import re
 import os
 import socket
+import threading
 import time
 
 import boto3
@@ -33,6 +34,20 @@ __author__ = 'Joe Yennaco'
 
 # Set up logger name for this module
 mod_logger = Logify.get_name() + '.s3util'
+
+
+class S3MultiUtil(threading.Thread):
+
+    def __init__(self, client, bucket, s3_keys, bar=None):
+        threading.Thread.__init__(self)
+        self.cls_logger = mod_logger + '.S3MultiUtil'
+        self.client = client
+        self.bucket = bucket
+        self.s3_keys = s3_keys
+        self.bar = bar
+
+    def run(self):
+        pass
 
 
 class S3Util(object):
@@ -386,8 +401,8 @@ class S3Util(object):
     def delete_key(self, key_to_delete):
         """Deletes the specified key
 
-        :param key_to_delete:
-        :return:
+        :param key_to_delete: (str) key to delete
+        :return: bool
         """
         log = logging.getLogger(self.cls_logger + '.delete_key')
 
@@ -395,11 +410,10 @@ class S3Util(object):
         try:
             self.s3client.delete_object(Bucket=self.bucket_name, Key=key_to_delete)
         except ClientError as exc:
-            log.error('ClientError: Unable to delete key: {k}\n{e}'.format(k=key_to_delete, e=str(exc)))
+            log.debug('Unable to delete key: {k}\n{e}'.format(k=key_to_delete, e=str(exc)))
             return False
-        else:
-            log.info('Successfully deleted key: {k}'.format(k=key_to_delete))
-            return True
+        log.debug('Successfully deleted key: {k}'.format(k=key_to_delete))
+        return True
 
 
 def download(download_info):

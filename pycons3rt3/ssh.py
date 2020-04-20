@@ -23,13 +23,14 @@ __author__ = 'Joe Yennaco'
 mod_logger = Logify.get_name() + '.ssh'
 
 
-def generate_ssh_rsa_key(key_name, dest_directory=None, passphrase='', comment=''):
+def generate_ssh_rsa_key(key_name, dest_directory=None, passphrase='', comment='', size=4096):
     """Generates an RSA keypair
 
     :param key_name: (str) key file name
     :param dest_directory: (str) path to the directory to output the key files
     :param passphrase: (str) passphrase for the RSA key (default: None)
     :param comment: (str) RSA key comment (default: None)
+    :param size: (int) size of the RSA key
     :return: (tuple) (str) paths to the private and public key files
     :raises: SshConfigError
     """
@@ -44,7 +45,7 @@ def generate_ssh_rsa_key(key_name, dest_directory=None, passphrase='', comment='
         os.remove(key_path)
     if os.path.isfile(pub_key_path):
         os.remove(pub_key_path)
-    command = ['ssh-keygen', '-t', 'rsa', '-b', '4096', '-N', '{p}'.format(p=passphrase),
+    command = ['ssh-keygen', '-t', 'rsa', '-b', str(size), '-N', '{p}'.format(p=passphrase),
                '-C', '{c}'.format(c=comment), '-f', key_path]
     try:
         result = run_command(command, output=False, timeout_sec=30.0)

@@ -3,6 +3,7 @@ botocore
 cryptography
 netifaces
 jinja2
+progressbar2
 PyYAML==5.2
 requests
 requests[security]
