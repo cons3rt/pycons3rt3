@@ -273,6 +273,7 @@ class CloudspaceCli(Cons3rtCli):
                 self.templates()
             except Cons3rtCliError:
                 return False
+        return True
 
     def list_active_runs(self):
         for cloudspace_id in self.ids:
