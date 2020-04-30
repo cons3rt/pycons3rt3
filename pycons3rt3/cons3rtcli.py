@@ -342,13 +342,63 @@ class CloudspaceCli(Cons3rtCli):
             self.c5t.unregister_virtualization_realm(vr_id=cloudspace_id)
 
     def templates(self):
-        if self.args.delete:
-            self.delete_templates()
+        if len(self.subcommands) > 1:
+            template_subcommand = self.subcommands[1]
+
+            if template_subcommand == 'delete':
+                self.delete_templates()
+                return
+
+            if template_subcommand == 'register':
+                self.register_templates()
+                return
 
     def delete_templates(self):
         for cloudspace_id in self.ids:
             if self.args.all:
                 self.c5t.delete_all_template_registrations(vr_id=cloudspace_id)
+
+    def register_templates(self):
+        successful_template_registrations = []
+        failed_template_registrations = []
+        for cloudspace_id in self.ids:
+            if self.args.all:
+                success, fail = self.c5t.register_all_templates_in_vr(vr_id=cloudspace_id)
+                successful_template_registrations.append({
+                    'cloudspace_id': cloudspace_id,
+                    'registrations': success
+                })
+                failed_template_registrations.append({
+                    'cloudspace_id': cloudspace_id,
+                    'registrations': fail
+                })
+            elif self.args.name:
+                try:
+                    self.c5t.create_template_registration(vr_id=cloudspace_id, template_name=self.args.name)
+                except Cons3rtApiError as exc:
+                    msg = 'Problem registering template {n} in cloudspace ID: {i}\n{e}'.format(
+                        n=self.args.name, i=str(cloudspace_id), e=str(exc))
+                    self.err(msg)
+                    raise Cons3rtCliError(msg) from exc
+                else:
+                    successful_template_registrations.append({
+                        'cloudspace_id': cloudspace_id,
+                        'registrations': [self.args.name]
+                    })
+        if len(successful_template_registrations) > 0:
+            print('Successful Template Registrations:')
+            print('----------------------------------')
+            print('Cloudspace ID\t\tTemplate Name')
+            for cloudspace in successful_template_registrations:
+                for success in cloudspace['registrations']:
+                    print(str(cloudspace['cloudspace_id']) + '\t\t\t' + success)
+        if len(failed_template_registrations) > 0:
+            print('Failed Template Registrations:')
+            print('------------------------------')
+            print('Cloudspace ID\t\tTemplate Name')
+            for cloudspace in failed_template_registrations:
+                for fail in cloudspace['registrations']:
+                    print(str(cloudspace['cloudspace_id']) + '\t\t\t' + fail)
 
 
 class ProjectCli(Cons3rtCli):

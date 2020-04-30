@@ -12,7 +12,8 @@ from .cons3rtclient import Cons3rtClient
 from .deployment import Deployment
 from .pycons3rtlibs import RestUser
 from .cons3rtconfig import cons3rtapi_config_file
-from .exceptions import Cons3rtClientError, Cons3rtApiError, DeploymentError
+from .exceptions import Cons3rtClientError, Cons3rtApiError, DeploymentError, InvalidOperatingSystemTemplate
+from .ostemplates import OperatingSystemTemplate, OperatingSystemType
 
 
 # Set up logger name for this module
@@ -2606,11 +2607,232 @@ class Cons3rtApi(object):
             raise Cons3rtApiError(msg) from exc
         return template_sub_details
 
-    def create_template_subscription(self, vr_id, template_registration_id):
-        """Retrieves template subscription data in the provided virtualization realm ID
+    def refresh_template_cache(self, vr_id):
+        """Refreshes the template cache for the provided virtualization realm ID
 
         :param vr_id: (int) ID of the virtualization realm
-        :param template_registration_id: (int) ID of the template subscription
+        :return: (bool) True if successful
+        :raises: Cons3rtApiError
+        """
+        log = logging.getLogger(self.cls_logger + '.refresh_template_cache')
+
+        # Ensure the vr_id is an int
+        if not isinstance(vr_id, int):
+            try:
+                vr_id = int(vr_id)
+            except ValueError as exc:
+                msg = 'vr_id arg must be an Integer, found: {t}'.format(t=vr_id.__class__.__name__)
+                raise Cons3rtApiError(msg) from exc
+
+        # Refresh the template cache
+        log.info('Refreshing the template cache for VR ID: {i}'.format(i=str(vr_id)))
+        try:
+            result = self.cons3rt_client.refresh_template_cache(vr_id=vr_id)
+        except Cons3rtApiError as exc:
+            msg = 'Problem refreshing the template cache in VR ID {i}'.format(i=str(vr_id))
+            raise Cons3rtApiError(msg) from exc
+        return result
+
+    def list_unregistered_templates(self, vr_id):
+        """Returns a list of unregistered templates in the provided virtualization realm ID
+
+        :param vr_id: (int) ID of the virtualization realm
+        :return: (list) of unregistered templates
+        :raises: Cons3rtApiError
+        """
+        log = logging.getLogger(self.cls_logger + '.list_unregistered_templates')
+
+        # Ensure the vr_id is an int
+        if not isinstance(vr_id, int):
+            try:
+                vr_id = int(vr_id)
+            except ValueError as exc:
+                msg = 'vr_id arg must be an Integer, found: {t}'.format(t=vr_id.__class__.__name__)
+                raise Cons3rtApiError(msg) from exc
+
+        # List unregistered templates in the VR
+        log.info('Listing unregistered templates in VR ID: {i}'.format(i=str(vr_id)))
+        try:
+            unregistered_templates = self.cons3rt_client.list_unregistered_templates(vr_id=vr_id)
+        except Cons3rtApiError as exc:
+            msg = 'Problem listing unregistered templates in VR ID {i}'.format(i=str(vr_id))
+            raise Cons3rtApiError(msg) from exc
+        return unregistered_templates
+
+    def create_template_registration(self, vr_id, template_name, operating_system=None, display_name=None,
+                                     cons3rt_agent_installed=True, container_capable=False, default_username=None,
+                                     default_password=None, has_gpu=False, license_str=None, note=None, max_cpus=20,
+                                     max_ram_mb=131072, root_disk_size_mb=102400, additional_disks=None,
+                                     linux_package_manager=None, power_on_delay_override=None, powershell_version=None,
+                                     linux_service_management=None):
+        """Creates a template registration in the provided virtualization realm ID
+
+        NOTE: This does not support special permissions
+
+        :param vr_id: (int) ID of the virtualization realm
+        :param template_name: (str) actual name of the template in the virtualization realm (or cons3rttemplatename tag)
+        :param operating_system: (str) operating system type
+        :param display_name: (str) optional display name for the template
+        :param cons3rt_agent_installed: (bool) set True if cons3rt agent is installed
+        :param container_capable: (bool) Set true if the OS can launch containers
+        :param default_username: (str) Default template username
+        :param default_password: (str) Default template password
+        :param has_gpu: (bool) Set true if this template supports GPU
+        :param license_str: (str) Optional license info
+        :param note: (str) Optional note
+        :param max_cpus: (int) Maximum number of CPUs for the template
+        :param max_ram_mb: (int) Maximum amount of RAM for the template in MB
+        :param root_disk_size_mb: (int) Size of the root disk in MB
+        :param additional_disks: (list) of additional disks (dict), must have capacityInMegabytes (int)
+        :param linux_package_manager: (str) package manager for linux disrtibutions
+        :param power_on_delay_override: (int) seconds to delay power on
+        :param powershell_version: (str) powershell version for Windows
+        :param linux_service_management: (str) service management system for linux
+        :return: (dict) of template subscription data
+        :raises: Cons3rtApiError
+        """
+        log = logging.getLogger(self.cls_logger + '.create_template_registration')
+
+        # Ensure the vr_id is an int
+        if not isinstance(vr_id, int):
+            try:
+                vr_id = int(vr_id)
+            except ValueError as exc:
+                msg = 'vr_id arg must be an Integer, found: {t}'.format(t=vr_id.__class__.__name__)
+                raise Cons3rtApiError(msg) from exc
+        if not isinstance(template_name, str):
+            msg = 'template_name arg must be a str, found: {t}'.format(t=template_name.__class__.__name__)
+            raise Cons3rtApiError(msg)
+
+        if not operating_system:
+            operating_system = OperatingSystemType.guess_os_type(template_name)
+            if not operating_system:
+                msg = 'Unable to determine OS type from template name: {n}'.format(n=template_name)
+                raise Cons3rtApiError(msg)
+        else:
+            if not isinstance(operating_system, str):
+                msg = 'operating_system arg must be a str, found: {t}'.format(t=operating_system.__class__.__name__)
+                raise Cons3rtApiError(msg)
+        log.info('Attempting to register template {n} as OS type: {t}'.format(n=template_name, t=operating_system))
+
+        disks = [
+            {
+                'capacityInMegabytes': root_disk_size_mb,
+                'isAdditionalDisk': False,
+                'isBootDisk': True
+            }
+        ]
+        if additional_disks:
+            if not isinstance(additional_disks, list):
+                msg = 'additional_disks arg must be a list, found: {t}'.format(t=additional_disks.__class__.__name__)
+                raise Cons3rtApiError(msg)
+            for additional_disk in additional_disks:
+                disks.append(additional_disk)
+
+        template = OperatingSystemTemplate(template_name=template_name, operating_system_type=operating_system)
+        try:
+            template_data = template.generate_registration_data(
+                display_name=display_name, cons3rt_agent_installed=cons3rt_agent_installed,
+                container_capable=container_capable, default_username=default_username,
+                default_password=default_password, has_gpu=has_gpu, license_str=license_str, note=note,
+                max_cpus=max_cpus, max_ram_mb=max_ram_mb, disks=disks, linux_package_manager=linux_package_manager,
+                power_on_delay_override=power_on_delay_override, powershell_version=powershell_version,
+                linux_service_management=linux_service_management
+            )
+        except InvalidOperatingSystemTemplate as exc:
+            msg = 'Problem generating registration data\n{e}'.format(e=str(exc))
+            raise Cons3rtApiError(msg) from exc
+        log.info('Generated template data for template {n} with type: {t}'.format(n=template_name, t=operating_system))
+
+        # Create the template subscription
+        log.info('Creating template registration in VR ID {i} for template: {n}'.format(
+            n=template_name, i=str(vr_id)))
+        try:
+            template_registration_data = self.cons3rt_client.create_template_registration(
+                vr_id=vr_id,
+                template_data=template_data
+            )
+        except Cons3rtApiError as exc:
+            msg = 'Problem creating template registration in VR ID {i} for template: {n}'.format(
+                n=template_name, i=str(vr_id))
+            raise Cons3rtApiError(msg) from exc
+
+        if 'id' not in template_registration_data:
+            raise Cons3rtApiError('id not found in template registration data: {d}'.format(
+                d=str(template_registration_data)))
+        template_registration_id = template_registration_data['id']
+        log.info('Setting template registration ID {i} to ONLINE for: {n}'.format(
+            i=str(template_registration_id), n=template_name))
+        try:
+            self.cons3rt_client.update_template_registration(
+                vr_id=vr_id,
+                template_registration_id=template_registration_id,
+                offline=False,
+                registration_data=template_data
+            )
+        except Cons3rtApiError as exc:
+            msg = 'Problem updating VR ID {i} template registration ID {r} to be online'.format(
+                r=str(template_registration_id), i=str(vr_id))
+            raise Cons3rtApiError(msg) from exc
+        return template_registration_data
+
+    def set_template_registration_online(self, vr_id, template_registration_id):
+        """Updates the template registration to set status to online
+
+        :param vr_id: (int) ID of the virtualization realm
+        :param template_registration_id:
+        :return:
+        """
+        log = logging.getLogger(self.cls_logger + '.create_template_subscription')
+
+        # Ensure the vr_id is an int
+        if not isinstance(vr_id, int):
+            try:
+                vr_id = int(vr_id)
+            except ValueError as exc:
+                msg = 'vr_id arg must be an Integer, found: {t}'.format(t=vr_id.__class__.__name__)
+                raise Cons3rtApiError(msg) from exc
+
+        # Ensure the template_registration_id is an int
+        if not isinstance(template_registration_id, int):
+            try:
+                template_registration_id = int(template_registration_id)
+            except ValueError as exc:
+                msg = 'template_registration_id arg must be an Integer, found: {t}'.format(
+                    t=template_registration_id.__class__.__name__)
+                raise Cons3rtApiError(msg) from exc
+
+        try:
+            reg_details = self.retrieve_template_registration(
+                vr_id=vr_id,
+                template_registration_id=template_registration_id
+            )
+        except Cons3rtApiError as exc:
+            msg = 'Problem retrieving details on template registration: {i}'.format(i=str(template_registration_id))
+            raise Cons3rtApiError(msg) from exc
+
+        # Update the template registration
+        log.info('Updating VR ID {i} to template registration ID: {r} to be online'.format(
+            r=str(template_registration_id), i=str(vr_id)))
+        try:
+            is_success = self.cons3rt_client.update_template_registration(
+                vr_id=vr_id,
+                template_registration_id=template_registration_id,
+                offline=False,
+                registration_data=reg_details['templateData']
+            )
+        except Cons3rtApiError as exc:
+            msg = 'Problem updating VR ID {i} template registration ID {r} to be online'.format(
+                r=str(template_registration_id), i=str(vr_id))
+            raise Cons3rtApiError(msg) from exc
+        return is_success
+
+    def create_template_subscription(self, vr_id, template_registration_id):
+        """Creates template subscription in the provided virtualization realm ID to the provided
+        template registration ID
+
+        :param vr_id: (int) ID of the virtualization realm
+        :param template_registration_id: (int) ID of the template registration
         :return: (dict) of template subscription data
         :raises: Cons3rtApiError
         """
@@ -2661,7 +2883,7 @@ class Cons3rtApi(object):
         :return: (dict) of template subscription data
         :raises: Cons3rtApiError
         """
-        log = logging.getLogger(self.cls_logger + '.retrieve_template_subscription')
+        log = logging.getLogger(self.cls_logger + '.update_template_subscription')
 
         # Ensure the vr_id is an int
         if not isinstance(vr_id, int):
@@ -4081,6 +4303,56 @@ class Cons3rtApi(object):
             log.info('Requested reachability update for virtualization realm ID: {i}'.format(i=str(vr['id'])))
             time.sleep(inter_vr_delay_sec)
         log.info('Completed virtualization realm reachability updates for cloud ID: {i}'.format(i=str(cloud_id)))
+
+    def register_all_templates_in_vr(self, vr_id):
+        """Creates template registrations for all unregistered templates in the provided VR ID
+
+        :param vr_id: (int) ID of the virtualization realm
+        :return: (tuple) a list of successfully registered template names and a list of failed ones
+        :raises: Cons3rtApiError
+        """
+        log = logging.getLogger(self.cls_logger + '.register_all_templates_in_vr')
+
+        # Ensure the provider_vr_id is an int
+        if not isinstance(vr_id, int):
+            try:
+                provider_vr_id = int(vr_id)
+            except ValueError as exc:
+                msg = 'vr_id arg must be an Integer, found: {t}'.format(t=vr_id.__class__.__name__)
+                raise Cons3rtApiError(msg) from exc
+
+        try:
+            self.refresh_template_cache(vr_id=vr_id)
+            unregistered_templates = self.list_unregistered_templates(vr_id=vr_id)
+        except Cons3rtApiError as exc:
+            msg = 'Problem listing unregistered templates in VR ID: {i}'.format(i=str(vr_id))
+            raise Cons3rtApiError(msg) from exc
+
+        # Track lists of template names that succeeded and failed for return
+        successful_registrations = []
+        failed_registrations = []
+
+        for unregistered_template in unregistered_templates:
+            if 'virtRealmTemplateName' not in unregistered_template:
+                log.warning('virtRealmTemplateName not found in template: {d}'.format(d=str(unregistered_template)))
+                continue
+            try:
+                self.create_template_registration(
+                    vr_id=vr_id,
+                    template_name=unregistered_template['virtRealmTemplateName']
+                )
+            except Cons3rtApiError as exc:
+                msg = 'Problem registering template: {n}\n{e}'.format(
+                    n=unregistered_template['virtRealmTemplateName'], e=str(exc))
+                log.warning(msg)
+                failed_registrations.append(unregistered_template['virtRealmTemplateName'])
+            else:
+                successful_registrations.append(unregistered_template['virtRealmTemplateName'])
+        log.info('{n} template registrations succeeded in VR ID: {i}'.format(
+            n=str(len(successful_registrations)), i=str(vr_id)))
+        log.info('{n} template registrations failed in VR ID: {i}'.format(
+            n=str(len(failed_registrations)), i=str(vr_id)))
+        return successful_registrations, failed_registrations
 
     def share_template(self, provider_vr_id, template_registration_id, target_vr_ids):
         """Shares the provided template registration with this provided list

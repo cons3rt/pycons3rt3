@@ -26,6 +26,11 @@ class Cons3rtClientError(Exception):
 class Cons3rtConfigError(Exception):
     """There was a problem configuring for CONS3RT API calls"""
 
+
+class InvalidOperatingSystemTemplate(Exception):
+    """Invalid OS template data"""
+
+
 """
 CONS3RT command-line interface exceptions
 """

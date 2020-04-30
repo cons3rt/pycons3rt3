@@ -927,8 +927,105 @@ class Cons3rtClient:
         template_subscription_data = json.loads(result)
         return template_subscription_data
 
-    def create_template_subscription(self, vr_id, template_registration_id):
+    def refresh_template_cache(self, vr_id):
+        """Refreshes the template cache for the provided virtualization realm ID
+
+        :param vr_id: (int) ID of the virtualization realm
+        :return: (bool) True if successful
+        :raises: Cons3rtClientError
+        """
+        target = 'virtualizationrealms/{i}/templates/registrations'.format(i=str(vr_id))
+        response = self.http_client.http_put(rest_user=self.user, target=target)
+        try:
+            result = self.http_client.parse_response(response=response)
+        except Cons3rtClientError as exc:
+            msg = 'The HTTP response contains a bad status code'
+            raise Cons3rtClientError(msg) from exc
+        is_success = json.loads(result)
+        return is_success
+
+    def list_unregistered_templates(self, vr_id):
+        """Returns a list of unregistered templates in the provided virtualization realm ID
+
+        :param vr_id: (int) ID of the virtualization realm
+        :return: (list) of unregistered templates
+        :raises: Cons3rtClientError
+        """
+        target = 'virtualizationrealms/{i}/templates/registrations/pending'.format(i=str(vr_id))
+        response = self.http_client.http_get(rest_user=self.user, target=target)
+        try:
+            result = self.http_client.parse_response(response=response)
+        except Cons3rtClientError as exc:
+            msg = 'The HTTP response contains a bad status code'
+            raise Cons3rtClientError(msg) from exc
+        unregistered_templates = json.loads(result)
+        return unregistered_templates
+
+    def create_template_registration(self, vr_id, template_data):
         """Retrieves template subscription data in the provided virtualization realm ID
+
+        :param vr_id: (int) ID of the virtualization realm
+        :param template_data: (dict) ID of the template data
+        :return: (dict) of template registration data
+        :raises: Cons3rtClientError
+        """
+        target = 'virtualizationrealms/{i}/templates/registrations'.format(i=str(vr_id))
+
+        template_registration_content = {
+            'templateData': template_data
+        }
+
+        # Create JSON content
+        try:
+            json_content = json.dumps(template_registration_content)
+        except SyntaxError as exc:
+            msg = 'There was a problem converting data to JSON: {d}'.format(d=str(template_registration_content))
+            raise Cons3rtClientError(msg) from exc
+
+        response = self.http_client.http_post(rest_user=self.user, target=target, content_data=json_content)
+        try:
+            result = self.http_client.parse_response(response=response)
+        except Cons3rtClientError as exc:
+            msg = 'The HTTP response contains a bad status code'
+            raise Cons3rtClientError(msg) from exc
+        template_registration_data = json.loads(result)
+        return template_registration_data
+
+    def update_template_registration(self, vr_id, template_registration_id, offline, registration_data=None):
+        """Retrieves template subscription data in the provided virtualization realm ID
+
+        :param vr_id: (int) ID of the virtualization realm
+        :param template_registration_id: (int) ID of the template subscription
+        :param offline: (bool) Set True to set the template to offline, False for online
+        :param registration_data: (dict) Registration data
+        :return: (dict) of template subscription data
+        :raises: Cons3rtClientError
+        """
+        if offline:
+            offline_str = 'true'
+        else:
+            offline_str = 'false'
+        if registration_data:
+            try:
+                json_content = json.dumps(registration_data)
+            except SyntaxError as exc:
+                msg = 'There was a problem converting data to JSON: {d}'.format(d=str(registration_data))
+                raise Cons3rtClientError(msg) from exc
+        else:
+            json_content = None
+        target = 'virtualizationrealms/{i}/templates/registrations/{r}?offline={o}'.format(
+            i=str(vr_id), r=str(template_registration_id), o=offline_str)
+        response = self.http_client.http_put(rest_user=self.user, target=target, content_data=json_content)
+        try:
+            result = self.http_client.parse_response(response=response)
+        except Cons3rtClientError as exc:
+            msg = 'The HTTP response contains a bad status code'
+            raise Cons3rtClientError(msg) from exc
+        is_success = json.loads(result)
+        return is_success
+
+    def create_template_subscription(self, vr_id, template_registration_id):
+        """Creates template subscription in the provided virtualization realm ID using the provided data
 
         :param vr_id: (int) ID of the virtualization realm
         :param template_registration_id: (int) ID of the template subscription
@@ -947,7 +1044,7 @@ class Cons3rtClient:
         return is_success
 
     def update_template_subscription(self, vr_id, template_subscription_id, offline, subscription_data):
-        """Retrieves template subscription data in the provided virtualization realm ID
+        """Updates template subscription data in the provided virtualization realm ID
 
         :param vr_id: (int) ID of the virtualization realm
         :param template_subscription_id: (int) ID of the template subscription
