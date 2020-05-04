@@ -140,6 +140,51 @@ class Cons3rtCli(object):
             msg += '\n'
         print(msg)
 
+    @staticmethod
+    def print_templates(template_list):
+        msg = 'CloudspaceID\t\tName\t\t\t\tosType\t\tTemplateID\t\tTemplateRegistrationId\tTemplateUUID\tOffline\n'
+        for template in template_list:
+            if 'virtRealmId' in template:
+                msg += str(template['virtRealmId'])
+            else:
+                msg += '    '
+            msg += '\t\t\t'
+            if 'virtRealmTemplateName' in template:
+                msg += template['virtRealmTemplateName']
+            else:
+                msg += '                   '
+            msg += '\t\t'
+            if 'operatingSystem' in template:
+                msg += template['operatingSystem']
+            else:
+                msg += '                 '
+            msg += '\t\t'
+            if 'id' in template:
+                msg += str(template['id'])
+            else:
+                msg += '    '
+            msg += '\t\t'
+            if 'templateRegistration' in template:
+                if 'id' in template['templateRegistration']:
+                    msg += str(template['templateRegistration']['id'])
+                else:
+                    msg += '    '
+                msg += '\t\t\t'
+                if 'templateUuid' in template['templateRegistration']:
+                    msg += template['templateRegistration']['templateUuid']
+                else:
+                    msg += '                              '
+                msg += '\t\t'
+                if 'offline' in template['templateRegistration']:
+                    msg += str(template['templateRegistration']['offline'])
+                else:
+                    msg += '                              '
+                msg += '\t\t'
+            else:
+                msg += '                                                                \t\t\t'
+            msg += '\n'
+        print(msg)
+
 
 class CloudCli(Cons3rtCli):
 
@@ -153,8 +198,7 @@ class CloudCli(Cons3rtCli):
     def process_args(self):
         if not self.validate_args():
             return False
-        sub = self.process_subcommands()
-        if not sub:
+        if not self.process_subcommands():
             return False
         return True
 
@@ -353,10 +397,16 @@ class CloudspaceCli(Cons3rtCli):
                 self.register_templates()
                 return
 
+            if template_subcommand == 'list':
+                self.list_templates()
+                return
+
     def delete_templates(self):
         for cloudspace_id in self.ids:
             if self.args.all:
                 self.c5t.delete_all_template_registrations(vr_id=cloudspace_id)
+            elif self.args.name:
+                self.c5t.delete_template_registration(vr_id=cloudspace_id, template_name=self.args.name)
 
     def register_templates(self):
         successful_template_registrations = []
@@ -391,14 +441,35 @@ class CloudspaceCli(Cons3rtCli):
             print('Cloudspace ID\t\tTemplate Name')
             for cloudspace in successful_template_registrations:
                 for success in cloudspace['registrations']:
-                    print(str(cloudspace['cloudspace_id']) + '\t\t\t' + success)
+                    print(str(cloudspace['cloudspace_id']) + '\t\t\t\t' + success)
         if len(failed_template_registrations) > 0:
             print('Failed Template Registrations:')
             print('------------------------------')
             print('Cloudspace ID\t\tTemplate Name')
             for cloudspace in failed_template_registrations:
                 for fail in cloudspace['registrations']:
-                    print(str(cloudspace['cloudspace_id']) + '\t\t\t' + fail)
+                    print(str(cloudspace['cloudspace_id']) + '\t\t\t\t' + fail)
+
+    def list_templates(self):
+        templates = []
+        for cloudspace_id in self.ids:
+            templates += self.list_templates_for_cloudspace(cloudspace_id=cloudspace_id)
+        if len(templates) > 0:
+            self.print_templates(template_list=templates)
+        print('Total number of templates found: {n}'.format(n=str(len(templates))))
+
+    def list_templates_for_cloudspace(self, cloudspace_id):
+        try:
+            templates = self.c5t.list_templates_in_virtualization_realm(
+                vr_id=cloudspace_id,
+                include_subscriptions=True,
+                include_registrations=True,
+            )
+        except Cons3rtApiError as exc:
+            msg = 'Problem listing templates in cloudspace ID: {i}\n{e}'.format(i=str(cloudspace_id), e=str(exc))
+            self.err(msg)
+            raise Cons3rtCliError(msg) from exc
+        return templates
 
 
 class ProjectCli(Cons3rtCli):

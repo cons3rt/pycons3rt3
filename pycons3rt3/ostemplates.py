@@ -232,7 +232,7 @@ class OperatingSystemType(object):
                     return 'RHEL_7_PPCLE'
                 else:
                     return 'RHEL_7_X64'
-        if 'centos' in template_name:
+        if 'cent' in template_name:
             if '6' in template_name:
                 if 'x86' in template_name:
                     return 'CENTOS_6_X86'
@@ -266,12 +266,12 @@ class OperatingSystemType(object):
                 if 'r2' in template_name:
                     return 'WINDOWS_SERVER_2008_R2_X64'
                 else:
-                    return 'WINDOWS_SERVER_2008_X64'
+                    return 'WINDOWS_SERVER_2008_R2_X64'
             if '2012' in template_name or '2k12' in template_name:
                 if 'r2' in template_name:
                     return 'WINDOWS_SERVER_2012_R2_X64'
                 else:
-                    return 'WINDOWS_SERVER_2012_X64'
+                    return 'WINDOWS_SERVER_2012_R2_X64'
             if '2016' in template_name or '2k16' in template_name:
                 return 'WINDOWS_SERVER_2016_X64'
             if '2019' in template_name or '2k19' in template_name:

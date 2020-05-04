@@ -2965,13 +2965,14 @@ class Cons3rtApi(object):
             raise Cons3rtApiError(msg) from exc
         return is_success
 
-    def delete_template_registration(self, vr_id, template_registration_id):
+    def delete_template_registration(self, vr_id, template_registration_id=None, template_name=None):
         """Unregisters the template registration from the VR ID
 
         NOTE: This does not support removeSubscriptions=False nor special permissions
 
         :param vr_id: (int) ID of the virtualization realm
         :param template_registration_id: (int) ID of the template registration
+        :param template_name: (str) name of the template
         :return: bool
         :raises: Cons3rtClientError
         """
@@ -2986,13 +2987,46 @@ class Cons3rtApi(object):
                 raise Cons3rtApiError(msg) from exc
 
         # Ensure the template_registration_id is an int
-        if not isinstance(template_registration_id, int):
-            try:
-                template_registration_id = int(template_registration_id)
-            except ValueError as exc:
-                msg = 'template_registration_id arg must be an Integer, found: {t}'.format(
-                    t=template_registration_id.__class__.__name__)
-                raise Cons3rtApiError(msg) from exc
+        if template_registration_id:
+            if not isinstance(template_registration_id, int):
+                try:
+                    template_registration_id = int(template_registration_id)
+                except ValueError as exc:
+                    msg = 'template_registration_id arg must be an Integer, found: {t}'.format(
+                        t=template_registration_id.__class__.__name__)
+                    raise Cons3rtApiError(msg) from exc
+        else:
+            if template_name:
+                if not isinstance(template_name, str):
+                    msg = 'template_name arg must be a atring, found: {t}'.format(
+                        t=template_name.__class__.__name__)
+                    raise Cons3rtApiError(msg)
+
+                # Get the template registration ID from the name
+                vr_templates = self.list_templates_in_virtualization_realm(
+                    vr_id=vr_id,
+                    include_registrations=True,
+                    include_subscriptions=False
+                )
+                for vr_template in vr_templates:
+                    if 'virtRealmTemplateName' not in vr_template:
+                        continue
+                    if vr_template['virtRealmTemplateName'] == template_name:
+                        if 'templateRegistration' not in vr_template:
+                            msg = 'templateRegistration data missing from template: {d}'.format(d=str(vr_template))
+                            raise Cons3rtApiError(msg)
+                        if 'id' not in vr_template['templateRegistration']:
+                            msg = 'id data missing from template registration: {d}'.format(d=str(vr_template))
+                            raise Cons3rtApiError(msg)
+                        template_registration_id = vr_template['templateRegistration']['id']
+            else:
+                msg = 'Either template_registration_id or template_name must be provided'
+                raise Cons3rtApiError(msg)
+
+        if not template_registration_id:
+            msg = 'Unable to determine template registration ID  in VR ID {v} from template name: {n}'.format(
+                v=str(vr_id), n=template_name)
+            raise Cons3rtApiError(msg)
 
         # List templates in the virtualization realm
         log.info('Deleting template registration {r} from VR ID {v}'.format(
