@@ -273,7 +273,7 @@ class S3Util(object):
             log.info('Passed regex did not match any key: %s', regex)
             return None
 
-    def list_objects_metadata_with_token(self, prefix=None, continuation_token=None):
+    def list_objects_metadata_with_token(self, prefix='', continuation_token=None):
         """Returns a list of S3 keys based on the provided token
 
         :param prefix: (str) Prefix to search on
@@ -292,7 +292,7 @@ class S3Util(object):
                 Prefix=prefix
             )
 
-    def list_objects_metadata(self, prefix=None):
+    def list_objects_metadata(self, prefix=''):
         """Lists S3 objects metadata in the S3 bucket matching the provided prefix
 
         :param prefix: (str) Prefix to search on
@@ -413,6 +413,28 @@ class S3Util(object):
             log.debug('Unable to delete key: {k}\n{e}'.format(k=key_to_delete, e=str(exc)))
             return False
         log.debug('Successfully deleted key: {k}'.format(k=key_to_delete))
+        return True
+
+    def copy_key_in_same_bucket(self, current_key, new_key):
+        """Copies the specified current key to a new key in the same bucket
+
+        :param current_key: (str) key to copy
+        :param new_key: (str) key to copy the object to
+        :return: bool
+        """
+        log = logging.getLogger(self.cls_logger + '.copy_key_in_same_bucket')
+
+        log.info('Attempting to move key [{k}] to: {n}'.format(k=current_key, n=new_key))
+        copy_source = {
+            'Bucket': self.bucket_name,
+            'Key': current_key
+        }
+        try:
+            self.s3client.copy(copy_source, self.bucket_name, new_key)
+        except ClientError as exc:
+            log.debug('Unable to copy key [{k}] to: {n}\n{e}'.format(k=current_key, n=new_key, e=str(exc)))
+            return False
+        log.debug('Successfully copied key [{k}] to: {n}'.format(k=current_key, n=new_key))
         return True
 
 
