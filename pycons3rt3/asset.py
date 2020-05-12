@@ -111,13 +111,14 @@ except KeyError:
 class Asset(object):
 
     def __init__(self, asset_dir_path, name=None, asset_type=None, asset_subtype=None, asset_zip_path=None,
-                 asset_id=None):
+                 asset_id=None, site_url=None):
         self.asset_dir_path = asset_dir_path
         self.name = name
         self.asset_type = asset_type
         self.asset_subtype = asset_subtype
         self.asset_zip_path = asset_zip_path
         self.asset_id = asset_id
+        self.site_url = site_url
 
     def __str__(self):
         return str(self.asset_dir_path)
@@ -546,10 +547,13 @@ def import_update(asset_dir, dest_dir, visibility=None, import_only=False, log_l
     :param dest_dir: (full path to the destination directory)
     :param visibility: (str) desired visibility default: OWNER
     :param import_only: (bool) Whe True, import even if an existing ID is found
+    :param log_level: (str) set the desired log level
     :return: (int) 0 = Success, non-zero otherwise
     """
     if log_level:
         Logify.set_log_level(log_level=log_level)
+
+    # Make the asset zip file
     try:
         asset_info = make_asset_zip(asset_dir_path=asset_dir, destination_directory=dest_dir)
     except AssetZipCreationError as exc:
@@ -557,42 +561,94 @@ def import_update(asset_dir, dest_dir, visibility=None, import_only=False, log_l
         print('ERROR: {m}'.format(m=msg))
         traceback.print_exc()
         return 1
+
+    # Create a Cons3rtApi
+    c5t = Cons3rtApi()
+
+    # Read in existing asset data yaml file
     asset_yml = os.path.join(asset_dir, 'asset_data.yml')
     asset_data_list = []
-    asset_data = None
-    c = Cons3rtApi()
-    if os.path.isfile(asset_yml) and not import_only:
+    if os.path.isfile(asset_yml):
         with open(asset_yml, 'r') as f:
             asset_data_list = yaml.load(f, Loader=yaml.FullLoader)
-        for asset_data in asset_data_list:
-            if asset_data['site_url'] == c.url_base:
-                asset_info.asset_id = asset_data['asset_id']
-        if asset_info.asset_id:
+
+    if not isinstance(asset_data_list, list):
+        print('Invalid yaml file, removing: {f}'.format(f=asset_yml))
+        os.remove(asset_yml)
+        asset_data_list = []
+
+    # Validate asset yaml data
+    valid_site_data = []
+    existing_asset_id = None
+    asset_data = None
+    for site_asset_data in asset_data_list:
+        if 'site_url' not in site_asset_data:
+            continue
+        if 'asset_id' not in site_asset_data:
+            continue
+        try:
+            int(site_asset_data['asset_id'])
+        except ValueError:
+            continue
+        if site_asset_data['site_url'] == c5t.url_base:
+            existing_asset_id = site_asset_data['asset_id']
+        valid_site_data.append(site_asset_data)
+
+    # If import_only is set, import and update the asset data for the yaml
+    if import_only:
+        print('Attempting to import asset zip: {f}'.format(f=asset_info.asset_zip_path))
+        asset_data = import_asset(cons3rt_api=c5t, asset_info=asset_info)
+
+        # If asset data was returned, update existing asset data or append
+        if asset_data != {}:
+            found_existing = False
+            for site_asset_data in valid_site_data:
+                if site_asset_data['site_url'] == c5t.url_base:
+                    found_existing = True
+                    site_asset_data['asset_id'] = asset_data['asset_id']
+            if not found_existing:
+                valid_site_data.append(asset_data)
+
+    # If not import-only, check to see if existing asset
+    else:
+        # If there is an existing asset ID, update it
+        if existing_asset_id:
+            asset_info.asset_id = existing_asset_id
             print('Attempting to update asset ID [{i}] with asset zip: {f}'.format(
                 i=str(asset_info.asset_id), f=asset_info.asset_zip_path))
-            if not update_asset(cons3rt_api=c, asset_info=asset_info):
+            if not update_asset(cons3rt_api=c5t, asset_info=asset_info):
                 return 1
+            asset_data = {
+                'site_url': c5t.url_base,
+                'asset_id': existing_asset_id
+            }
+
+        # If there is not an existing asset ID, import and append the resulting ID
         else:
             print('Attempting to import asset zip: {f}'.format(f=asset_info.asset_zip_path))
-            asset_data = import_asset(cons3rt_api=c, asset_info=asset_info)
+            asset_data = import_asset(cons3rt_api=c5t, asset_info=asset_info)
             if asset_data != {}:
-                asset_data_list.append(asset_data)
-    else:
-        print('Attempting to import asset zip: {f}'.format(f=asset_info.asset_zip_path))
-        asset_data = import_asset(cons3rt_api=c, asset_info=asset_info)
-        if asset_data != {}:
-            asset_data_list.append(asset_data)
+                valid_site_data.append(asset_data)
+
+    # Remove the asset zip file
+    os.remove(asset_info.asset_zip_path)
+
+    # Remove and replace the asset data yaml file
+    os.remove(asset_yml)
+    with open(asset_yml, 'w') as f:
+        yaml.dump(valid_site_data, f, sort_keys=True)
+
+    # Exit if no asset data with an ID exists
     if not asset_data:
         print('WARNING: No asset data available, cannot set visibility')
         return 0
-    os.remove(asset_info.asset_zip_path)
-    with open(asset_yml, 'w') as f:
-        yaml.dump(asset_data_list, f, sort_keys=True)
+
+    # Attempt to set visibility
     if visibility:
         print('Attempting to set visibility on asset ID {n} to: {v}'.format(
             n=str(asset_data['asset_id']), v=visibility))
         try:
-            c.update_asset_visibility(
+            c5t.update_asset_visibility(
                 asset_id=asset_data['asset_id'],
                 visibility=visibility,
                 trusted_projects=None
@@ -698,7 +754,7 @@ def query_assets_args(args, id_only=False):
         traceback.print_exc()
         return 4
 
-    # Print either the asset IDs or the asset data for each assety
+    # Print either the asset IDs or the asset data for each asset
     if id_only:
         asset_id_str = ''
         for asset in filtered_assets:
