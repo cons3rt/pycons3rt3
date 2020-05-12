@@ -415,16 +415,16 @@ class S3Util(object):
         log.debug('Successfully deleted key: {k}'.format(k=key_to_delete))
         return True
 
-    def copy_key_in_same_bucket(self, current_key, new_key):
+    def copy_object_in_same_bucket(self, current_key, new_key):
         """Copies the specified current key to a new key in the same bucket
 
         :param current_key: (str) key to copy
         :param new_key: (str) key to copy the object to
         :return: bool
         """
-        log = logging.getLogger(self.cls_logger + '.copy_key_in_same_bucket')
+        log = logging.getLogger(self.cls_logger + '.copy_object_in_same_bucket')
 
-        log.info('Attempting to move key [{k}] to: {n}'.format(k=current_key, n=new_key))
+        log.info('Attempting to copy key [{k}] to: {n}'.format(k=current_key, n=new_key))
         copy_source = {
             'Bucket': self.bucket_name,
             'Key': current_key
@@ -435,6 +435,29 @@ class S3Util(object):
             log.debug('Unable to copy key [{k}] to: {n}\n{e}'.format(k=current_key, n=new_key, e=str(exc)))
             return False
         log.debug('Successfully copied key [{k}] to: {n}'.format(k=current_key, n=new_key))
+        return True
+
+    def copy_object_to_another_bucket(self, current_key, target_bucket, new_key):
+        """Copies the specified current key to a new key in the target bucket
+
+        :param current_key: (str) key to copy
+        :param target_bucket: (str) name of the target bucket
+        :param new_key: (str) key to copy the object to in the target bucket
+        :return: bool
+        """
+        log = logging.getLogger(self.cls_logger + '.copy_object_to_another_bucket')
+
+        log.info('Attempting to copy key [{k}] to bucket {b}: {n}'.format(k=current_key, b=target_bucket, n=new_key))
+        copy_source = {
+            'Bucket': self.bucket_name,
+            'Key': current_key
+        }
+        try:
+            self.s3client.copy(copy_source, target_bucket, new_key)
+        except ClientError as exc:
+            log.debug('Unable to copy key [{k}] to bucket: {b}\n{e}'.format(k=current_key, b=target_bucket, e=str(exc)))
+            return False
+        log.debug('Successfully copied key [{k}] to bucket {b}: {n}'.format(k=current_key, b=target_bucket, n=new_key))
         return True
 
 
