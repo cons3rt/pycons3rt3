@@ -634,7 +634,8 @@ def import_update(asset_dir, dest_dir, visibility=None, import_only=False, log_l
     os.remove(asset_info.asset_zip_path)
 
     # Remove and replace the asset data yaml file
-    os.remove(asset_yml)
+    if os.path.isfile(asset_yml):
+        os.remove(asset_yml)
     with open(asset_yml, 'w') as f:
         yaml.dump(valid_site_data, f, sort_keys=True)
 
