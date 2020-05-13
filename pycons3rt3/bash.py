@@ -47,13 +47,14 @@ def enqueue_output(out, queue):
     out.close()
 
 
-def run_command(command, timeout_sec=3600.0, output=True):
+def run_command(command, timeout_sec=3600.0, output=True, bufsize=-1):
     """Runs a command using the subprocess module
 
     :param command: List containing the command and all args
     :param timeout_sec (float) seconds to wait before killing
         the command.
     :param output (bool) True collects output, False ignores output
+    :param bufsize (int) See python3 subprocess docs
     :return: Dict containing the command output and return code
     :raises CommandError
     """
@@ -74,7 +75,7 @@ def run_command(command, timeout_sec=3600.0, output=True):
         log.debug('Opening subprocess...')
         subproc = subprocess.Popen(
             command,
-            bufsize=1,
+            bufsize=bufsize,
             stdin=subprocess.DEVNULL,
             stdout=subproc_stdout,
             stderr=subproc_stderr)
