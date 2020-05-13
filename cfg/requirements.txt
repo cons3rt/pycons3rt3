@@ -4,7 +4,7 @@ cryptography
 netifaces
 jinja2
 progressbar2
-PyYAML==5.2
+pyyaml
 requests
 requests[security]
 requests_toolbelt
