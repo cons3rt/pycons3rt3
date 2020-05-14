@@ -20,6 +20,8 @@ import logging
 import os
 import platform
 import re
+import string
+import yaml
 
 
 from .bash import get_ip_addresses, ip_addr
@@ -63,7 +65,11 @@ class Deployment(object):
     def __init__(self):
         self.cls_logger = mod_logger + '.Deployment'
         self.properties = {}
+        self.properties_sh = {}
+        self.properties_ps1 = {}
         self.properties_file = ''
+        self.properties_file_sh = ''
+        self.properties_file_ps1 = ''
         self.deployment_home = ''
         self.cons3rt_role_name = ''
         self.asset_dir = ''
@@ -154,16 +160,16 @@ class Deployment(object):
         os.environ['DEPLOYMENT_HOME'] = self.deployment_home
         log.info('Set DEPLOYMENT_HOME in the environment to: {d}'.format(d=self.deployment_home))
 
-    def read_deployment_properties(self):
+    def read_deployment_properties_java(self):
         """Reads the deployment properties file
 
-        This method reads the deployment properties file into the
+        This method reads the java deployment properties file into the
         "properties" dictionary object.
 
         :return: None
         :raises: DeploymentError
         """
-        log = logging.getLogger(self.cls_logger + '.read_deployment_properties')
+        log = logging.getLogger(self.cls_logger + '.read_deployment_properties_java')
 
         # Ensure deployment properties file exists
         self.properties_file = os.path.join(self.deployment_home, 'deployment.properties')
@@ -173,36 +179,137 @@ class Deployment(object):
         log.info('Found deployment properties file: {f}'.format(f=self.properties_file))
 
         log.info('Reading deployment properties...')
-        try:
-            f = open(self.properties_file)
-        except (IOError, OSError) as exc:
-            msg = 'Could not open file {file} to read property: {prop}'.format(
-                file=self.properties_file,
-                prop=property)
-            raise DeploymentError(msg) from exc
-
-        for line in f:
-            log.debug('Processing deployment properties file line: {a}'.format(a=line))
-            if not isinstance(line, str):
-                log.debug('Skipping line that is not a string: {a}'.format(a=line))
-                continue
-            elif line.startswith('#'):
-                log.debug('Skipping line that is a comment: {a}'.format(a=line))
-                continue
-            elif '=' in line:
-                split_line = line.strip().split('=', 1)
-                if len(split_line) == 2:
-                    prop_name = split_line[0].strip()
-                    prop_value = split_line[1].strip()
-                    if prop_name is None or not prop_name or prop_value is None or not prop_value:
-                        log.debug('Property name <{n}> or value <v> is none or blank, not including it'.format(
-                            n=prop_name, v=prop_value))
+        with open(self.properties_file, 'r') as f:
+            for line in f:
+                log.debug('Processing deployment properties file line: {a}'.format(a=line))
+                if not isinstance(line, str):
+                    log.debug('Skipping line that is not a string: {a}'.format(a=line))
+                    continue
+                elif line.startswith('#'):
+                    log.debug('Skipping line that is a comment: {a}'.format(a=line))
+                    continue
+                elif '=' in line:
+                    split_line = line.strip().split('=', 1)
+                    if len(split_line) == 2:
+                        prop_name = split_line[0].strip()
+                        prop_value = split_line[1].strip()
+                        if prop_name is None or not prop_name or prop_value is None or not prop_value:
+                            log.debug('Property name <{n}> or value <v> is none or blank, not including it'.format(
+                                n=prop_name, v=prop_value))
+                        else:
+                            log.debug('Adding property {n} with value {v}...'.format(n=prop_name, v=prop_value))
+                            unescaped_prop_value = prop_value.replace('\\', '')
+                            self.properties[prop_name] = unescaped_prop_value
                     else:
-                        log.debug('Adding property {n} with value {v}...'.format(n=prop_name, v=prop_value))
-                        self.properties[prop_name] = prop_value
-                else:
-                    log.debug('Skipping line that did not split into 2 part on an equal sign...')
+                        log.debug('Skipping line that did not split into 2 part on an equal sign...')
         log.info('Successfully read in deployment properties')
+
+    def read_deployment_properties_sh(self):
+        """Reads the deployment properties shell file
+
+        This method reads the shell deployment properties file into the
+        "properties_sh" dictionary object.
+
+        :return: None
+        :raises: DeploymentError
+        """
+        log = logging.getLogger(self.cls_logger + '.read_deployment_properties_sh')
+
+        # Ensure deployment properties file exists
+        self.properties_file_sh = os.path.join(self.deployment_home, 'deployment-properties.sh')
+        if not os.path.isfile(self.properties_file_sh):
+            msg = 'Deployment properties file not found: {f}'.format(f=self.properties_file_sh)
+            raise DeploymentError(msg)
+        log.info('Found deployment properties file: {f}'.format(f=self.properties_file_sh))
+
+        log.info('Reading deployment properties shell file...')
+        with open(self.properties_file_sh, 'r') as f:
+            for line in f:
+                log.debug('Processing deployment properties file line: {a}'.format(a=line))
+                if not isinstance(line, str):
+                    log.debug('Skipping line that is not a string: {a}'.format(a=line))
+                    continue
+                elif line.startswith('#'):
+                    log.debug('Skipping line that is a comment: {a}'.format(a=line))
+                    continue
+                elif '=' in line:
+                    split_line = line.strip().split('=', 1)
+                    if len(split_line) == 2:
+                        prop_name = split_line[0].strip()
+                        prop_value = split_line[1].strip()
+                        if prop_name is None or not prop_name or prop_value is None or not prop_value:
+                            log.debug('Property name <{n}> or value <v> is none or blank, not including it'.format(
+                                n=prop_name, v=prop_value))
+                        else:
+                            log.debug('Adding property {n} with value {v}...'.format(n=prop_name, v=prop_value))
+                            stripped_prop_value = prop_value.lstrip('\'').rstrip('\'')
+                            self.properties_sh[prop_name] = stripped_prop_value
+                    else:
+                        log.debug('Skipping line that did not split into 2 part on an equal sign...')
+        log.info('Successfully read in deployment properties shell file')
+
+    def read_deployment_properties_ps1(self):
+        """Reads the deployment properties powershell file
+
+        This method reads the powershell deployment properties file into the
+        "properties_ps1" dictionary object.
+
+        :return: None
+        :raises: DeploymentError
+        """
+        log = logging.getLogger(self.cls_logger + '.read_deployment_properties_ps1')
+
+        # Ensure deployment properties file exists
+        self.properties_file_ps1 = os.path.join(self.deployment_home, 'deployment-properties.ps1')
+        if not os.path.isfile(self.properties_file_ps1):
+            msg = 'Deployment properties file not found: {f}'.format(f=self.properties_file_ps1)
+            raise DeploymentError(msg)
+        log.info('Found deployment properties file: {f}'.format(f=self.properties_file_ps1))
+
+        log.info('Reading deployment properties shell file...')
+        with open(self.properties_file_ps1, 'r') as f:
+            for line in f:
+                log.debug('Processing deployment properties file line: {a}'.format(a=line))
+                if not isinstance(line, str):
+                    log.debug('Skipping line that is not a string: {a}'.format(a=line))
+                    continue
+                elif line.startswith('#'):
+                    log.debug('Skipping line that is a comment: {a}'.format(a=line))
+                    continue
+                elif '=' in line:
+                    split_line = line.strip().split('=', 1)
+                    if len(split_line) == 2:
+                        prop_name = split_line[0].strip()
+                        prop_value = split_line[1].strip()
+                        if prop_name is None or not prop_name or prop_value is None or not prop_value:
+                            log.debug('Property name <{n}> or value <v> is none or blank, not including it'.format(
+                                n=prop_name, v=prop_value))
+                        else:
+                            log.debug('Adding property {n} with value {v}...'.format(n=prop_name, v=prop_value))
+                            stripped_prop_name = prop_name.lstrip('$')
+                            stripped_prop_value = prop_value.lstrip('\'').rstrip('\'')
+                            self.properties_ps1[stripped_prop_name] = stripped_prop_value
+                    else:
+                        log.debug('Skipping line that did not split into 2 part on an equal sign...')
+        log.info('Successfully read in deployment properties powershell file')
+
+    def read_deployment_properties(self):
+        self.read_deployment_properties_java()
+        self.read_deployment_properties_sh()
+        self.read_deployment_properties_ps1()
+
+    def output_props_yaml(self, yaml_file_path):
+        """Outputs the deployment properties in yaml file format to the specified file path
+
+        :param yaml_file_path: (str) yaml file path
+        :return: None
+        :raises: DeploymentError
+        """
+        try:
+            with open(yaml_file_path, 'w') as f:
+                yaml.dump(self.properties_sh, f, sort_keys=True)
+        except Exception as exc:
+            raise DeploymentError('Problem creating file: {f}'.format(f=yaml_file_path)) from exc
 
     def get_property(self, regex):
         """Gets the name of a specific property
