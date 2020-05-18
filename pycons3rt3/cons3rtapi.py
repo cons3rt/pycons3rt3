@@ -2688,7 +2688,7 @@ class Cons3rtApi(object):
         :param power_on_delay_override: (int) seconds to delay power on
         :param powershell_version: (str) powershell version for Windows
         :param linux_service_management: (str) service management system for linux
-        :return: (dict) of template subscription data
+        :return: (dict) of template registration data
         :raises: Cons3rtApiError
         """
         log = logging.getLogger(self.cls_logger + '.create_template_registration')
@@ -4338,6 +4338,58 @@ class Cons3rtApi(object):
             time.sleep(inter_vr_delay_sec)
         log.info('Completed virtualization realm reachability updates for cloud ID: {i}'.format(i=str(cloud_id)))
 
+    def register_template_by_name_in_vr(self, vr_id, template_name):
+        """Creates template registrations the template name the provided VR ID
+
+        :param vr_id: (int) ID of the virtualization realm
+        :param template_name: (str) name of the unregistered template to register
+        return: (dict) of template registration data
+        :raises: Cons3rtApiError
+        """
+        log = logging.getLogger(self.cls_logger + '.register_all_templates_in_vr')
+
+        # Ensure the provider_vr_id is an int
+        if not isinstance(vr_id, int):
+            try:
+                vr_id = int(vr_id)
+            except ValueError as exc:
+                msg = 'vr_id arg must be an Integer, found: {t}'.format(t=vr_id.__class__.__name__)
+                raise Cons3rtApiError(msg) from exc
+
+        try:
+            self.refresh_template_cache(vr_id=vr_id)
+            unregistered_templates = self.list_unregistered_templates(vr_id=vr_id)
+        except Cons3rtApiError as exc:
+            msg = 'Problem listing unregistered templates in VR ID: {i}'.format(i=str(vr_id))
+            raise Cons3rtApiError(msg) from exc
+
+        template_found = False
+        template_registration_data = []
+        for unregistered_template in unregistered_templates:
+            if 'virtRealmTemplateName' not in unregistered_template:
+                log.warning('virtRealmTemplateName not found in template: {d}'.format(d=str(unregistered_template)))
+                continue
+            if unregistered_template['virtRealmTemplateName'] != template_name:
+                continue
+            template_found = True
+            try:
+                template_registration_data = self.create_template_registration(
+                    vr_id=vr_id,
+                    template_name=unregistered_template['virtRealmTemplateName']
+                )
+            except Cons3rtApiError as exc:
+                msg = 'Problem registering template: {n}\n{e}'.format(
+                    n=unregistered_template['virtRealmTemplateName'], e=str(exc))
+                raise Cons3rtApiError(msg) from exc
+            break
+
+        if not template_found:
+            msg = 'Unregistered template with name [{n}] not found in VR ID: {i}'.format(n=template_name, i=str(vr_id))
+            raise Cons3rtApiError(msg)
+
+        log.info('Successfully registered template [{n}] in VR ID: {i}'.format(n=template_name, i=str(vr_id)))
+        return template_registration_data
+
     def register_all_templates_in_vr(self, vr_id):
         """Creates template registrations for all unregistered templates in the provided VR ID
 
@@ -4350,7 +4402,7 @@ class Cons3rtApi(object):
         # Ensure the provider_vr_id is an int
         if not isinstance(vr_id, int):
             try:
-                provider_vr_id = int(vr_id)
+                vr_id = int(vr_id)
             except ValueError as exc:
                 msg = 'vr_id arg must be an Integer, found: {t}'.format(t=vr_id.__class__.__name__)
                 raise Cons3rtApiError(msg) from exc
@@ -4455,7 +4507,8 @@ class Cons3rtApi(object):
                 r=str(template_registration_id), i=str(provider_vr_id), s=target_vrs_str)
             raise Cons3rtApiError(msg)
 
-    def share_template_to_vrs(self, provider_vr_id, template, vr_ids, subscribe=True, online=True):
+    def share_template_to_vrs(self, provider_vr_id, template, vr_ids, subscribe=True, online=True,
+                              subscriber_vrs_subscriptions=None):
         """Share a template to virtualization realms
 
         :param provider_vr_id: (int) ID of the virtualization realm where the template is registered
@@ -4463,10 +4516,11 @@ class Cons3rtApi(object):
         :param vr_ids: (list) VR IDs to share the templates with
         :param subscribe: (bool) Set True to have the shared virtualization realm also subscribe to the template
         :param online: (bool) Set True to bring the template online in the subscriber virtualization realm
+        :param subscriber_vrs_subscriptions: (list) of dict subscription data for each subscriber VR ID
         :return: None
         :raises: Cons3rtApiError
         """
-        log = logging.getLogger(self.cls_logger + '.share_templates_to_vrs')
+        log = logging.getLogger(self.cls_logger + '.share_template_to_vrs')
         if not isinstance(provider_vr_id, int):
             try:
                 provider_vr_id = int(provider_vr_id)
@@ -4543,9 +4597,16 @@ class Cons3rtApi(object):
 
         create_subscription_vr_ids = []
         for subscriber_vr_id in subscriber_vr_ids:
-            subscriber_vr_existing_subs = self.list_template_subscriptions_in_virtualization_realm(
-                vr_id=subscriber_vr_id
-            )
+            subscriber_vr_existing_subs = None
+            if subscriber_vrs_subscriptions:
+                for subscriber_vr_subscriptions in subscriber_vrs_subscriptions:
+                    if subscriber_vr_subscriptions['subscriber_vr_id'] == subscriber_vr_id:
+                        subscriber_vr_existing_subs = subscriber_vr_subscriptions['subscriptions']
+                        break
+            if not subscriber_vr_existing_subs:
+                subscriber_vr_existing_subs = self.list_template_subscriptions_in_virtualization_realm(
+                    vr_id=subscriber_vr_id
+                )
             existing_subscription = False
             for subscriber_vr_existing_sub in subscriber_vr_existing_subs:
                 if subscriber_vr_existing_sub['templateRegistration']['templateUuid'] == reg_details['templateUuid']:
@@ -4599,28 +4660,40 @@ class Cons3rtApi(object):
                 t=templates.__class__.__name__))
         log.info('Sharing {n} templates from provider VR ID {i} to {v} VRs'.format(
             n=str(len(templates)), i=str(provider_vr_id), v=str(len(vr_ids))))
+
+        subscriber_vrs_subscriptions = []
+        for subscriber_vr_id in vr_ids:
+            subscriber_vrs_subscriptions.append(
+                {
+                    'subscriber_vr_id': subscriber_vr_id,
+                    'subscriptions': self.list_template_subscriptions_in_virtualization_realm(vr_id=subscriber_vr_id)
+                }
+            )
+
         for template in templates:
             self.share_template_to_vrs(
                 provider_vr_id=provider_vr_id,
                 template=template,
                 vr_ids=vr_ids,
                 subscribe=subscribe,
-                online=online
+                online=online,
+                subscriber_vrs_subscriptions=subscriber_vrs_subscriptions
             )
 
-    def share_templates_to_vrs_in_cloud(self, cloud_id, provider_vr_id=None, templates=None, subscribe=True,
-                                        online=True):
+    def share_templates_to_vrs_in_cloud(self, cloud_id, provider_vr_id=None, templates_registration_data=None,
+                                        template_names=None, subscribe=True, online=True):
         """Shares a list of templates from a provider VR to all VRs in the provided cloud ID
 
         :param cloud_id: (int) ID of the cloud to share with
         :param provider_vr_id: (int) ID of the virtualization realm where the template is registered
-        :param templates: (list) of template objects (dicts)
+        :param templates_registration_data: (list) of template objects (dict)
+        :param template_names: (list) of template names (str)
         :param subscribe: (bool) Set True to have the shared virtualization realm also subscribe to the template
         :param online: (bool) Set True to bring the template online in the subscriber virtualization realm
         :return: None
         :raises: Cons3rtApiError
         """
-        log = logging.getLogger(self.cls_logger + '.share_template_to_vrs_in_cloud')
+        log = logging.getLogger(self.cls_logger + '.share_templates_to_vrs_in_cloud')
 
         # Ensure the cloud_id is an int
         if not isinstance(cloud_id, int):
@@ -4661,14 +4734,39 @@ class Cons3rtApi(object):
             if vr['id'] != provider_vr_id:
                 subscriber_vr_ids.append(vr['id'])
 
+        # Determine the list of templates to share
+        templates = []
+
         # If a list of templates was provided, validate
-        if not templates:
-            log.info('Retrieving a list of template registrations in the provider VR')
+        if not templates_registration_data:
+            log.info('Retrieving a list of template registrations in the provider VR...')
             try:
-                templates = self.list_template_registrations_in_virtualization_realm(vr_id=provider_vr_id)
+                all_template_registrations_data = self.list_template_registrations_in_virtualization_realm(
+                    vr_id=provider_vr_id)
             except Cons3rtApiError as exc:
                 msg = 'Problem listing template registrations in the provider VR ID: {i}'.format(i=str(provider_vr_id))
                 raise Cons3rtApiError(msg) from exc
+            if not template_names:
+                log.info('Sharing all templates from provider VR ID: {i}'.format(i=str(provider_vr_id)))
+                templates = all_template_registrations_data
+            else:
+                log.info('Searching for template data to share for template names: {n}'.format(
+                    n=','.join(template_names)))
+                for template_registration_data in all_template_registrations_data:
+                    if 'templateData' not in template_registration_data.keys():
+                        raise Cons3rtApiError('templateData not found in template data: {d}'.format(
+                            d=str(template_registration_data)))
+                    if 'virtRealmTemplateName' not in template_registration_data['templateData'].keys():
+                        raise Cons3rtApiError('virtRealmTemplateName not found in template data: {d}'.format(
+                            d=str(template_registration_data)))
+                    if template_registration_data['templateData']['virtRealmTemplateName'] in template_names:
+                        templates.append(template_registration_data)
+        else:
+            templates = templates_registration_data
+
+        if len(templates) < 1:
+            log.warning('No templates found to share from cloud ID: {i}'.format(i=str(cloud_id)))
+            return
 
         log.info('Attempting to share {n} templates from cloud ID: {i}'.format(n=str(len(templates)), i=str(cloud_id)))
         self.share_templates_to_vrs(

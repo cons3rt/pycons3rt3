@@ -77,6 +77,7 @@ def main():
     parser.add_argument('--id', help='ID relative to the command provided', required=False)
     parser.add_argument('--ids', help='List of IDs relative to the command provided', required=False)
     parser.add_argument('--name', help='Name of a resource', required=False)
+    parser.add_argument('--names', help='List of names of resources', required=False)
     parser.add_argument('--share', help='Share templates', action='store_true')
     parser.add_argument('--unlock', help='Remove run locks before taking action', action='store_true')
     args = parser.parse_args()

@@ -234,6 +234,23 @@ class CloudCli(Cons3rtCli):
                     msg = 'Problem sharing templates in cloud ID: {c}\n{e}'.format(c=str(cloud_id), e=str(exc))
                     self.err(msg)
                     raise Cons3rtCliError(msg) from exc
+        elif self.args.names:
+            template_names = self.arg.names.split(',')
+            for cloud_id in self.ids:
+                try:
+                    self.c5t.share_templates_to_vrs_in_cloud(cloud_id=cloud_id, template_names=template_names)
+                except Cons3rtApiError as exc:
+                    msg = 'Problem sharing templates in cloud ID: {c}\n{e}'.format(c=str(cloud_id), e=str(exc))
+                    self.err(msg)
+                    raise Cons3rtCliError(msg) from exc
+        elif self.args.name:
+            for cloud_id in self.ids:
+                try:
+                    self.c5t.share_templates_to_vrs_in_cloud(cloud_id=cloud_id, template_names=[self.args.name])
+                except Cons3rtApiError as exc:
+                    msg = 'Problem sharing templates in cloud ID: {c}\n{e}'.format(c=str(cloud_id), e=str(exc))
+                    self.err(msg)
+                    raise Cons3rtCliError(msg) from exc
 
     def list_clouds(self):
         clouds = []
@@ -424,7 +441,7 @@ class CloudspaceCli(Cons3rtCli):
                 })
             elif self.args.name:
                 try:
-                    self.c5t.create_template_registration(vr_id=cloudspace_id, template_name=self.args.name)
+                    self.c5t.register_template_by_name_in_vr(vr_id=cloudspace_id, template_name=self.args.name)
                 except Cons3rtApiError as exc:
                     msg = 'Problem registering template {n} in cloudspace ID: {i}\n{e}'.format(
                         n=self.args.name, i=str(cloudspace_id), e=str(exc))
