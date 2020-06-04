@@ -540,7 +540,7 @@ def update_asset(cons3rt_api, asset_info):
     return True
 
 
-def import_update(asset_dir, dest_dir, visibility=None, import_only=False, log_level=None):
+def import_update(asset_dir, dest_dir, visibility=None, import_only=False, log_level=None, config_file=None):
     """Creates an asset zip, and attempts to import/update the asset
 
     :param asset_dir: (str) path to asset directory
@@ -548,6 +548,7 @@ def import_update(asset_dir, dest_dir, visibility=None, import_only=False, log_l
     :param visibility: (str) desired visibility default: OWNER
     :param import_only: (bool) Whe True, import even if an existing ID is found
     :param log_level: (str) set the desired log level
+    :param config_file: (str) path to a config file to use for the asset import/update
     :return: (int) 0 = Success, non-zero otherwise
     """
     if log_level:
@@ -563,7 +564,7 @@ def import_update(asset_dir, dest_dir, visibility=None, import_only=False, log_l
         return 1
 
     # Create a Cons3rtApi
-    c5t = Cons3rtApi()
+    c5t = Cons3rtApi(config_file=config_file)
 
     # Read in existing asset data yaml file
     asset_yml = os.path.join(asset_dir, 'asset_data.yml')
