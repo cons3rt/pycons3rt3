@@ -14,7 +14,7 @@
 
 pycons3rt3
 ~~~~~~~~~
-:copyright: (c) 2019 by Jackpine Technologies Corporation.
+:copyright: (c) 2020 by Jackpine Technologies Corporation.
 :license: ISC, see LICENSE for more details.
 
 """
@@ -31,7 +31,7 @@ from . import pyjavakeys
 from . import windows
 
 
-from .cons3rtapi import Scenario, Cons3rtApi
+from .cons3rtapi import Cons3rtApi
 from .bash import run_command, run_remote_command
 from .deployment import Deployment
 from .ec2util import EC2Util

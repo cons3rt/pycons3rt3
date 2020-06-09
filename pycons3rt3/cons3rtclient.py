@@ -16,11 +16,97 @@ class Cons3rtClient:
     def set_user(self, user):
         self.user = user
 
+    def create_cloud(self, cloud_ato_consent, cloud_data):
+        """Created a cloud using the provided cloud data
+
+        :param cloud_ato_consent: (bool) By setting true, the user acknowledges that - as a Team Manager - they
+                a) are authorized to represent their organization, and
+                b) they understand that their organization is responsible for all security and authorization to
+                operate requirements for Systems deployed in their Cloudspaces.
+        :param cloud_data: (dict) containing data formatted according to the CONS3RT API docs
+        :return: (int) Cloud ID
+        :raises: Cons3rtClientError
+        """
+        if cloud_ato_consent:
+            cloud_ato_consent_str = 'true'
+        else:
+            cloud_ato_consent_str = 'false'
+        target = 'clouds?cloudATOConsent={c}'.format(c=cloud_ato_consent_str)
+
+        # Create JSON content
+        try:
+            json_content = json.dumps(cloud_data)
+        except SyntaxError as exc:
+            msg = 'There was a problem converting data to JSON: {d}'.format(d=str(cloud_data))
+            raise Cons3rtClientError(msg) from exc
+
+        # Create the Cloud
+        try:
+            response = self.http_client.http_post(rest_user=self.user, target=target, content_data=json_content)
+        except Cons3rtClientError as exc:
+            msg = 'Unable to create a cloud from data: {d}'.format(d=str(cloud_data))
+            raise Cons3rtClientError(msg) from exc
+
+        # Get the Cloud ID from the response
+        try:
+            cloud_id = self.http_client.parse_response(response=response)
+        except Cons3rtClientError as exc:
+            msg = 'The HTTP response contains a bad status code'
+            raise Cons3rtClientError(msg) from exc
+        return cloud_id
+
+    def update_cloud(self, cloud_id, cloud_data):
+        """Update the provided cloud ID using the provided cloud data
+
+        :param cloud_id: (int) ID of the cloud to update
+        :param cloud_data: (dict) containing data formatted according to the CONS3RT API docs
+        :return: (bool) True if successful
+        :raises: Cons3rtClientError
+        """
+        target = 'clouds/{i}'.format(i=str(cloud_id))
+
+        # Create JSON content
+        try:
+            json_content = json.dumps(cloud_data)
+        except SyntaxError as exc:
+            msg = 'There was a problem converting data to JSON: {d}'.format(d=str(cloud_data))
+            raise Cons3rtClientError(msg) from exc
+
+        # Update the Cloud
+        try:
+            response = self.http_client.http_put(rest_user=self.user, target=target, content_data=json_content)
+        except Cons3rtClientError as exc:
+            msg = 'Unable to update cloud ID {i} from data: {d}'.format(i=str(cloud_id), d=str(cloud_data))
+            raise Cons3rtClientError(msg) from exc
+
+        # Get the response
+        try:
+            result = self.http_client.parse_response(response=response)
+        except Cons3rtClientError as exc:
+            msg = 'The HTTP response contains a bad status code'
+            raise Cons3rtClientError(msg) from exc
+        return result
+
+    def delete_cloud(self, cloud_id):
+        """Delete the provided cloud ID
+
+        :param cloud_id: (int) cloud ID
+        :return: (bool) True if successful
+        """
+        target = 'clouds/{i}'.format(i=str(cloud_id))
+        response = self.http_client.http_delete(rest_user=self.user, target=target)
+        try:
+            result = self.http_client.parse_response(response=response)
+        except Cons3rtClientError as exc:
+            msg = 'The HTTP response contains a bad status code'
+            raise Cons3rtClientError(msg) from exc
+        return result
+
     def register_cloud(self, cloud_file):
         """Registers a Cloud using info in the provided JSON file
 
         :param cloud_file: (str) path to JSON file
-        :return:  (int) Cloud ID
+        :return: (int) Cloud ID
         :raises: Cons3rtClientError
         """
         if self.user is None:

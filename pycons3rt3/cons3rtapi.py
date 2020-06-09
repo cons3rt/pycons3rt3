@@ -8,64 +8,18 @@ import time
 
 from .logify import Logify
 
+from .cloud import Cloud
 from .cons3rtclient import Cons3rtClient
 from .deployment import Deployment
 from .pycons3rtlibs import RestUser
 from .cons3rtconfig import cons3rtapi_config_file
-from .exceptions import Cons3rtClientError, Cons3rtApiError, DeploymentError, InvalidOperatingSystemTemplate
+from .exceptions import Cons3rtClientError, Cons3rtApiError, DeploymentError, InvalidCloudError, \
+    InvalidOperatingSystemTemplate
 from .ostemplates import OperatingSystemTemplate, OperatingSystemType
 
 
 # Set up logger name for this module
 mod_logger = Logify.get_name() + '.cons3rtapi'
-
-
-class Scenario(object):
-
-    def __init__(self, name='', config_script=None, teardown_script=None):
-        self.name = name
-        self.scenario_hosts = []
-        self.teardown_script = teardown_script
-        self.config_script = config_script
-
-    def add_scenario_host(self, role_name, system_id, subtype='virtualHost', build_order=1, master=False,
-                          host_config_script=None, host_teardown_script=None):
-        """Add a scenario host to the Scenario object
-
-        :param role_name: (str) role name
-        :param system_id: (int) system ID
-        :param subtype: (str) see CONS3RT API docs
-        :param build_order: (int) see CONS3RT API docs
-        :param master: (bool) see CONS3RT API docs
-        :param host_config_script: (str) see CONS3RT API docs
-        :param host_teardown_script: (str) see CONS3RT API docs
-        :return: None
-        """
-        scenario_host = {'systemRole': role_name, 'systemModule': {}}
-        scenario_host['systemModule']['subtype'] = subtype
-        scenario_host['systemModule']['id'] = system_id
-        scenario_host['systemModule']['buildOrder'] = build_order
-        if master:
-            scenario_host['systemModule']['master'] = 'true'
-        else:
-            scenario_host['systemModule']['master'] = 'false'
-        if host_config_script:
-            scenario_host['systemModule']['configureScenarioConfiguration'] = host_config_script
-        if host_teardown_script:
-            scenario_host['systemModule']['teardownScenarioConfiguration'] = host_teardown_script
-        self.scenario_hosts.append(scenario_host)
-
-    def set_config_script(self, config_script):
-        self.config_script = config_script
-
-    def set_teardown_script(self, teardown_script):
-        self.teardown_script = teardown_script
-
-    def create(self, cons3rt_api):
-        return cons3rt_api.create_scenario(
-            name=self.name,
-            scenario_hosts=self.scenario_hosts
-        )
 
 
 class Cons3rtApi(object):
@@ -261,6 +215,74 @@ class Cons3rtApi(object):
             log.warning('Unable to determine the target from provided asset_type: {t}'.format(t=asset_type))
         return target
 
+    def create_cloud(self, cloud_ato_consent=False, **kwargs):
+        """Creates a new cloud
+
+        Cloud Authority To Operate (ATO) Consent.
+
+        Teams are allowed to register their own Clouds and to use the site capabilities to allocate Cloudspaces,
+        configure security, and deploy Systems & Services and/or access them remotely. However, without a Memorandum
+        of Understanding (MOU) or Memorandum of Agreement (MOA) with the site owner, customer-owned Clouds and
+        Cloudspaces are not covered by the site Authority To Operate (ATO). Customers are responsible for compliance
+        with all DoD security requirements for protecting and maintaining their systems.
+
+        > Note: Does not handle at this time:
+          * cloud network templates
+          * templateVirtualizationRealm
+
+        :param cloud_ato_consent: (bool) By setting true, the user acknowledges that - as a Team Manager - they
+                a) are authorized to represent their organization, and
+                b) they understand that their organization is responsible for all security and authorization to
+                operate requirements for Systems deployed in their Cloudspaces.
+
+        :return: (int) cloud ID
+        :raises Cons3rtApiError
+        """
+        log = logging.getLogger(self.cls_logger + '.create_cloud')
+
+        try:
+            cloud = Cloud(**kwargs)
+        except InvalidCloudError as exc:
+            raise Cons3rtApiError('Invalid cloud data provided') from exc
+
+        # Attempt to register the Cloud
+        try:
+            cloud_id = self.cons3rt_client.create_cloud(
+                cloud_ato_consent=cloud_ato_consent,
+                cloud_data=cloud.cloud_data
+            )
+        except Cons3rtClientError as exc:
+            raise Cons3rtApiError('Problem creating cloud named {n} using cloud_ato_consent={c} and data: {d}'.format(
+                n=cloud.cloud_data['name'], c=str(cloud_ato_consent), d=str(cloud.cloud_data))) from exc
+        log.info('Created cloud [{n}] ID: {c}'.format(n=cloud.cloud_data['name'], c=str(cloud_id)))
+        return cloud_id
+
+    def update_cloud(self, cloud_id, **kwargs):
+        """Updates the provided cloud ID
+
+        :param cloud_id: (int) cloud ID
+        :return: bool
+        :raises Cons3rtApiError
+        """
+        log = logging.getLogger(self.cls_logger + '.update_cloud')
+
+        try:
+            cloud = Cloud(**kwargs)
+        except InvalidCloudError as exc:
+            raise Cons3rtApiError('Invalid cloud data provided') from exc
+
+        # Attempt to register the Cloud
+        try:
+            result = self.cons3rt_client.update_cloud(
+                cloud_id=cloud_id,
+                cloud_data=cloud.cloud_data
+            )
+        except Cons3rtClientError as exc:
+            raise Cons3rtApiError('Problem updating cloud ID {i} named {n} with data: {d}'.format(
+                n=cloud.cloud_data['name'], i=str(cloud_id), d=str(cloud.cloud_data))) from exc
+        log.info('Updated cloud [{n}] ID: {c}'.format(n=cloud.cloud_data['name'], c=str(cloud_id)))
+        return result
+
     def register_cloud_from_json(self, json_file):
         """Attempts to register a Cloud using the provided JSON
         file as the payload
@@ -288,6 +310,31 @@ class Cons3rtApi(object):
             raise Cons3rtApiError('Unable to register a Cloud using JSON file: {f}'.format(f=json_file)) from exc
         log.info('Successfully registered Cloud ID: {c}'.format(c=str(cloud_id)))
         return cloud_id
+
+    def delete_cloud(self, cloud_id):
+        """Deletes the provided cloud ID
+
+        :param cloud_id: (int) cloud ID
+        :return: None
+        :raises: Cons3rtApiError
+        """
+        log = logging.getLogger(self.cls_logger + '.delete_cloud')
+
+        # Ensure the cloud_id is an int
+        if not isinstance(cloud_id, int):
+            try:
+                cloud_id = int(cloud_id)
+            except ValueError as exc:
+                msg = 'cloud_id arg must be an Integer, found: {t}'.format(t=cloud_id.__class__.__name__)
+                raise Cons3rtApiError(msg) from exc
+
+        # Attempt to delete the target
+        try:
+            self.cons3rt_client.delete_cloud(cloud_id=cloud_id)
+        except Cons3rtClientError as exc:
+            msg = 'Unable to delete cloud ID: {i}'.format(i=str(cloud_id))
+            raise Cons3rtApiError(msg) from exc
+        log.info('Deleted cloud ID: {i}'.format(i=str(cloud_id)))
 
     def create_team_from_json(self, json_file):
         """Attempts to create a Team using the provided JSON
@@ -4346,7 +4393,7 @@ class Cons3rtApi(object):
         return: (dict) of template registration data
         :raises: Cons3rtApiError
         """
-        log = logging.getLogger(self.cls_logger + '.register_all_templates_in_vr')
+        log = logging.getLogger(self.cls_logger + '.register_template_by_name_in_vr')
 
         # Ensure the provider_vr_id is an int
         if not isinstance(vr_id, int):
@@ -4679,6 +4726,63 @@ class Cons3rtApi(object):
                 online=online,
                 subscriber_vrs_subscriptions=subscriber_vrs_subscriptions
             )
+
+    def share_templates_to_vrs_by_name(self, provider_vr_id, vr_ids, template_names=None):
+        """Shares template by name from the provider VR ID to the list of target VR IDs
+
+        :param provider_vr_id: (int) ID of the template provider virtualization realm
+        :param template_names: (list) name of the template names to share, None to share all templates
+        :param vr_ids: (list) of IDs (int) of virtualization realms to share with
+        :return: bool
+        :raises: Cons3rtApiError
+        """
+        log = logging.getLogger(self.cls_logger + '.share_templates_to_vrs_by_name')
+
+        # Ensure the provider_vr_id is an int
+        if not isinstance(provider_vr_id, int):
+            try:
+                provider_vr_id = int(provider_vr_id)
+            except ValueError as exc:
+                msg = 'provider_vr_id arg must be an Integer, found: {t}'.format(t=provider_vr_id.__class__.__name__)
+                raise Cons3rtApiError(msg) from exc
+
+        try:
+            registered_templates = self.list_template_registrations_in_virtualization_realm(vr_id=provider_vr_id)
+        except Cons3rtApiError as exc:
+            msg = 'Problem listing registered templates in VR ID: {i}'.format(i=str(provider_vr_id))
+            raise Cons3rtApiError(msg) from exc
+
+        if len(registered_templates) < 1:
+            msg = 'No registered templates found to share in VR ID: {i}'.format(i=str(provider_vr_id))
+            raise Cons3rtApiError(msg)
+
+        templates_to_share = []
+        if template_names:
+            for registered_template in registered_templates:
+                if 'templateData' not in registered_template:
+                    log.warning('templateData not found in template data: {d}'.format(d=str(registered_template)))
+                    continue
+                if 'virtRealmTemplateName' not in registered_template['templateData']:
+                    log.warning('virtRealmTemplateName not found in templateData: {d}'.format(
+                        d=str(registered_template)))
+                    continue
+                if registered_template['templateData']['virtRealmTemplateName'] in template_names:
+                    templates_to_share.append(registered_template)
+            if len(templates_to_share) < 1:
+                msg = 'Registered templates not found in VR ID {i} with names: {n}'.format(
+                    n=str(template_names), i=str(provider_vr_id))
+                raise Cons3rtApiError(msg)
+        else:
+            templates_to_share = registered_templates
+
+        # Share the template to the target VRs
+        log.info('Found template [{n}] templates to share in VR ID: {i}'.format(
+            n=str(len(templates_to_share)), i=str(provider_vr_id)))
+        self.share_templates_to_vrs(
+            provider_vr_id=provider_vr_id,
+            templates=templates_to_share,
+            vr_ids=vr_ids
+        )
 
     def share_templates_to_vrs_in_cloud(self, cloud_id, provider_vr_id=None, templates_registration_data=None,
                                         template_names=None, subscribe=True, online=True):

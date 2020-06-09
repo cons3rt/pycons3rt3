@@ -15,7 +15,8 @@ class Cons3rtCli(object):
     def __init__(self, args, subcommands=None):
         self.subcommands = subcommands
         self.args = args
-        self.ids = []
+        self.ids = None
+        self.names = None
         try:
             self.c5t = Cons3rtApi()
         except Cons3rtApiError as exc:
@@ -31,6 +32,7 @@ class Cons3rtCli(object):
         except Cons3rtCliError:
             traceback.print_exc()
             return False
+        self.names = validate_names(self.args)
         return True
 
     @staticmethod
@@ -191,8 +193,9 @@ class CloudCli(Cons3rtCli):
     def __init__(self, args, subcommands=None):
         Cons3rtCli.__init__(self, args=args, subcommands=subcommands)
         self.valid_subcommands = [
-            'template',
-            'list'
+            'delete',
+            'list',
+            'template'
         ]
 
     def process_args(self):
@@ -210,18 +213,40 @@ class CloudCli(Cons3rtCli):
         if self.subcommands[0] not in self.valid_subcommands:
             self.err('Unrecognized command: {c}'.format(c=self.subcommands[0]))
             return False
-        if self.subcommands[0] == 'template':
+        if self.subcommands[0] == 'delete':
             try:
-                self.templates()
+                self.delete_clouds()
             except Cons3rtCliError:
                 return False
-        if self.subcommands[0] == 'list':
+        elif self.subcommands[0] == 'list':
             try:
                 self.list_clouds()
             except Cons3rtCliError:
                 return False
+        elif self.subcommands[0] == 'template':
+            try:
+                self.templates()
+            except Cons3rtCliError:
+                return False
+
+    def delete_clouds(self):
+        if not self.ids:
+            msg = '--id or --ids arg required to specify the cloud IDs to delete'
+            self.err(msg)
+            raise Cons3rtCliError(msg)
+        for cloud_id in self.ids:
+            try:
+                self.c5t.delete_cloud(cloud_id=cloud_id)
+            except Cons3rtApiError as exc:
+                msg = 'Problem deleting cloud ID: {c}\n{e}'.format(c=str(cloud_id), e=str(exc))
+                self.err(msg)
+                raise Cons3rtCliError(msg) from exc
 
     def templates(self):
+        if not self.ids:
+            msg = '--id or --ids arg required to specify the cloud IDs share templates'
+            self.err(msg)
+            raise Cons3rtCliError(msg)
         if not self.args.share:
             msg = '--share arg is required for cloud template actions'
             self.err(msg)
@@ -234,23 +259,18 @@ class CloudCli(Cons3rtCli):
                     msg = 'Problem sharing templates in cloud ID: {c}\n{e}'.format(c=str(cloud_id), e=str(exc))
                     self.err(msg)
                     raise Cons3rtCliError(msg) from exc
-        elif self.args.names:
-            template_names = self.arg.names.split(',')
+        elif self.names:
             for cloud_id in self.ids:
                 try:
-                    self.c5t.share_templates_to_vrs_in_cloud(cloud_id=cloud_id, template_names=template_names)
+                    self.c5t.share_templates_to_vrs_in_cloud(cloud_id=cloud_id, template_names=self.names)
                 except Cons3rtApiError as exc:
                     msg = 'Problem sharing templates in cloud ID: {c}\n{e}'.format(c=str(cloud_id), e=str(exc))
                     self.err(msg)
                     raise Cons3rtCliError(msg) from exc
-        elif self.args.name:
-            for cloud_id in self.ids:
-                try:
-                    self.c5t.share_templates_to_vrs_in_cloud(cloud_id=cloud_id, template_names=[self.args.name])
-                except Cons3rtApiError as exc:
-                    msg = 'Problem sharing templates in cloud ID: {c}\n{e}'.format(c=str(cloud_id), e=str(exc))
-                    self.err(msg)
-                    raise Cons3rtCliError(msg) from exc
+        else:
+            msg = '--all, --name, or --names arg required to specify templates to share'
+            self.err(msg)
+            raise Cons3rtCliError(msg)
 
     def list_clouds(self):
         clouds = []
@@ -283,7 +303,7 @@ class CloudspaceCli(Cons3rtCli):
         sub = self.process_subcommands()
         if not sub:
             return False
-        if len(self.ids) < 1:
+        if not self.ids:
             self.err('No Cloudspace ID(s) provided, use --id=123 or --ids=3,4,5')
             return False
         unlock = False
@@ -337,6 +357,10 @@ class CloudspaceCli(Cons3rtCli):
         return True
 
     def list_active_runs(self):
+        if not self.ids:
+            msg = '--id or --ids arg required to specify the cloudspace ID(s)'
+            self.err(msg)
+            raise Cons3rtCliError(msg)
         for cloudspace_id in self.ids:
             self.list_active_runs_in_cloudspace(cloudspace_id)
 
@@ -356,6 +380,10 @@ class CloudspaceCli(Cons3rtCli):
             self.print_drs(dr_list=drs)
 
     def delete_inactive_runs(self):
+        if not self.ids:
+            msg = '--id or --ids arg required to specify the cloudspace ID(s)'
+            self.err(msg)
+            raise Cons3rtCliError(msg)
         for cloudspace_id in self.ids:
             self.delete_inactive_runs_from_cloudspace(cloudspace_id)
 
@@ -369,6 +397,10 @@ class CloudspaceCli(Cons3rtCli):
             raise Cons3rtCliError(msg) from exc
 
     def release_active_runs(self):
+        if not self.ids:
+            msg = '--id or --ids arg required to specify the cloudspace ID(s)'
+            self.err(msg)
+            raise Cons3rtCliError(msg)
         for cloudspace_id in self.ids:
             self.release_active_runs_from_cloudspace(cloudspace_id)
 
@@ -382,6 +414,10 @@ class CloudspaceCli(Cons3rtCli):
             raise Cons3rtCliError(msg) from exc
 
     def clean_all_runs(self, unlock):
+        if not self.ids:
+            msg = '--id or --ids arg required to specify the cloudspace ID(s)'
+            self.err(msg)
+            raise Cons3rtCliError(msg)
         for cloudspace_id in self.ids:
             self.clean_all_runs_from_cloudspace(cloudspace_id, unlock)
 
@@ -395,35 +431,49 @@ class CloudspaceCli(Cons3rtCli):
             raise Cons3rtCliError(msg) from exc
 
     def deallocate(self):
+        if not self.ids:
+            msg = '--id or --ids arg required to specify the cloudspace ID(s)'
+            self.err(msg)
+            raise Cons3rtCliError(msg)
         for cloudspace_id in self.ids:
             self.c5t.deallocate_virtualization_realm(vr_id=cloudspace_id)
 
     def unregister(self):
+        if not self.ids:
+            msg = '--id or --ids arg required to specify the cloudspace ID(s)'
+            self.err(msg)
+            raise Cons3rtCliError(msg)
         for cloudspace_id in self.ids:
             self.c5t.unregister_virtualization_realm(vr_id=cloudspace_id)
 
     def templates(self):
+        if not self.ids:
+            msg = '--id or --ids arg required to specify the cloudspace ID(s)'
+            self.err(msg)
+            raise Cons3rtCliError(msg)
         if len(self.subcommands) > 1:
             template_subcommand = self.subcommands[1]
 
             if template_subcommand == 'delete':
                 self.delete_templates()
                 return
-
-            if template_subcommand == 'register':
+            elif template_subcommand == 'list':
+                self.list_templates()
+                return
+            elif template_subcommand == 'register':
                 self.register_templates()
                 return
-
-            if template_subcommand == 'list':
-                self.list_templates()
+            elif template_subcommand == 'share':
+                self.share_template()
                 return
 
     def delete_templates(self):
         for cloudspace_id in self.ids:
             if self.args.all:
                 self.c5t.delete_all_template_registrations(vr_id=cloudspace_id)
-            elif self.args.name:
-                self.c5t.delete_template_registration(vr_id=cloudspace_id, template_name=self.args.name)
+            elif self.names:
+                for template_name in self.names:
+                    self.c5t.delete_template_registration(vr_id=cloudspace_id, template_name=template_name)
 
     def register_templates(self):
         successful_template_registrations = []
@@ -439,19 +489,20 @@ class CloudspaceCli(Cons3rtCli):
                     'cloudspace_id': cloudspace_id,
                     'registrations': fail
                 })
-            elif self.args.name:
-                try:
-                    self.c5t.register_template_by_name_in_vr(vr_id=cloudspace_id, template_name=self.args.name)
-                except Cons3rtApiError as exc:
-                    msg = 'Problem registering template {n} in cloudspace ID: {i}\n{e}'.format(
-                        n=self.args.name, i=str(cloudspace_id), e=str(exc))
-                    self.err(msg)
-                    raise Cons3rtCliError(msg) from exc
-                else:
-                    successful_template_registrations.append({
-                        'cloudspace_id': cloudspace_id,
-                        'registrations': [self.args.name]
-                    })
+            elif self.names:
+                for template_name in self.names:
+                    try:
+                        self.c5t.register_template_by_name_in_vr(vr_id=cloudspace_id, template_name=template_name)
+                    except Cons3rtApiError as exc:
+                        msg = 'Problem registering template {n} in cloudspace ID: {i}\n{e}'.format(
+                            n=template_name, i=str(cloudspace_id), e=str(exc))
+                        self.err(msg)
+                        raise Cons3rtCliError(msg) from exc
+                    else:
+                        successful_template_registrations.append({
+                            'cloudspace_id': cloudspace_id,
+                            'registrations': [template_name]
+                        })
         if len(successful_template_registrations) > 0:
             print('Successful Template Registrations:')
             print('----------------------------------')
@@ -487,6 +538,27 @@ class CloudspaceCli(Cons3rtCli):
             self.err(msg)
             raise Cons3rtCliError(msg) from exc
         return templates
+
+    def share_template(self):
+        if not self.args.provider_id:
+            msg = '--provider_id arg required VR ID to share templates from'
+            self.err(msg)
+            raise Cons3rtCliError(msg)
+        if not self.ids:
+            msg = '--id or --ids arg required list of VR IDs to share templates to'
+            self.err(msg)
+            raise Cons3rtCliError(msg)
+        if self.names:
+            self.c5t.share_templates_to_vrs_by_name(
+                provider_vr_id=self.args.provider_id,
+                template_names=self.names,
+                vr_ids=self.ids
+            )
+        elif self.args.all:
+            self.c5t.share_templates_to_vrs_by_name(
+                provider_vr_id=self.args.provider_id,
+                vr_ids=self.ids
+            )
 
 
 class ProjectCli(Cons3rtCli):
@@ -560,47 +632,42 @@ class TeamCli(Cons3rtCli):
         print('Total number of teams: {n}'.format(n=str(len(teams))))
 
 
-def validate_id(args):
-    """Provided a set of args, validates and returns an int ID
-
-    :param args: argparser args
-    :return: (int) ID
-    :raises: Cons3rtCliError
-    """
-    if not args.id:
-        return
-    try:
-        provided_id = int(args.id)
-    except ValueError:
-        msg = 'ID provided is not an int: {i}'.format(i=str(args.id))
-        raise Cons3rtCliError(msg)
-    return provided_id
-
-
 def validate_ids(args):
     """Provided a set of args, validates and returns a list of IDs as ints
 
     :param args: argparser args
-    :return: (list) of int IDs
+    :return: (list) of int IDs or None
     :raises: Cons3rtCliError
     """
     ids = []
-    try:
-        lone_id = validate_id(args)
-    except Cons3rtCliError as exc:
-        raise Cons3rtCliError('Problem validating the --id arg') from exc
-    if not args.ids:
-        if lone_id:
-            return [lone_id]
-        return []
-    elif not args.ids:
-        return ids
-    if lone_id:
-        ids.append(lone_id)
-    for an_id in args.ids.split(','):
+    potential_ids = []
+    if args.id:
+        potential_ids.append(args.id)
+    if args.ids:
+        potential_ids += args.ids.split(',')
+    if len(potential_ids) < 1:
+        return
+    for potential_id in potential_ids:
         try:
-            an_id = int(an_id)
+            valid_id = int(potential_id)
         except ValueError:
-            raise Cons3rtCliError('An ID provided is not an int: {i}'.format(i=str(an_id)))
-        ids.append(an_id)
+            raise Cons3rtCliError('--id or --ids provided contains an invalid int: {i}'.format(i=potential_id))
+        ids.append(valid_id)
     return ids
+
+
+def validate_names(args):
+    """Provided a set of args, validates and returns a list of names as strings
+
+    :param args: argparser args
+    :return: (list) of string names or None
+    :raises: Cons3rtCliError
+    """
+    names = []
+    if args.name:
+        names.append(args.name)
+    if args.names:
+        names += args.names.split(',')
+    if len(names) < 1:
+        return
+    return names

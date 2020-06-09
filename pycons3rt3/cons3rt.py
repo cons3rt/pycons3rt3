@@ -80,6 +80,7 @@ def main():
     parser.add_argument('--names', help='List of names of resources', required=False)
     parser.add_argument('--share', help='Share templates', action='store_true')
     parser.add_argument('--unlock', help='Remove run locks before taking action', action='store_true')
+    parser.add_argument('--provider_id', help='Resource provider ID', required=False)
     args = parser.parse_args()
 
     # Get the command

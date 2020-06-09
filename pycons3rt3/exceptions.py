@@ -27,6 +27,10 @@ class Cons3rtConfigError(Exception):
     """There was a problem configuring for CONS3RT API calls"""
 
 
+class InvalidCloudError(Exception):
+    """Invalid cloud data"""
+
+
 class InvalidOperatingSystemTemplate(Exception):
     """Invalid OS template data"""
 
