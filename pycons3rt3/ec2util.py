@@ -680,7 +680,348 @@ class EC2Util(object):
             raise AWSAPIError(msg) from exc
         return security_groups
 
-    def configure_security_group_ingress(self, security_group_id, port, desired_cidr_blocks, protocol='tcp'):
+    def add_single_security_group_egress_rule(self, security_group_id, add_rule):
+        """Adds a single security group rule
+
+        :param security_group_id: (str) Security Group ID
+        :param add_rule: (IpPermission) IpPermissions object to add
+        :raises: EC2UtilError
+        """
+        log = logging.getLogger(self.cls_logger + '.add_single_security_group_egress_rule')
+
+        if not isinstance(add_rule, IpPermission):
+            raise EC2UtilError('add_rule arg must be type IpPermission, found: {t}'.format(
+                t=add_rule.__class__.__name__))
+
+        log.info('Adding egress rule to security group {g}: {r}'.format(g=security_group_id, r=str(add_rule)))
+        try:
+            self.client.authorize_security_group_egress(
+                DryRun=False,
+                GroupId=security_group_id,
+                IpPermissions=[add_rule.get_json()])
+        except ClientError as exc:
+            raise EC2UtilError('Unable to add egress rule to security group {g}: {r}\n{e}'.format(
+                g=security_group_id, r=str(add_rule), e=str(exc))) from exc
+
+    def add_single_security_group_ingress_rule(self, security_group_id, add_rule):
+        """Adds a single security group rule
+
+        :param security_group_id: (str) Security Group ID
+        :param add_rule: (IpPermission) IpPermissions object to add
+        :raises: EC2UtilError
+        """
+        log = logging.getLogger(self.cls_logger + '.add_single_security_group_ingress_rule')
+
+        if not isinstance(add_rule, IpPermission):
+            raise EC2UtilError('add_rule arg must be type IpPermission, found: {t}'.format(
+                t=add_rule.__class__.__name__))
+
+        log.info('Adding ingress rule to security group {g}: {r}'.format(g=security_group_id, r=str(add_rule)))
+        try:
+            self.client.authorize_security_group_ingress(
+                DryRun=False,
+                GroupId=security_group_id,
+                IpPermissions=[add_rule.get_json()])
+        except ClientError as exc:
+            raise EC2UtilError('Unable to add ingress rule to security group {g}: {r}\n{e}'.format(
+                g=security_group_id, r=str(add_rule), e=str(exc))) from exc
+
+    def add_security_group_egress_rules(self, security_group_id, add_rules):
+        """Revokes a list of security group rules
+
+        :param security_group_id: (str) Security Group ID
+        :param add_rules: (list) List of IpPermission objects to add
+        :raises: EC2UtilError
+        """
+        log = logging.getLogger(self.cls_logger + '.add_security_group_egress_rules')
+
+        if not isinstance(add_rules, list):
+            raise EC2UtilError('add_rules arg must be type list, found: {t}'.format(
+                t=add_rules.__class__.__name__))
+
+        if len(add_rules) < 1:
+            log.info('No egress rules provided to add to security group: {g}'.format(g=security_group_id))
+            return
+
+        log.info('Adding {n} egress rules to security group: {g}'.format(n=str(len(add_rules)), g=security_group_id))
+        for add_rule in add_rules:
+            try:
+                self.add_single_security_group_egress_rule(
+                    security_group_id=security_group_id,
+                    add_rule=add_rule
+                )
+            except EC2UtilError as exc:
+                log.warning('Failed to add egress rule to security group {g}: {r}\n{e}'.format(
+                    g=security_group_id, r=str(add_rule), e=str(exc)))
+
+    def add_security_group_ingress_rules(self, security_group_id, add_rules):
+        """Revokes a list of security group rules
+
+        :param security_group_id: (str) Security Group ID
+        :param add_rules: (list) List of IpPermission objects to add
+        :raises: EC2UtilError
+        """
+        log = logging.getLogger(self.cls_logger + '.add_security_group_ingress_rules')
+
+        if not isinstance(add_rules, list):
+            raise EC2UtilError('add_rules arg must be type list, found: {t}'.format(
+                t=add_rules.__class__.__name__))
+
+        if len(add_rules) < 1:
+            log.info('No ingress rules provided to add to security group: {g}'.format(g=security_group_id))
+            return
+
+        log.info('Adding {n} ingress rules to security group: {g}'.format(n=str(len(add_rules)), g=security_group_id))
+        for add_rule in add_rules:
+            try:
+                self.add_single_security_group_ingress_rule(
+                    security_group_id=security_group_id,
+                    add_rule=add_rule
+                )
+            except EC2UtilError as exc:
+                log.warning('Failed to add ingress rule to security group {g}: {r}\n{e}'.format(
+                    g=security_group_id, r=str(add_rule), e=str(exc)))
+
+    def revoke_single_security_group_egress_rule(self, security_group_id, revoke_rule):
+        """Revokes a single security group rule
+
+        :param security_group_id: (str) Security Group ID
+        :param revoke_rule: (IpPermission) IpPermissions object to revoke
+        :raises: EC2UtilError
+        """
+        log = logging.getLogger(self.cls_logger + '.revoke_single_security_group_egress_rule')
+
+        if not isinstance(revoke_rule, IpPermission):
+            raise EC2UtilError('revoke_rule arg must be type IpPermission, found: {t}'.format(
+                t=revoke_rule.__class__.__name__))
+
+        log.info('Revoking egress rule from security group {g}: {r}'.format(g=security_group_id, r=str(revoke_rule)))
+        try:
+            self.client.revoke_security_group_egress(
+                DryRun=False,
+                GroupId=security_group_id,
+                IpPermissions=[revoke_rule.get_json()])
+        except ClientError as exc:
+            raise EC2UtilError('Unable to revoke egress rule from security group {g}: {r}'.format(
+                g=security_group_id, r=str(revoke_rule))) from exc
+
+    def revoke_single_security_group_ingress_rule(self, security_group_id, revoke_rule):
+        """Revokes a single security group rule
+
+        :param security_group_id: (str) Security Group ID
+        :param revoke_rule: (IpPermission) IpPermissions object to revoke
+        :raises: EC2UtilError
+        """
+        log = logging.getLogger(self.cls_logger + '.revoke_single_security_group_ingress_rule')
+
+        if not isinstance(revoke_rule, IpPermission):
+            raise EC2UtilError('revoke_rule arg must be type IpPermission, found: {t}'.format(
+                t=revoke_rule.__class__.__name__))
+
+        log.info('Revoking ingress rule from security group {g}: {r}'.format(g=security_group_id, r=str(revoke_rule)))
+        try:
+            self.client.revoke_security_group_ingress(
+                DryRun=False,
+                GroupId=security_group_id,
+                IpPermissions=[revoke_rule.get_json()])
+        except ClientError as exc:
+            raise EC2UtilError('Unable to revoke ingress rule from security group {g}: {r}'.format(
+                g=security_group_id, r=str(revoke_rule))) from exc
+
+    def revoke_security_group_egress_rules(self, security_group_id, revoke_rules):
+        """Revokes a list of security group rules
+
+        :param security_group_id: (str) Security Group ID
+        :param revoke_rules: (list) List of IpPermission objects to revoke
+        :raises: EC2UtilError
+        """
+        log = logging.getLogger(self.cls_logger + '.revoke_security_group_egress_rules')
+
+        if not isinstance(revoke_rules, list):
+            raise EC2UtilError('revoke_rules arg must be type list, found: {t}'.format(
+                t=revoke_rules.__class__.__name__))
+
+        if len(revoke_rules) < 1:
+            log.info('No egress rules provided to revoke from security group: {g}'.format(g=security_group_id))
+            return
+
+        log.info('Revoking {n} egress rules from security group: {g}'.format(
+            n=str(len(revoke_rules)), g=security_group_id))
+        for revoke_rule in revoke_rules:
+            try:
+                self.revoke_single_security_group_egress_rule(
+                    security_group_id=security_group_id,
+                    revoke_rule=revoke_rule
+                )
+            except EC2UtilError as exc:
+                log.warning('Failed to revoke egress rule from security group {g}: {r}\n{e}'.format(
+                    g=security_group_id, r=str(revoke_rule), e=str(exc)))
+
+    def revoke_security_group_ingress_rules(self, security_group_id, revoke_rules):
+        """Revokes a list of security group rules
+
+        :param security_group_id: (str) Security Group ID
+        :param revoke_rules: (list) List of IpPermission objects to revoke
+        :raises: EC2UtilError
+        """
+        log = logging.getLogger(self.cls_logger + '.revoke_security_group_ingress_rules')
+
+        if not isinstance(revoke_rules, list):
+            raise EC2UtilError('revoke_rules arg must be type list, found: {t}'.format(
+                t=revoke_rules.__class__.__name__))
+
+        if len(revoke_rules) < 1:
+            log.info('No ingress rules provided to revoke from security group: {g}'.format(g=security_group_id))
+            return
+
+        log.info('Revoking {n} ingress rules from security group: {g}'.format(
+            n=str(len(revoke_rules)), g=security_group_id))
+        for revoke_rule in revoke_rules:
+            try:
+                self.revoke_single_security_group_ingress_rule(
+                    security_group_id=security_group_id,
+                    revoke_rule=revoke_rule
+                )
+            except EC2UtilError as exc:
+                log.warning('Failed to revoke ingress rule from security group {g}: {r}\n{e}'.format(
+                    g=security_group_id, r=str(revoke_rule), e=str(exc)))
+
+    def configure_security_group_egress(self, security_group_id, desired_egress_rules):
+        """Configures the security group ID allowing access
+        only to the specified CIDR blocks, for the specified
+        port number.
+
+        :param security_group_id: (str) Security Group ID
+        :param desired_egress_rules: (list) List of IpPermissions as described in AWS boto3 docs
+        :return: None
+        :raises: AWSAPIError, EC2UtilError
+        """
+        log = logging.getLogger(self.cls_logger + '.configure_security_group_egress')
+        # Validate args
+        if not isinstance(security_group_id, str):
+            raise EC2UtilError('security_group_id argument is not a string')
+        if not isinstance(desired_egress_rules, list):
+            raise EC2UtilError('desired_egress_rules argument is not a list')
+
+        log.info('Configuring Security Group ID {g}...'.format(g=security_group_id))
+
+        try:
+            security_group_info = self.client.describe_security_groups(DryRun=False, GroupIds=[security_group_id])
+        except ClientError as exc:
+            msg = 'Unable to query AWS for Security Group ID: {g}'.format(g=security_group_id)
+            raise AWSAPIError(msg) from exc
+        try:
+            existing_egress_rules = security_group_info['SecurityGroups'][0]['IpPermissionsEgress']
+        except KeyError as exc:
+            msg = 'Unable to get list of egress rules for Security Group ID: {g}'.format(
+                    g=security_group_id)
+            raise AWSAPIError(msg) from exc
+
+        # Parse permissions into comparable IpPermissions objects
+        existing_ip_perms = parse_ip_permissions(existing_egress_rules)
+
+        log.info('Existing egress IP permissions:')
+        for existing_ip_perm in existing_ip_perms:
+            log.info('Existing egress IP permission: {p}'.format(p=str(existing_ip_perm)))
+        log.info('Desired egress IP permissions:')
+        for desired_egress_rule in desired_egress_rules:
+            log.info('Desired egress IP permission: {p}'.format(p=str(desired_egress_rule)))
+
+        # Determine which rules to revoke
+        revoke_ip_perms = []
+        for existing_ip_perm in existing_ip_perms:
+            revoke = True
+            for desired_ip_perm in desired_egress_rules:
+                if existing_ip_perm == desired_ip_perm:
+                    revoke = False
+            if revoke:
+                revoke_ip_perms.append(existing_ip_perm)
+
+        # Determine which rules to add
+        add_ip_perms = []
+        for desired_ip_perm in desired_egress_rules:
+            add = True
+            for existing_ip_perm in existing_ip_perms:
+                if desired_ip_perm == existing_ip_perm:
+                    add = False
+            if add:
+                add_ip_perms.append(desired_ip_perm)
+
+        # Revoke rules
+        self.revoke_security_group_egress_rules(security_group_id=security_group_id, revoke_rules=revoke_ip_perms)
+
+        # Add rules
+        self.add_security_group_egress_rules(security_group_id=security_group_id, add_rules=add_ip_perms)
+        log.info('Completed configuring egress rules for security group: {g}'.format(g=security_group_id))
+
+    def configure_security_group_ingress(self, security_group_id, desired_ingress_rules):
+        """Configures the security group ID allowing access
+        only to the specified CIDR blocks, for the specified
+        port number.
+
+        :param security_group_id: (str) Security Group ID
+        :param desired_ingress_rules: (list) List of IpPermissions as described in AWS boto3 docs
+        :return: None
+        :raises: AWSAPIError, EC2UtilError
+        """
+        log = logging.getLogger(self.cls_logger + '.configure_security_group_egress')
+        # Validate args
+        if not isinstance(security_group_id, str):
+            raise EC2UtilError('security_group_id argument is not a string')
+        if not isinstance(desired_ingress_rules, list):
+            raise EC2UtilError('desired_egress_rules argument is not a list')
+
+        log.info('Configuring Security Group ID {g}...'.format(g=security_group_id))
+        try:
+            security_group_info = self.client.describe_security_groups(DryRun=False, GroupIds=[security_group_id])
+        except ClientError as exc:
+            msg = 'Unable to query AWS for Security Group ID: {g}'.format(g=security_group_id)
+            raise AWSAPIError(msg) from exc
+        try:
+            existing_ingress_rules = security_group_info['SecurityGroups'][0]['IpPermissions']
+        except KeyError as exc:
+            msg = 'Unable to get list of ingress rules for Security Group ID: {g}'.format(
+                g=security_group_id)
+            raise AWSAPIError(msg) from exc
+
+        # Parse permissions into comparable IpPermissions objects
+        existing_ip_perms = parse_ip_permissions(existing_ingress_rules)
+
+        log.info('Existing ingress IP permissions:')
+        for existing_ip_perm in existing_ip_perms:
+            log.info('Existing ingress IP permission: {p}'.format(p=str(existing_ip_perm)))
+        log.info('Desired ingress IP permissions:')
+        for desired_egress_rule in desired_ingress_rules:
+            log.info('Desired ingress IP permission: {p}'.format(p=str(desired_egress_rule)))
+
+        # Determine which rules to revoke
+        revoke_ip_perms = []
+        for existing_ip_perm in existing_ip_perms:
+            revoke = True
+            for desired_ip_perm in desired_ingress_rules:
+                if existing_ip_perm == desired_ip_perm:
+                    revoke = False
+            if revoke:
+                revoke_ip_perms.append(existing_ip_perm)
+
+        # Determine which rules to add
+        add_ip_perms = []
+        for desired_ip_perm in desired_ingress_rules:
+            add = True
+            for existing_ip_perm in existing_ip_perms:
+                if desired_ip_perm == existing_ip_perm:
+                    add = False
+            if add:
+                add_ip_perms.append(desired_ip_perm)
+
+        # Revoke rules
+        self.revoke_security_group_ingress_rules(security_group_id=security_group_id, revoke_rules=revoke_ip_perms)
+
+        # Add rules
+        self.add_security_group_ingress_rules(security_group_id=security_group_id, add_rules=add_ip_perms)
+        log.info('Completed configuring ingress rules for security group: {g}'.format(g=security_group_id))
+
+    def configure_security_group_ingress_legacy(self, security_group_id, port, desired_cidr_blocks, protocol='tcp'):
         """Configures the security group ID allowing access
         only to the specified CIDR blocks, for the specified
         port number.
@@ -716,7 +1057,7 @@ class EC2Util(object):
             ingress_rules = security_group_info['SecurityGroups'][0]['IpPermissions']
         except KeyError as exc:
             msg = 'Unable to get list of ingress rules for Security Group ID: {g}'.format(
-                    g=security_group_id)
+                g=security_group_id)
             raise AWSAPIError(msg) from exc
         else:
             log.debug('Found ingress rules: {r}'.format(r=ingress_rules))
@@ -729,12 +1070,12 @@ class EC2Util(object):
                 log.debug('Skipping rule not matching port: {p}'.format(p=port))
                 continue
             log.info('Removing existing rules from Security Group {g} for port: {p}...'.format(
-                    g=security_group_id, p=port))
+                g=security_group_id, p=port))
             try:
                 self.client.revoke_security_group_ingress(
-                        DryRun=False,
-                        GroupId=security_group_id,
-                        IpPermissions=[ingress_rule])
+                    DryRun=False,
+                    GroupId=security_group_id,
+                    IpPermissions=[ingress_rule])
             except ClientError as exc:
                 msg = 'Unable to remove existing Security Group rules for port {p} from Security Group: ' \
                       '{g}'.format(p=port, g=security_group_id)
@@ -780,11 +1121,11 @@ class EC2Util(object):
             )
         except ClientError as exc:
             msg = 'Unable to authorize Security Group ingress rule for Security Group {g}: {r}'.format(
-                    g=security_group_id, r=desired_ip_permissions)
+                g=security_group_id, r=desired_ip_permissions)
             raise AWSAPIError(msg) from exc
         else:
             log.info('Successfully added ingress rule for Security Group {g} on port: {p}'.format(
-                    g=security_group_id, p=port))
+                g=security_group_id, p=port))
 
     def revoke_security_group_ingress(self, security_group_id, ingress_rules):
         """Revokes all ingress rules for a security group bu ID
@@ -801,6 +1142,26 @@ class EC2Util(object):
                 DryRun=False,
                 GroupId=security_group_id,
                 IpPermissions=ingress_rules)
+        except ClientError as exc:
+            msg = 'Unable to remove existing Security Group rules for port from Security Group: {g}'.format(
+                g=security_group_id)
+            raise AWSAPIError(msg) from exc
+
+    def revoke_security_group_egress(self, security_group_id, egress_rules):
+        """Revokes all egress rules for a security group bu ID
+
+        :param security_group_id: (str) Security Group ID
+        :param egress_rules: (list) List of IP permissions (see AWS API docs re: IpPermissions)
+        :return: None
+        :raises: AWSAPIError, EC2UtilError
+        """
+        log = logging.getLogger(self.cls_logger + '.revoke_security_group_egress')
+        log.info('Revoking egress rules from security group: {g}'.format(g=security_group_id))
+        try:
+            self.client.revoke_security_group_ingress(
+                DryRun=False,
+                GroupId=security_group_id,
+                IpPermissions=egress_rules)
         except ClientError as exc:
             msg = 'Unable to remove existing Security Group rules for port from Security Group: {g}'.format(
                 g=security_group_id)
@@ -1055,6 +1416,98 @@ class EC2Util(object):
         log.info('Successfully attach Internet gateway {i} to VPC: {v}'.format(i=ig_id, v=vpc_id))
 
 
+class IpPermission(object):
+    """
+
+    IpProtocol: tcp , udp , icmp , icmpv6, -1 for all
+    FromPort --> ToPort is a range of ports (not a source/destination port)
+
+    """
+    def __init__(self, IpProtocol, CidrIp=None, CidrIpv6=None, Description=None, PrefixListId=None, FromPort=None,
+                 ToPort=None):
+        self.IpProtocol = IpProtocol
+        self.CidrIp = CidrIp
+        self.CidrIpv6 = CidrIpv6
+        self.Description = Description
+        self.PrefixListId = PrefixListId
+        self.FromPort = FromPort
+        self.ToPort = ToPort
+
+    def __str__(self):
+        out_str = 'Protocol: {p}'.format(p=self.IpProtocol)
+        if self.FromPort:
+            out_str += ', FromPort: {c}'.format(c=self.FromPort)
+        if self.ToPort:
+            out_str += ', ToPort: {c}'.format(c=self.ToPort)
+        if self.CidrIp:
+            out_str += ', CidrIp: {c}'.format(c=self.CidrIp)
+        if self.CidrIpv6:
+            out_str += ', CidrIpv6: {c}'.format(c=self.CidrIpv6)
+        if self.PrefixListId:
+            out_str += ', PrefixListId: {p}'.format(p=self.PrefixListId)
+        if self.Description:
+            out_str += ', Description: {d}'.format(d=self.Description)
+        return out_str
+
+    def __eq__(self, other):
+        if self.IpProtocol != other.IpProtocol:
+            return False
+        if self.FromPort and not other.FromPort:
+            return False
+        if self.ToPort and not other.ToPort:
+            return False
+        if not self.FromPort and other.FromPort:
+            return False
+        if not self.ToPort and other.ToPort:
+            return False
+        if self.FromPort and other.FromPort:
+            if self.FromPort != other.FromPort:
+                return False
+        if self.ToPort and other.ToPort:
+            if self.ToPort != other.ToPort:
+                return False
+        if self.CidrIp and other.CidrIp:
+            return self.CidrIp == other.CidrIp
+        if self.CidrIpv6 and other.CidrIpv6:
+            return self.CidrIpv6 == other.CidrIpv6
+        if self.PrefixListId and other.PrefixListId:
+            return self.PrefixListId == other.PrefixListId
+        return False
+
+    def get_json(self):
+        json_output = {
+            'IpProtocol': self.IpProtocol
+        }
+        if self.FromPort:
+            json_output['FromPort'] = self.FromPort
+        if self.ToPort:
+            json_output['ToPort'] = self.ToPort
+        if self.CidrIp:
+            json_output['IpRanges'] = []
+            rule = {
+                'CidrIp': self.CidrIp
+            }
+            if self.Description:
+                rule['Description'] = self.Description
+            json_output['IpRanges'].append(rule)
+        if self.CidrIpv6:
+            json_output['Ipv6Ranges'] = []
+            rule = {
+                'CidrIpv6': self.CidrIpv6
+            }
+            if self.Description:
+                rule['Description'] = self.Description
+            json_output['Ipv6Ranges'].append(rule)
+        if self.PrefixListId:
+            json_output['PrefixListIds'] = []
+            rule = {
+                'PrefixListId': self.PrefixListId
+            }
+            if self.Description:
+                rule['Description'] = self.Description
+            json_output['PrefixListIds'].append(rule)
+        print(json_output)
+        return json_output
 
 
 def get_ec2_client(region_name=None, aws_access_key_id=None, aws_secret_access_key=None):
@@ -1076,6 +1529,75 @@ def get_ec2_client(region_name=None, aws_access_key_id=None, aws_secret_access_k
     else:
         log.debug('Successfully created an EC2 client')
         return client
+
+
+def parse_ip_permissions(ip_permissions):
+    """Parse a list of IpPermissions or IpPermissionsEgress as defined in the boto3 documentation and returns
+    a list of IpPermissions objects
+
+    """
+    log = logging.getLogger(mod_logger + '.parse_ip_permissions')
+    if not isinstance(ip_permissions, list):
+        log.warning('list expected, found: {t}'.format(t=ip_permissions.__class__.__name__))
+        return []
+    permissions_list = []
+    for ip_permission in ip_permissions:
+        if not isinstance(ip_permission, dict):
+            log.warning('Dict expected, found type {t} for permission: {p}'.format(
+                t=ip_permission.__class__.__name__, p=str(ip_permission)))
+            return []
+        if 'IpProtocol' not in ip_permission:
+            log.warning('IpProtocol not found in IP permission: {p}'.format(p=ip_permission))
+            continue
+        from_port = None
+        to_port = None
+        if 'FromPort' in ip_permission:
+            from_port = ip_permission['FromPort']
+        if 'ToPort' in ip_permission:
+            to_port = ip_permission['ToPort']
+        if 'IpRanges' in ip_permission:
+            for ip_v4_rule in ip_permission['IpRanges']:
+                rule_description = None
+                if 'Description' in ip_v4_rule:
+                    rule_description = ip_v4_rule['Description']
+                permissions_list.append(
+                    IpPermission(
+                        IpProtocol=ip_permission['IpProtocol'],
+                        CidrIp=ip_v4_rule['CidrIp'],
+                        Description=rule_description,
+                        FromPort=from_port,
+                        ToPort=to_port
+                    )
+                )
+        if 'Ipv6Ranges' in ip_permission:
+            for ip_v6_rule in ip_permission['Ipv6Ranges']:
+                rule_description = None
+                if 'Description' in ip_v6_rule:
+                    rule_description = ip_v6_rule['Description']
+                permissions_list.append(
+                    IpPermission(
+                        IpProtocol=ip_permission['IpProtocol'],
+                        CidrIpv6=ip_v6_rule['CidrIpv6'],
+                        Description=rule_description,
+                        FromPort=from_port,
+                        ToPort=to_port
+                    )
+                )
+        if 'PrefixListIds' in ip_permission:
+            for prefix_id_rule in ip_permission['PrefixListIds']:
+                rule_description = None
+                if 'Description' in prefix_id_rule:
+                    rule_description = prefix_id_rule['Description']
+                permissions_list.append(
+                    IpPermission(
+                        IpProtocol=ip_permission['IpProtocol'],
+                        PrefixListId=prefix_id_rule['PrefixListId'],
+                        Description=rule_description,
+                        FromPort=from_port,
+                        ToPort=to_port
+                    )
+                )
+    return permissions_list
 
 
 def main():

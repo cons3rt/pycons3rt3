@@ -25,33 +25,26 @@ default_image_tags = [
     {
         'Key': 'cons3rtenabled',
         'Value': 'true'
-    },
-    {
-        'Key': 'cons3rtNet1',
-        'Value': 'user-net'
-    },
-    {
-        'Key': 'cons3rtNet1SecurityGroup',
-        'Value': 'default'
     }
 ]
 
 
 class ImageUtil(object):
 
-    def __init__(self, owner_id, region_name=None, aws_access_key_id=None, aws_secret_access_key=None):
+    def __init__(self, account_id, region_name=None, aws_access_key_id=None, aws_secret_access_key=None):
         self.cls_logger = mod_logger + '.ImageUtil'
-        if not isinstance(owner_id, str):
-            self.owner_id = None
+        if not isinstance(account_id, str):
+            self.account_id = None
         else:
-            self.owner_id = owner_id
+            self.account_id = account_id
         try:
-            self.ec2 = get_ec2_client()
+            self.ec2 = get_ec2_client(
+                region_name=region_name,
+                aws_access_key_id=aws_access_key_id,
+                aws_secret_access_key=aws_secret_access_key
+            )
         except AWSAPIError:
             raise
-        self.region_name = region_name
-        self.aws_access_key_id = aws_access_key_id
-        self.aws_secret_access_key = aws_secret_access_key
 
     def update_image(self, ami_id, instance_id):
         """Replaces an existing AMI ID with an image created from the provided
@@ -76,7 +69,7 @@ class ImageUtil(object):
 
         # Get the current AMI info
         try:
-            ami_info = self.ec2.describe_images(DryRun=False, ImageIds=[ami_id], Owners=[self.owner_id])
+            ami_info = self.ec2.describe_images(DryRun=False, ImageIds=[ami_id], Owners=[self.account_id])
         except ClientError as exc:
             msg = 'Unable to describe image ID: {a}.'.format(a=ami_id)
             raise AWSAPIError(msg) from exc
@@ -238,17 +231,18 @@ class ImageUtil(object):
         log.info('Successfully added tags to the new image ID: {w}\nTags: {t}'.format(
             w=new_ami_id, t=default_image_tags))
 
-    def copy_cons3rt_template(self, ami_id):
-        """
+    def copy_cons3rt_template(self, ami_id, target_region):
+        """Copy a template to another region
         
-        :param ami_id:
+        :param ami_id: (str) ID of the AMI
+        :param target_region: (str) region ID for the copy destination
         :return: 
         """
         log = logging.getLogger(self.cls_logger + '.copy_cons3rt_template')
 
         # Get the current AMI info
         try:
-            ami_info = self.ec2.describe_images(DryRun=False, ImageIds=[ami_id], Owners=[self.owner_id])
+            ami_info = self.ec2.describe_images(DryRun=False, ImageIds=[ami_id], Owners=[self.account_id])
         except ClientError as exc:
             msg = 'Unable to describe image ID: {a}.'.format(a=ami_id)
             raise AWSAPIError(msg) from exc
