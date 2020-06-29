@@ -11,6 +11,10 @@ CONS3RT API level exceptions
 """
 
 
+class AwsTransitGatewayError(Exception):
+    """Errors with AWS transit gateways"""
+
+
 class Cons3rtApiError(Exception):
     """There was a problem executing a CON3RT API call"""
 

@@ -1,5 +1,3 @@
-#!/usr/bin/python
-
 """Module: ec2util
 
 This module provides utilities for interacting with the AWS
@@ -8,8 +6,9 @@ configurations.
 
 """
 import logging
-import time
 import os
+import time
+import traceback
 
 import boto3
 from botocore.client import ClientError
@@ -18,7 +17,7 @@ from .bash import get_ip_addresses
 from .logify import Logify
 from .osutil import get_os
 from .aws_metadata import is_aws, get_instance_id, get_vpc_id_from_mac_address
-from .exceptions import AWSAPIError, EC2UtilError
+from .exceptions import AWSAPIError, AwsTransitGatewayError, EC2UtilError
 
 __author__ = 'Joe Yennaco'
 
@@ -86,6 +85,862 @@ class EC2Util(object):
             return
         log.info('Found VPC ID: {v}'.format(v=vpc_id))
         return vpc_id
+
+    def list_subnets_with_token(self, next_token=None, vpc_id=None):
+        """Listing subnets in the VPC with continuation token if provided
+
+        :param vpc_id: (str) VPC ID to filter on if provided
+        :param next_token: (str) Next token to provide or None
+        :return: (dict) response (see boto3 documentation)
+        :raises: EC2UtilError
+        """
+        filters = []
+        if vpc_id:
+            filters.append({'Name': 'vpc-id', 'Values': [vpc_id]})
+        try:
+            response = self.client.describe_subnets(
+                DryRun=False,
+                Filters=filters
+            )
+        except ClientError as exc:
+            if next_token:
+                msg = 'Problem listing subnets with token {t} and filters: {f}'.format(
+                    t=next_token, f=str(filters))
+            else:
+                msg = 'Problem listing subnets in VPC (no token) with filters: {f}'.format(f=str(filters))
+            raise EC2UtilError(msg) from exc
+        if 'Subnets' not in response.keys():
+            raise EC2UtilError('Subnets not found in response: {r}'.format(r=str(response)))
+        return response
+
+    def list_subnets(self, vpc_id=None):
+        """Returns the list of subnets for the VPC
+
+        :param vpc_id: (str) VPC ID to filter on if provided
+        :return: (list) of subnets (see boto3 docs)
+        :raises: EC2UtilError
+        """
+        log = logging.getLogger(self.cls_logger + '.list_subnets')
+        if vpc_id:
+            log.info('Listing subnets in VPC ID: {v}'.format(v=vpc_id))
+        else:
+            log.info('Listing subnets...')
+        next_token = None
+        next_query = True
+        subnets = []
+        while next_query:
+            response = self.list_subnets_with_token(vpc_id=vpc_id, next_token=next_token)
+            if 'NextToken' not in response.keys():
+                next_query = False
+            else:
+                next_token = response['NextToken']
+            subnets += response['Subnets']
+        return subnets
+
+    def retrieve_subnet(self, subnet_id):
+        """Gets details of the specified subnet ID
+
+        :param subnet_id: (str) subnet ID
+        :return: (dict) subnet (see boto3 docs)
+        """
+        log = logging.getLogger(self.cls_logger + '.retrieve_subnet')
+        log.info('Describing subnet: {i}'.format(i=subnet_id))
+        try:
+            response = self.client.describe_subnets(
+                SubnetIds=[subnet_id],
+                DryRun=False
+            )
+        except ClientError as exc:
+            msg = 'Problem describing subnet: {i}'.format(i=subnet_id)
+            raise EC2UtilError(msg) from exc
+        if 'Subnets' not in response.keys():
+            msg = 'Subnets not in response: {r}'.format(r=str(response))
+            raise EC2UtilError(msg)
+        if len(response['Subnets']) != 1:
+            msg = 'Expected 1 subnet in response, found: {n}\n{r}'.format(
+                n=str(len(response['Subnets'])), r=str(response))
+            raise EC2UtilError(msg)
+        return response['Subnets'][0]
+
+    def list_route_tables_with_token(self, next_token=None, vpc_id=None):
+        """Listing route tables in the VPC with continuation token if provided
+
+        :param vpc_id: (str) VPC ID to filter on if provided
+        :param next_token: (str) Next token to provide or None
+        :return: (dict) response (see boto3 documentation)
+        :raises: EC2UtilError
+        """
+        filters = []
+        if vpc_id:
+            filters.append({'Name': 'vpc-id', 'Values': [vpc_id]})
+        try:
+            response = self.client.describe_route_tables(
+                DryRun=False,
+                Filters=filters
+            )
+        except ClientError as exc:
+            if next_token:
+                msg = 'Problem listing route tables with token {t} and filters: {f}'.format(
+                    t=next_token, f=str(filters))
+            else:
+                msg = 'Problem listing route tables (no token) with filters: {f}'.format(f=str(filters))
+            raise EC2UtilError(msg) from exc
+        if 'RouteTables' not in response.keys():
+            raise EC2UtilError('RouteTables not found in response: {r}'.format(r=str(response)))
+        return response
+
+    def list_route_tables(self, vpc_id=None):
+        """Returns the list of subnets for the VPC
+
+        :param vpc_id: (str) VPC ID to filter on if provided
+        :return: (list) of route tables (see boto3 docs)
+        :raises: EC2UtilError
+        """
+        log = logging.getLogger(self.cls_logger + '.list_route_tables')
+        if vpc_id:
+            log.info('Listing route tables in VPC ID: {v}'.format(v=vpc_id))
+        else:
+            log.info('Listing route tables...')
+        next_token = None
+        next_query = True
+        route_tables = []
+        while next_query:
+            response = self.list_route_tables_with_token(vpc_id=vpc_id, next_token=next_token)
+            if 'NextToken' not in response.keys():
+                next_query = False
+            else:
+                next_token = response['NextToken']
+            route_tables += response['RouteTables']
+        return route_tables
+
+    def get_route_table(self, route_table_id):
+        """Retrieves the route table
+
+        :param route_table_id: (str) ID of the route table
+        :return: (dict) containing route table data (see boto3 docs)
+        """
+        log = logging.getLogger(self.cls_logger + '.get_route_table')
+        log.info('Getting info on route table ID: {i}'.format(i=route_table_id))
+        try:
+            response = self.client.describe_route_tables(
+                DryRun=False,
+                RouteTableIds=[route_table_id]
+            )
+        except ClientError as exc:
+            msg = 'Problem getting route table ID: {i}'.format(i=route_table_id)
+            raise EC2UtilError(msg) from exc
+        if 'RouteTables' not in response.keys():
+            raise EC2UtilError('RouteTables not found in response: {r}'.format(r=str(response)))
+        if len(response['RouteTables']) != 1:
+            raise EC2UtilError('{n} route tables found for ID: {i}'.format(
+                n=str(len(response['RouteTables'])), i=route_table_id))
+        return response['RouteTables'][0]
+
+    def create_route_to_transit_gateway(self, route_table_id, dest_cidr, transit_gateway):
+        """Create an IPv4 route to a transit gateway
+
+        :param dest_cidr: (str) IPv4 CIDR block
+        :param route_table_id: (str) ID of the route table to update
+        :param transit_gateway: (str) ID of the transit gateway
+        :return: response (see boto3 documentation)
+        """
+        log = logging.getLogger(self.cls_logger + '.create_route_to_transit_gateway')
+        log.info('Route table ID [{r}] creating for destination [{d}] to transit gateway: {i}'.format(
+            r=route_table_id, d=dest_cidr, i=transit_gateway))
+        return self.client.create_route(
+            DestinationCidrBlock=dest_cidr,
+            DryRun=False,
+            TransitGatewayId=transit_gateway,
+            RouteTableId=route_table_id
+        )
+
+    def create_route_to_transit_gateway_ipv6(self, route_table_id, dest_cidr_ipv6, transit_gateway):
+        """Create an IPv6 route to a transit gateway
+
+        :param route_table_id: (str) ID of the route table to update
+        :param dest_cidr_ipv6: (str) IPv4 CIDR block
+        :param transit_gateway: (str) ID of the transit gateway
+        :return: response (see boto3 documentation)
+        """
+        log = logging.getLogger(self.cls_logger + '.create_route_to_transit_gateway_ipv6')
+        log.info('Route table ID [{r}] creating for destination [{d}] to transit gateway: {i}'.format(
+            r=route_table_id, d=dest_cidr_ipv6, i=transit_gateway))
+        return self.client.create_route(
+            DestinationIpv6CidrBlock=dest_cidr_ipv6,
+            DryRun=False,
+            TransitGatewayId=transit_gateway,
+            RouteTableId=route_table_id
+        )
+
+    def create_route_to_egress_internet_gateway(self, route_table_id, dest_cidr, egress_only_internet_gateway):
+        """Create an IPv4 route to an egress-only Internet gateway
+
+        :param route_table_id: (str) ID of the route table to update
+        :param dest_cidr: (str) IPv4 CIDR block
+        :param egress_only_internet_gateway: (str) ID of the egress-only Internet gateway
+        :return: response (see boto3 documentation)
+        """
+        log = logging.getLogger(self.cls_logger + '.create_route_to_transit_gateway_ipv6')
+        log.info('Route table ID [{r}] creating for destination [{d}] to egress-only Internet gateway: {i}'.format(
+            r=route_table_id, d=dest_cidr, i=egress_only_internet_gateway))
+        return self.client.create_route(
+            DestinationCidrBlock=dest_cidr,
+            DryRun=False,
+            EgressOnlyInternetGatewayId=egress_only_internet_gateway,
+            RouteTableId=route_table_id
+        )
+
+    def create_route_to_egress_internet_gateway_ipv6(self, route_table_id, dest_cidr_ipv6,
+                                                     egress_only_internet_gateway):
+        """Create an IPv6 route to an egress-only Internet gateway
+
+        :param route_table_id: (str) ID of the route table to update
+        :param dest_cidr_ipv6: (str) IPv4 CIDR block
+        :param egress_only_internet_gateway: (str) ID of the egress-only Internet gateway
+        :return: response (see boto3 documentation)
+        """
+        log = logging.getLogger(self.cls_logger + '.create_route_to_egress_internet_gateway_ipv6')
+        log.info('Route table ID [{r}] creating for destination [{d}] to egress-only Internet gateway: {i}'.format(
+            r=route_table_id, d=dest_cidr_ipv6, i=egress_only_internet_gateway))
+        return self.client.create_route(
+            DestinationIpv6CidrBlock=dest_cidr_ipv6,
+            DryRun=False,
+            EgressOnlyInternetGatewayId=egress_only_internet_gateway,
+            RouteTableId=route_table_id
+        )
+
+    def create_route_to_gateway(self, route_table_id, dest_cidr, gateway_id):
+        """Create an IPv4 route to an Internet gateway or local
+
+        :param route_table_id: (str) ID of the route table to update
+        :param dest_cidr: (str) IPv4 CIDR block
+        :param gateway_id: (str) ID of Internet Gateway or local
+        :return: response (see boto3 documentation)
+        """
+        log = logging.getLogger(self.cls_logger + '.create_route_to_gateway')
+        log.info('Route table ID [{r}] creating for destination [{d}] to gateway: {i}'.format(
+            r=route_table_id, d=dest_cidr, i=gateway_id))
+        return self.client.create_route(
+            DestinationCidrBlock=dest_cidr,
+            DryRun=False,
+            GatewayId=gateway_id,
+            RouteTableId=route_table_id
+        )
+
+    def create_route_to_gateway_ipv6(self, route_table_id, dest_cidr_ipv6, gateway_id):
+        """Create an IPv6 route to an Internet gateway or local
+
+        :param route_table_id: (str) ID of the route table to update
+        :param dest_cidr_ipv6: (str) IPv6 CIDR block
+        :param gateway_id: (str) ID of Internet Gateway or local
+        :return: response (see boto3 documentation)
+        """
+        log = logging.getLogger(self.cls_logger + '.create_route_to_gateway')
+        log.info('Route table ID [{r}] creating for destination [{d}] to gateway: {i}'.format(
+            r=route_table_id, d=dest_cidr_ipv6, i=gateway_id))
+        return self.client.create_route(
+            DestinationIpv6CidrBlock=dest_cidr_ipv6,
+            DryRun=False,
+            GatewayId=gateway_id,
+            RouteTableId=route_table_id
+        )
+
+    def create_route_to_instance(self, route_table_id, dest_cidr, instance_id):
+        """Create an IPv4 route to an EC2 instance
+
+        :param route_table_id: (str) ID of the route table to update
+        :param dest_cidr: (str) IPv4 CIDR block
+        :param instance_id: (str) ID of EC2 instance
+        :return: response (see boto3 documentation)
+        """
+        log = logging.getLogger(self.cls_logger + '.create_route_to_instance')
+        log.info('Route table ID [{r}] creating for destination [{d}] to instance: {i}'.format(
+            r=route_table_id, d=dest_cidr, i=instance_id))
+        return self.client.create_route(
+            DestinationCidrBlock=dest_cidr,
+            DryRun=False,
+            InstanceId=instance_id,
+            RouteTableId=route_table_id
+        )
+
+    def create_route_to_instance_ipv6(self, route_table_id, dest_cidr_ipv6, instance_id):
+        """Create an IPv6 route to an EC2 instance
+
+        :param route_table_id: (str) ID of the route table to update
+        :param dest_cidr_ipv6: (str) IPv6 CIDR block
+        :param instance_id: (str) ID of EC2 instance
+        :return: response (see boto3 documentation)
+        """
+        log = logging.getLogger(self.cls_logger + '.create_route_to_instance_ipv6')
+        log.info('Route table ID [{r}] creating for destination [{d}] to instance: {i}'.format(
+            r=route_table_id, d=dest_cidr_ipv6, i=instance_id))
+        return self.client.create_route(
+            DestinationIpv6CidrBlock=dest_cidr_ipv6,
+            DryRun=False,
+            InstanceId=instance_id,
+            RouteTableId=route_table_id
+        )
+
+    def create_route_to_nat_gateway(self, route_table_id, dest_cidr, nat_gateway):
+        """Create an IPv4 route to a NAT gateway
+
+        :param route_table_id: (str) ID of the route table to update
+        :param dest_cidr: (str) IPv4 CIDR block
+        :param nat_gateway: (str) ID of NAT gateway
+        :return: response (see boto3 documentation)
+        """
+        log = logging.getLogger(self.cls_logger + '.create_route_to_nat_gateway')
+        log.info('Route table ID [{r}] creating for destination [{d}] to NAT gateway: {i}'.format(
+            r=route_table_id, d=dest_cidr, i=nat_gateway))
+        return self.client.create_route(
+            DestinationCidrBlock=dest_cidr,
+            DryRun=False,
+            NatGatewayId=nat_gateway,
+            RouteTableId=route_table_id
+        )
+
+    def create_route_to_nat_gateway_ipv6(self, route_table_id, dest_cidr_ipv6, nat_gateway):
+        """Create an IPv6 route to a NAt gateway
+
+        :param route_table_id: (str) ID of the route table to update
+        :param dest_cidr_ipv6: (str) IPv6 CIDR block
+        :param nat_gateway: (str) ID of NAT gateway
+        :return: response (see boto3 documentation)
+        """
+        log = logging.getLogger(self.cls_logger + '.create_route_to_nat_gateway')
+        log.info('Route table ID [{r}] creating for destination [{d}] to NAT gateway: {i}'.format(
+            r=route_table_id, d=dest_cidr_ipv6, i=nat_gateway))
+        return self.client.create_route(
+            DestinationIpv6CidrBlock=dest_cidr_ipv6,
+            DryRun=False,
+            NatGatewayId=nat_gateway,
+            RouteTableId=route_table_id
+        )
+
+    def create_route_to_local_gateway(self, route_table_id, dest_cidr, local_gateway):
+        """Create an IPv4 route to a local gateway
+
+        :param route_table_id: (str) ID of the route table to update
+        :param dest_cidr: (str) IPv4 CIDR block
+        :param local_gateway: (str) ID of local gateway
+        :return: response (see boto3 documentation)
+        """
+        log = logging.getLogger(self.cls_logger + '.create_route_to_local_gateway')
+        log.info('Route table ID [{r}] creating for destination [{d}] local gateway: {i}'.format(
+            r=route_table_id, d=dest_cidr, i=local_gateway))
+        return self.client.create_route(
+            DestinationCidrBlock=dest_cidr,
+            DryRun=False,
+            LocalGatewayId=local_gateway,
+            RouteTableId=route_table_id
+        )
+
+    def create_route_to_local_gateway_ipv6(self, route_table_id, dest_cidr_ipv6, local_gateway):
+        """Create an IPv6 route to a local gateway
+
+        :param route_table_id: (str) ID of the route table to update
+        :param dest_cidr_ipv6: (str) IPv6 CIDR block
+        :param local_gateway: (str) ID of local gateway
+        :return: response (see boto3 documentation)
+        """
+        log = logging.getLogger(self.cls_logger + '.create_route_to_local_gateway_ipv6')
+        log.info('Route table ID [{r}] creating for destination [{d}] local gateway: {i}'.format(
+            r=route_table_id, d=dest_cidr_ipv6, i=local_gateway))
+        return self.client.create_route(
+            DestinationIpv6CidrBlock=dest_cidr_ipv6,
+            DryRun=False,
+            LocalGatewayId=local_gateway,
+            RouteTableId=route_table_id
+        )
+
+    def create_route_to_network_interface(self, route_table_id, dest_cidr, network_interface):
+        """Create an IPv4 route to a network interface
+
+        :param route_table_id: (str) ID of the route table to update
+        :param dest_cidr: (str) IPv4 CIDR block
+        :param network_interface: (str) ID of network interface
+        :return: response (see boto3 documentation)
+        """
+        log = logging.getLogger(self.cls_logger + '.create_route_to_network_interface')
+        log.info('Route table ID [{r}] creating for destination [{d}] network interface: {i}'.format(
+            r=route_table_id, d=dest_cidr, i=network_interface))
+        return self.client.create_route(
+            DestinationCidrBlock=dest_cidr,
+            DryRun=False,
+            NetworkInterfaceId=network_interface,
+            RouteTableId=route_table_id
+        )
+
+    def create_route_to_network_interface_ipv6(self, route_table_id, dest_cidr_ipv6, network_interface):
+        """Create an IPv6 route to a network interface
+
+        :param route_table_id: (str) ID of the route table to update
+        :param dest_cidr_ipv6: (str) IPv6 CIDR block
+        :param network_interface: (str) ID of network interface
+        :return: response (see boto3 documentation)
+        """
+        log = logging.getLogger(self.cls_logger + '.create_route_to_network_interface_ipv6')
+        log.info('Route table ID [{r}] creating for destination [{d}] network interface: {i}'.format(
+            r=route_table_id, d=dest_cidr_ipv6, i=network_interface))
+        return self.client.create_route(
+            DestinationIpv6CidrBlock=dest_cidr_ipv6,
+            DryRun=False,
+            NetworkInterfaceId=network_interface,
+            RouteTableId=route_table_id
+        )
+
+    def create_route_to_vpc_peering_connection(self, route_table_id, dest_cidr, vpc_peering_connection):
+        """Create an IPv4 route to a VPC peering connection
+
+        :param route_table_id: (str) ID of the route table to update
+        :param dest_cidr: (str) IPv4 CIDR block
+        :param vpc_peering_connection: (str) ID of VPC peering connection
+        :return: response (see boto3 documentation)
+        """
+        log = logging.getLogger(self.cls_logger + '.create_route_to_network_interface')
+        log.info('Route table ID [{r}] creating for destination [{d}] network interface: {i}'.format(
+            r=route_table_id, d=dest_cidr, i=vpc_peering_connection))
+        return self.client.create_route(
+            DestinationCidrBlock=dest_cidr,
+            DryRun=False,
+            VpcPeeringConnectionId=vpc_peering_connection,
+            RouteTableId=route_table_id
+        )
+
+    def create_route_to_vpc_peering_connection_ipv6(self, route_table_id, dest_cidr_ipv6, vpc_peering_connection):
+        """Create an IPv6 route to a VPC peering connection
+
+        :param route_table_id: (str) ID of the route table to update
+        :param dest_cidr_ipv6: (str) IPv6 CIDR block
+        :param vpc_peering_connection: (str) ID of VPC peering connection
+        :return: response (see boto3 documentation)
+        """
+        log = logging.getLogger(self.cls_logger + '.create_route_to_network_interface')
+        log.info('Route table ID [{r}] creating for destination [{d}] network interface: {i}'.format(
+            r=route_table_id, d=dest_cidr_ipv6, i=vpc_peering_connection))
+        return self.client.create_route(
+            DestinationIpv6CidrBlock=dest_cidr_ipv6,
+            DryRun=False,
+            VpcPeeringConnectionId=vpc_peering_connection,
+            RouteTableId=route_table_id
+        )
+
+    def create_route(self, route_table_id, dest_cidr, egress_only_internet_gateway=None, gateway_id=None,
+                     instance_id=None, nat_gateway=None, transit_gateway=None, local_gateway=None,
+                     network_interface=None, vpc_peering_connection=None):
+        """Adds the specified rule to the route table
+
+        :param: route_table_id: (str) ID of the route table to update
+        :param: dest_cidr: (str) IPv4 CIDR
+        :param: egress_only_internet_gateway: (str) ID of the egress only Internet gateway, IPv6 only
+        :param: gateway_id (str): ID of Internet Gateway or local
+        :param: instance_id (str): ID of the instance (single-nic only)
+        :param: nat_gateway (str): ID of the NAT gateway
+        :param: transit_gateway (str): ID of the transit gateway
+        :param: local_gateway (str): ID of the local gateway
+        :param: network_interface (str): ID of the network interface
+        :param: vpc_peering_connection (str): ID of the VPC peering connection
+        :return: (bool) True if successful, False otherwise
+        :raises: EC2UtilError
+        """
+        log = logging.getLogger(self.cls_logger + '.create_route')
+        log.info('Creating IPv4 route in route table ID: {i}'.format(i=route_table_id))
+        try:
+            if egress_only_internet_gateway:
+                response = self.create_route_to_egress_internet_gateway(
+                    route_table_id=route_table_id,
+                    dest_cidr=dest_cidr,
+                    egress_only_internet_gateway=egress_only_internet_gateway
+                )
+            elif gateway_id:
+                response = self.create_route_to_gateway(
+                    route_table_id=route_table_id,
+                    dest_cidr=dest_cidr,
+                    gateway_id=gateway_id
+                )
+            elif instance_id:
+                response = self.create_route_to_instance(
+                    route_table_id=route_table_id,
+                    dest_cidr=dest_cidr,
+                    instance_id=instance_id
+                )
+            elif nat_gateway:
+                response = self.create_route_to_nat_gateway(
+                    route_table_id=route_table_id,
+                    dest_cidr=dest_cidr,
+                    nat_gateway=nat_gateway
+                )
+            elif transit_gateway:
+                response = self.create_route_to_transit_gateway(
+                    route_table_id=route_table_id,
+                    dest_cidr=dest_cidr,
+                    transit_gateway=transit_gateway
+                )
+            elif local_gateway:
+                response = self.create_route_to_local_gateway(
+                    route_table_id=route_table_id,
+                    dest_cidr=dest_cidr,
+                    local_gateway=local_gateway
+                )
+            elif network_interface:
+                response = self.create_route_to_network_interface(
+                    route_table_id=route_table_id,
+                    dest_cidr=dest_cidr,
+                    network_interface=network_interface
+                )
+            elif vpc_peering_connection:
+                response = self.create_route_to_vpc_peering_connection(
+                    route_table_id=route_table_id,
+                    dest_cidr=dest_cidr,
+                    vpc_peering_connection=vpc_peering_connection
+                )
+            else:
+                raise EC2UtilError('Invalid args provided')
+        except ClientError as exc:
+            msg = 'Problem creating IPv4 route in route table: {i}'.format(i=route_table_id)
+            raise EC2UtilError(msg) from exc
+        if 'Return' not in response.keys():
+            raise EC2UtilError('Return not found in response: {r}'.format(r=str(response)))
+        if response['Return'] == 'True':
+            return True
+        else:
+            return False
+
+    def create_route_ipv6(self, route_table_id, dest_cidr_ipv6, egress_only_internet_gateway=None, gateway_id=None,
+                          instance_id=None, nat_gateway=None, transit_gateway=None, local_gateway=None,
+                          network_interface=None, vpc_peering_connection=None):
+        """Adds the specified IPv6 rule to the route table
+
+        :param: route_table_id: (str) ID of the route table to update
+        :param: dest_cidr_ipv6: (str) IPv6 CIDR
+        :param: egress_only_internet_gateway: (str) ID of the egress only Internet gateway, IPv6 only
+        :param: gateway_id (str): ID of Internet Gateway or local
+        :param: instance_id (str): ID of the instance (single-nic only)
+        :param: nat_gateway (str): ID of the NAT gateway
+        :param: transit_gateway (str): ID of the transit gateway
+        :param: local_gateway (str): ID of the local gateway
+        :param: network_interface (str): ID of the network interface
+        :param: vpc_peering_connection (str): ID of the VPC peering connection
+        :return: (bool) True if successful, False otherwise
+        :raises: EC2UtilError
+        """
+        log = logging.getLogger(self.cls_logger + '.create_route')
+        log.info('Creating IPv6 route in route table ID: {i}'.format(i=route_table_id))
+        try:
+            if egress_only_internet_gateway:
+                response = self.create_route_to_egress_internet_gateway_ipv6(
+                    route_table_id=route_table_id,
+                    dest_cidr_ipv6=dest_cidr_ipv6,
+                    egress_only_internet_gateway=egress_only_internet_gateway
+                )
+            elif gateway_id:
+                response = self.create_route_to_gateway_ipv6(
+                    route_table_id=route_table_id,
+                    dest_cidr_ipv6=dest_cidr_ipv6,
+                    gateway_id=gateway_id
+                )
+            elif instance_id:
+                response = self.create_route_to_instance_ipv6(
+                    route_table_id=route_table_id,
+                    dest_cidr_ipv6=dest_cidr_ipv6,
+                    instance_id=instance_id
+                )
+            elif nat_gateway:
+                response = self.create_route_to_nat_gateway_ipv6(
+                    route_table_id=route_table_id,
+                    dest_cidr_ipv6=dest_cidr_ipv6,
+                    nat_gateway=nat_gateway
+                )
+            elif transit_gateway:
+                response = self.create_route_to_transit_gateway_ipv6(
+                    route_table_id=route_table_id,
+                    dest_cidr_ipv6=dest_cidr_ipv6,
+                    transit_gateway=transit_gateway
+                )
+            elif local_gateway:
+                response = self.create_route_to_local_gateway_ipv6(
+                    route_table_id=route_table_id,
+                    dest_cidr_ipv6=dest_cidr_ipv6,
+                    local_gateway=local_gateway
+                )
+            elif network_interface:
+                response = self.create_route_to_network_interface_ipv6(
+                    route_table_id=route_table_id,
+                    dest_cidr_ipv6=dest_cidr_ipv6,
+                    network_interface=network_interface
+                )
+            elif vpc_peering_connection:
+                response = self.create_route_to_vpc_peering_connection_ipv6(
+                    route_table_id=route_table_id,
+                    dest_cidr_ipv6=dest_cidr_ipv6,
+                    vpc_peering_connection=vpc_peering_connection
+                )
+            else:
+                raise EC2UtilError('Invalid args provided')
+        except ClientError as exc:
+            msg = 'Problem creating IPv6 route in route table: {i}'.format(i=route_table_id)
+            raise EC2UtilError(msg) from exc
+        if 'Return' not in response.keys():
+            raise EC2UtilError('Return not found in response: {r}'.format(r=str(response)))
+        if response['Return'] == 'True':
+            return True
+        else:
+            return False
+
+    def delete_route_ipv4(self, route_table_id, cidr):
+        """Deletes the IPv4 CIDR destination route from the route table
+
+        :param route_table_id: (str) ID of the route table
+        :param cidr: (str) CIDR IPv4
+        :return: None
+        :raises: EC2UtilError
+        """
+        try:
+            self.client.delete_route(
+                DestinationCidrBlock=cidr,
+                DryRun=False,
+                RouteTableId=route_table_id
+            )
+        except ClientError as exc:
+            msg = 'Problem deleting IPv4 CIDR {c} from route table: {i}'.format(c=cidr, i=route_table_id)
+            raise EC2UtilError(msg) from exc
+
+    def delete_route_ipv6(self, route_table_id, cidr_ipv6):
+        """Deletes the IPv6 CIDR destination route from the route table
+
+        :param route_table_id: (str) ID of the route table
+        :param cidr_ipv6: (str) CIDR IPv6
+        :return: None
+        :raises: EC2UtilError
+        """
+        try:
+            self.client.delete_route(
+                DestinationIpv6CidrBlock=cidr_ipv6,
+                DryRun=False,
+                RouteTableId=route_table_id
+            )
+        except ClientError as exc:
+            msg = 'Problem deleting IPv6 CIDR {c} from route table: {i}'.format(c=cidr_ipv6, i=route_table_id)
+            raise EC2UtilError(msg) from exc
+
+    def delete_route(self, route_table_id, route):
+        """Deletes the route from the route table
+
+        :param route_table_id: (str) ID of the route table
+        :param route: (IpRoute) objects representing a single route
+        :return: None
+        :raises: EC2UtilError
+        """
+        log = logging.getLogger(self.cls_logger + '.delete_route')
+        log.info('Deleting route from route table [{i}]: {r}'.format(i=route_table_id, r=str(route)))
+        if route.get_cidr_type == 'DestinationIpv6CidrBlock':
+            self.delete_route_ipv6(route_table_id=route.route_table_id, cidr_ipv6=route.cidr_ipv6)
+        elif route.get_cidr_type == 'DestinationCidrBlock':
+            self.delete_route_ipv4(route_table_id=route.route_table_id, cidr=route.cidr)
+
+    def delete_routes(self, route_table_id, routes):
+        """Deletes the list of routes from the route table
+
+        :param route_table_id: (str) ID of the route table
+        :param routes: (list) of IpRoute objects
+        :return: None
+        :raises: EC2UtilError
+        """
+        log = logging.getLogger(self.cls_logger + '.delete_routes')
+        log.info('Deleting {n} routes from route table ID: {i}'.format(n=str(len(routes)), i=route_table_id))
+        for route in routes:
+            self.delete_route(route_table_id=route_table_id, route=route)
+
+    def add_route(self, route_table_id, route):
+        """Adds the route to the route table
+
+        :param route_table_id: (str) ID of the route table
+        :param route: (IpRoute) objects representing a single route
+        :return: True if successful, False otherwise
+        :raises: EC2UtilError
+        """
+        log = logging.getLogger(self.cls_logger + '.add_route')
+        log.info('Adding route type [{t}] to route table [{i}]: {r}'.format(
+            i=route_table_id, r=str(route), t=route.get_target_type()))
+        response = None
+        try:
+            if route.get_cidr_type() == 'DestinationCidrBlock':
+                if route.get_target_type() == 'EgressOnlyInternetGatewayId':
+                    response = self.create_route_to_egress_internet_gateway(
+                        route_table_id=route_table_id,
+                        dest_cidr=route.cidr,
+                        egress_only_internet_gateway=route.target
+                    )
+                elif route.get_target_type() == 'GatewayId':
+                    response = self.create_route_to_gateway(
+                        route_table_id=route_table_id,
+                        dest_cidr=route.cidr,
+                        gateway_id=route.target
+                    )
+                elif route.get_target_type() == 'InstanceId':
+                    response = self.create_route_to_instance(
+                        route_table_id=route_table_id,
+                        dest_cidr=route.cidr,
+                        instance_id=route.target
+                    )
+                elif route.get_target_type() == 'NatGatewayId':
+                    response = self.create_route_to_nat_gateway(
+                        route_table_id=route_table_id,
+                        dest_cidr=route.cidr,
+                        nat_gateway=route.target
+                    )
+                elif route.get_target_type() == 'TransitGatewayId':
+                    response = self.create_route_to_transit_gateway(
+                        route_table_id=route_table_id,
+                        dest_cidr=route.cidr,
+                        transit_gateway=route.target
+                    )
+                elif route.get_target_type() == 'LocalGatewayId':
+                    response = self.create_route_to_local_gateway(
+                        route_table_id=route_table_id,
+                        dest_cidr=route.cidr,
+                        local_gateway=route.target
+                    )
+                elif route.get_target_type() == 'NetworkInterfaceId':
+                    response = self.create_route_to_network_interface(
+                        route_table_id=route_table_id,
+                        dest_cidr=route.cidr,
+                        network_interface=route.target
+                    )
+                elif route.get_target_type() == 'VpcPeeringConnectionId':
+                    response = self.create_route_to_vpc_peering_connection(
+                        route_table_id=route_table_id,
+                        dest_cidr=route.cidr,
+                        vpc_peering_connection=route.target
+                    )
+            elif route.get_cidr_type() == 'DestinationIpv6CidrBlock':
+                if route.get_target_type() == 'EgressOnlyInternetGatewayId':
+                    response = self.create_route_to_egress_internet_gateway_ipv6(
+                        route_table_id=route_table_id,
+                        dest_cidr_ipv6=route.cidr_ipv6,
+                        egress_only_internet_gateway=route.target
+                    )
+                elif route.get_target_type() == 'GatewayId':
+                    response = self.create_route_to_gateway_ipv6(
+                        route_table_id=route_table_id,
+                        dest_cidr_ipv6=route.cidr_ipv6,
+                        gateway_id=route.target
+                    )
+                elif route.get_target_type() == 'InstanceId':
+                    response = self.create_route_to_instance_ipv6(
+                        route_table_id=route_table_id,
+                        dest_cidr_ipv6=route.cidr_ipv6,
+                        instance_id=route.target
+                    )
+                elif route.get_target_type() == 'NatGatewayId':
+                    response = self.create_route_to_nat_gateway_ipv6(
+                        route_table_id=route_table_id,
+                        dest_cidr_ipv6=route.cidr_ipv6,
+                        nat_gateway=route.target
+                    )
+                elif route.get_target_type() == 'TransitGatewayId':
+                    response = self.create_route_to_transit_gateway_ipv6(
+                        route_table_id=route_table_id,
+                        dest_cidr_ipv6=route.cidr_ipv6,
+                        transit_gateway=route.target
+                    )
+                elif route.get_target_type() == 'LocalGatewayId':
+                    response = self.create_route_to_local_gateway_ipv6(
+                        route_table_id=route_table_id,
+                        dest_cidr_ipv6=route.cidr_ipv6,
+                        local_gateway=route.target
+                    )
+                elif route.get_target_type() == 'NetworkInterfaceId':
+                    response = self.create_route_to_network_interface_ipv6(
+                        route_table_id=route_table_id,
+                        dest_cidr_ipv6=route.cidr_ipv6,
+                        network_interface=route.target
+                    )
+                elif route.get_target_type() == 'VpcPeeringConnectionId':
+                    response = self.create_route_to_vpc_peering_connection_ipv6(
+                        route_table_id=route_table_id,
+                        dest_cidr_ipv6=route.cidr_ipv6,
+                        vpc_peering_connection=route.target
+                    )
+        except ClientError as exc:
+            msg = 'Problem creating route in route table [{i}]: {r}'.format(i=route_table_id, r=str(route))
+            raise EC2UtilError(msg) from exc
+        if not response:
+            raise EC2UtilError('Response not received for adding route to [{i}]: {r}'.format(
+                i=route_table_id, r=str(route)))
+        if 'Return' not in response.keys():
+            raise EC2UtilError('Return not found in response: {r}'.format(r=str(response)))
+        if response['Return'] == 'True':
+            return True
+        return False
+
+    def add_routes(self, route_table_id, routes):
+        """Adds the list of routes to the route table
+
+        :param route_table_id: (str) ID of the route table
+        :param routes: (list) of IpRoute objects
+        :return: None
+        :raises: EC2UtilError
+        """
+        log = logging.getLogger(self.cls_logger + '.add_routes')
+        log.info('Adding {n} routes to route table ID: {i}'.format(n=str(len(routes)), i=route_table_id))
+        for route in routes:
+            self.add_route(route_table_id=route_table_id, route=route)
+
+    def configure_routes(self, route_table_id, desired_routes):
+        """Set routes in the route table to match the desired list, deletes ones not on the list
+
+        :param route_table_id: (str) ID of the route table to configure
+        :param desired_routes: (list) of IpRoute objects
+        :return: True if successful, False otherwise
+        :raises: EC2UtilError
+        """
+        log = logging.getLogger(self.cls_logger + '.configure_routes')
+        if not isinstance(desired_routes, list):
+            raise EC2UtilError('routes are expected list, found: {t}'.format(t=desired_routes.__class__.__name__))
+        try:
+            route_table = self.get_route_table(route_table_id=route_table_id)
+        except EC2UtilError as exc:
+            msg = 'Problem retrieving route table: {i}'.format(i=route_table_id)
+            raise EC2UtilError(msg) from exc
+
+        # Parse permissions into comparable IpPermissions objects
+        existing_routes = parse_ip_routes(ip_routes=route_table['Routes'])
+
+        log.info('Existing routes:')
+        for existing_route in existing_routes:
+            log.info('Existing route: {r}'.format(r=str(existing_route)))
+        log.info('Desired routes:')
+        for desired_route in desired_routes:
+            log.info('Desired route: {r}'.format(r=str(desired_route)))
+
+        # Determine which routes to delete
+        delete_routes = []
+        for existing_route in existing_routes:
+            delete = True
+            for desired_route in desired_routes:
+                if existing_route == desired_route:
+                    delete = False
+            if delete:
+                delete_routes.append(existing_route)
+
+        # Determine which routes to add
+        add_routes = []
+        for desired_route in desired_routes:
+            add = True
+            for existing_route in existing_routes:
+                if desired_route == existing_route:
+                    add = False
+            if add:
+                add_routes.append(desired_route)
+
+        # Delete routes
+        self.delete_routes(route_table_id=route_table_id, routes=delete_routes)
+
+        # Add rules
+        self.add_routes(route_table_id=route_table_id, routes=add_routes)
+        log.info('Completed configuring rules for route table: {r}'.format(r=route_table_id))
+        return True
 
     def get_eni_id(self, interface=1):
         """Given an interface number, gets the AWS elastic network
@@ -1282,6 +2137,32 @@ class EC2Util(object):
             raise EC2UtilError(msg) from exc
         return response
 
+    def retrieve_vpc(self, vpc_id):
+        """Retrieve info on the provided VPC ID
+
+        :param vpc_id: (str) ID of the VPC
+        :return: (dict) info on the VPC
+        :raises: EC2UtilError
+        """
+        log = logging.getLogger(self.cls_logger + '.retrieve_vpc')
+        log.info('Retrieving VPC: {i}'.format(i=vpc_id))
+        try:
+            response = self.client.describe_vpcs(
+                VpcIds=[vpc_id],
+                DryRun=False
+            )
+        except ClientError as exc:
+            msg = 'Problem describing VPC: {i}'.format(i=vpc_id)
+            raise EC2UtilError(msg) from exc
+        if 'Vpcs' not in response.keys():
+            msg = 'Vpcs not in response: {r}'.format(r=str(response))
+            raise EC2UtilError(msg)
+        if len(response['Vpcs']) != 1:
+            msg = 'Expected 1 VPC in response, found: {n}\n{r}'.format(
+                n=str(len(response['Subnets'])), r=str(response))
+            raise EC2UtilError(msg)
+        return response['Vpcs'][0]
+
     def get_vpc_id_by_name(self, vpc_name):
         """Return the VPC ID matching the provided name or None if not found
 
@@ -1510,6 +2391,1007 @@ class IpPermission(object):
         return json_output
 
 
+class IpRoute(object):
+    """
+    Represents a single route in AWS
+
+
+    """
+    def __init__(self, target, cidr=None, cidr_ipv6=None, description=None, instance_owner_id=None, state=None,
+                 origin=None):
+        self.target = target
+        if cidr and cidr_ipv6:
+            raise AttributeError('Can only have either cidr or cidr_ipv6')
+        if not cidr and not cidr_ipv6:
+            raise AttributeError('Must provide one of: cidr, cidr_ipv6')
+        self.cidr = cidr
+        self.cidr_ipv6 = cidr_ipv6
+        self.description = description
+        self.instance_owner_id = instance_owner_id
+        self.state = state
+        self.origin = origin
+
+    def __str__(self):
+        out_str = ''
+        if self.cidr:
+            out_str += 'Destination IPv4 CIDR: {c}'.format(c=self.cidr)
+        if self.cidr_ipv6:
+            out_str += 'Destination IPv6 CIDR: {c}'.format(c=self.cidr_ipv6)
+        if self.target:
+            out_str += ', Target: {t}'.format(t=self.target)
+        if self.description:
+            out_str += ', Description: {d}'.format(d=self.description)
+        if self.instance_owner_id:
+            out_str += ', Instance Owner ID: {i}'.format(i=self.instance_owner_id)
+        if self.state:
+            out_str += ', State: {s}'.format(s=self.state)
+        if self.origin:
+            out_str += ', Origin: {o}'.format(o=self.origin)
+        return out_str
+
+    def __eq__(self, other):
+        if self.cidr and other.cidr:
+            if self.target == other.target:
+                return True
+        if self.cidr_ipv6 and other.cidr_ipv6:
+            if self.target == other.target:
+                return True
+        return False
+
+    def get_json(self):
+        json_output = {
+            self.get_target_type(): self.target
+        }
+        if self.cidr:
+            json_output['DestinationCidrBlock'] = self.cidr
+        if self.cidr_ipv6:
+            json_output['DestinationIpv6CidrBlock'] = self.cidr_ipv6
+        if self.instance_owner_id:
+            json_output['InstanceOwnerId'] = self.instance_owner_id
+        if self.state:
+            json_output['State'] = self.state
+        if self.origin:
+            json_output['Origin'] = self.origin
+        print(json_output)
+        return json_output
+
+    def get_target_type(self):
+        if self.target == 'local' or self.target.startswith('igw-'):
+            return 'GatewayId'
+        elif self.target.startswith('tgw-'):
+            return 'TransitGatewayId'
+        elif self.target.startswith('i-'):
+            return 'InstanceId'
+        elif self.target.startswith('pcx-'):
+            return 'VpcPeeringConnectionId'
+        elif self.target.startswith('eni-'):
+            return 'NetworkInterfaceId'
+        elif self.target.startswith('eigw-'):
+            return 'EgressOnlyInternetGatewayId'
+        elif self.target.startswith('nat-'):
+            return 'NatGatewayId'
+        elif self.target.startswith('lgw-'):
+            return 'LocalGatewayId'
+
+    def get_cidr_type(self):
+        if self.cidr:
+            return 'DestinationCidrBlock'
+        elif self.cidr_ipv6:
+            return 'DestinationIpv6CidrBlock'
+
+
+class TransitGateway(object):
+
+    def __init__(self, transit_gateway_id=None, name=None, description='CONS3RT transit gateway'):
+        self.cls_logger = mod_logger + '.TransitGateway'
+        self.id = transit_gateway_id
+        self.name = name
+        self.description = description
+        self.default_options = {
+            'AmazonSideAsn': 64512,
+            'AutoAcceptSharedAttachments': 'disable',
+            'DefaultRouteTableAssociation': 'enable',
+            'DefaultRouteTablePropagation': 'enable',
+            'VpnEcmpSupport': 'enable',
+            'DnsSupport': 'enable',
+            'MulticastSupport': 'disable'
+        }
+        self.arn = None
+        self.state = None
+        self.owner_id = None
+        self.creation_time = None
+        self.options = None
+        self.tags = None
+        self.vpc_attachments = []
+        self.route_tables = []
+        self.associations = []
+        self.propagations = []
+        self.routes = [] # List of TransitGatewayRoute objects
+        self.client = get_ec2_client()
+        if self.id:
+            self.update_state()
+        elif self.name:
+            self.create()
+
+    def update_state(self):
+        """Updates status on the transit gateway and its attachments
+
+        :return: None
+        :raises: AwsTransitGatewayError
+        """
+        log = logging.getLogger(self.cls_logger + '.update_state')
+        log.info('Getting state on transit gateway {t} and its attachments, route tables, associations, and '
+                 'propagations'.format(t=self.id))
+        try:
+            response = self.client.describe_transit_gateways(
+                TransitGatewayIds=[self.id],
+                DryRun=False
+            )
+        except ClientError as exc:
+            msg = 'Problem describing transit gateway: {t}'.format(t=self.id)
+            raise AwsTransitGatewayError(msg) from exc
+        if 'TransitGateways' not in response.keys():
+            raise AwsTransitGatewayError('TransitGateways not found in response: {r}'.format(r=str(response)))
+        if len(response['TransitGateways']) != 1:
+            raise AwsTransitGatewayError('Problem retrieving a single transit gateways from response: {r}'.format(
+                r=str(response)))
+        try:
+            self.arn = response['TransitGateways'][0]['TransitGatewayArn']
+            self.state = response['TransitGateways'][0]['State']
+            self.owner_id = response['TransitGateways'][0]['OwnerId']
+            self.creation_time = response['TransitGateways'][0]['CreationTime']
+            self.options = response['TransitGateways'][0]['Options']
+            self.tags = response['TransitGateways'][0]['Tags']
+            for tag in self.tags:
+                if tag['Key'] == 'Name':
+                    self.name = tag['Value']
+        except KeyError as exc:
+            msg = 'Unable to retrieve transit gateway info from response: {d}'.format(d=str(response))
+            raise AwsTransitGatewayError(msg) from exc
+        self.update_vpc_attachments()
+        self.update_route_tables()
+        self.update_associations()
+        self.update_propagations()
+        state_msg = 'Updated state [{s}] for transit gateway [{t}], with {n} VPC attachments, {r} route tables, ' \
+                    '{c} associations, and {p} propagations'.format(
+            s=self.state, t=self.id, n=str(len(self.vpc_attachments)), r=str(len(self.route_tables)),
+            c=str(len(self.associations)), p=str(len(self.propagations))
+        )
+        log.info(state_msg)
+
+    def update_vpc_attachments(self):
+        """Updates the VPC attachments for the transit gateway
+
+        :return: None
+        :raises: AwsTransitGatewayError
+        """
+        self.vpc_attachments = []
+        filters = [{'Name': 'transit-gateway-id', 'Values': [self.id]}]
+        try:
+            response = self.client.describe_transit_gateway_vpc_attachments(
+                Filters=filters,
+                DryRun=False
+            )
+        except ClientError as exc:
+            msg = 'Problem retrieving transit gateway attachments from transit gateway ID: {i}'.format(i=self.id)
+            raise AwsTransitGatewayError(msg) from exc
+        if 'TransitGatewayVpcAttachments' not in response.keys():
+            raise AwsTransitGatewayError('TransitGatewayVpcAttachments not found in response: {r}'.format(
+                r=str(response)))
+        self.vpc_attachments = response['TransitGatewayVpcAttachments']
+
+    def update_route_tables(self):
+        """Update route tables for the transit gateway
+
+        :return: None
+        :raises: AwsTransitGatewayError
+        """
+        self.route_tables = []
+        filters = [{'Name': 'transit-gateway-id', 'Values': [self.id]}]
+        try:
+            response = self.client.describe_transit_gateway_route_tables(
+                Filters=filters,
+                DryRun=False
+            )
+        except ClientError as exc:
+            msg = 'Problem retrieving transit gateway route tables for transit gateway ID: {i}'.format(i=self.id)
+            raise AwsTransitGatewayError(msg) from exc
+        if 'TransitGatewayRouteTables' not in response.keys():
+            raise AwsTransitGatewayError('TransitGatewayRouteTables not found in response: {r}'.format(r=str(response)))
+        self.route_tables = response['TransitGatewayRouteTables']
+
+    def update_associations(self):
+        """Update associations for the route tables
+
+        :return: None
+        :raises: AwsTransitGatewayError
+        """
+        self.associations = []
+        for route_table in self.route_tables:
+            try:
+                response = self.client.get_transit_gateway_route_table_associations(
+                    TransitGatewayRouteTableId=route_table['TransitGatewayRouteTableId']
+                )
+            except ClientError as exc:
+                msg = 'Problem retrieving route table associations for route table: {i}'.format(
+                    i=route_table['TransitGatewayRouteTableId'])
+                raise AwsTransitGatewayError(msg) from exc
+            if 'Associations' not in response.keys():
+                msg = 'Associations not found in response: {r}'.format(r=str(response))
+                raise AwsTransitGatewayError(msg)
+            for association_response in response['Associations']:
+                association = dict(association_response)
+                association['TransitGatewayRouteTableId'] = route_table['TransitGatewayRouteTableId']
+                self.associations.append(association)
+
+    def update_propagations(self):
+        """Update propagations for the route tables
+
+        :return: None
+        :raises: AwsTransitGatewayError
+        """
+        self.propagations = []
+        for route_table in self.route_tables:
+            try:
+                response = self.client.get_transit_gateway_route_table_propagations(
+                    TransitGatewayRouteTableId=route_table['TransitGatewayRouteTableId']
+                )
+            except ClientError as exc:
+                msg = 'Problem retrieving route table propagations for route table: {i}'.format(
+                    i=route_table['TransitGatewayRouteTableId'])
+                raise AwsTransitGatewayError(msg) from exc
+            if 'TransitGatewayRouteTablePropagations' not in response.keys():
+                msg = 'TransitGatewayRouteTablePropagations not found in response: {r}'.format(r=str(response))
+                raise AwsTransitGatewayError(msg)
+            for propagation_response in response['TransitGatewayRouteTablePropagations']:
+                propagation = dict(propagation_response)
+                propagation['TransitGatewayRouteTableId'] = route_table['TransitGatewayRouteTableId']
+                self.propagations.append(propagation)
+
+    def create(self):
+        """Creates a transit gateway with default configurations
+
+        :return: (dict) Transit gateway object
+        :raises: AwsTransitGatewayError
+        """
+        log = logging.getLogger(self.cls_logger + '.create')
+        log.info('Creating transit gateway named: {n}'.format(n=self.name))
+        try:
+            response = self.client.create_transit_gateway(
+                Description=self.description,
+                Options=self.default_options,
+                TagSpecifications=[
+                    {
+                        'ResourceType': 'transit-gateway',
+                        'Tags': [
+                            {
+                                'Key': 'Name',
+                                'Value': self.name
+                            },
+                        ]
+                    },
+                ],
+                DryRun=False
+            )
+        except ClientError as exc:
+            msg = 'Problem creating transit gateway'
+            raise AwsTransitGatewayError(msg) from exc
+        try:
+            self.id = response['TransitGateway']['TransitGatewayId']
+            self.arn = response['TransitGateway']['TransitGatewayArn']
+            self.state = response['TransitGateway']['State']
+            self.owner_id = response['TransitGateway']['OwnerId']
+            self.description = response['TransitGateway']['Description']
+            self.creation_time = response['TransitGateway']['CreationTime']
+            self.options = response['TransitGateway']['Options']
+            self.tags = response['TransitGateway']['Tags']
+        except KeyError as exc:
+            msg = 'Unable to retrieve transit gateway info from response: {d}'.format(d=str(response))
+            raise AwsTransitGatewayError(msg) from exc
+
+    def delete_transit_gateway(self):
+        """Deletes this transit gateway
+
+        :return: (dict) into about the deleted transit gateway (see boto3 docs)
+        :raises: AwsTransitGatewayError
+        """
+        log = logging.getLogger(self.cls_logger + '.delete_transit_gateway')
+        log.info('Deleting transit gateway: {t}'.format(t=self.id))
+        try:
+            response = self.client.delete_transit_gateway(
+                TransitGatewayId=self.id,
+                DryRun=False
+            )
+        except ClientError as exc:
+            msg = 'Problem deleting transit gateway: {i}'.format(i=self.id)
+            raise AwsTransitGatewayError(msg) from exc
+        if 'TransitGateway' not in response.keys():
+            raise AwsTransitGatewayError('TransitGateway not found in response: {r}'.format(r=str(response)))
+        try:
+            self.state = response['TransitGateway']['State']
+        except KeyError as exc:
+            msg = 'Unable to retrieve deleted transit gateway info from response: {d}'.format(d=str(response))
+            raise AwsTransitGatewayError(msg) from exc
+        return response['TransitGateway']
+
+    def add_vpc_attachment(self, vpc_id, subnet_ids):
+        """Attached a VPC to the transit gateway using the provided subnet IDs
+
+        :param vpc_id: (str) ID of the VPC to attach
+        :param subnet_ids: (list) of subnet IDs in the VPC to attach
+        :return: (str) Transit gateway attachment ID
+        :raises: AwsTransitGatewayError
+        """
+        log = logging.getLogger(self.cls_logger + '.add_vpc_attachment')
+        for attachment in self.vpc_attachments:
+            if attachment['VpcId'] == vpc_id:
+                log.info('VPC [{v}] is already attached to transit gateway: {t}'.format(v=vpc_id, t=self.id))
+                return attachment['TransitGatewayAttachmentId']
+        log.info('Creating transit gateway [{t}] attachment to VPC ID [{v}] and subnet IDs: [{s}]'.format(
+            t=self.id, v=vpc_id, s=','.join(subnet_ids)))
+        try:
+            response = self.client.create_transit_gateway_vpc_attachment(
+                TransitGatewayId=self.id,
+                VpcId=vpc_id,
+                SubnetIds=subnet_ids,
+                Options={
+                    'DnsSupport': 'enable',
+                    'Ipv6Support': 'disable'
+                },
+                TagSpecifications=[
+                    {
+                        'ResourceType': 'transit-gateway-attachment',
+                        'Tags': [
+                            {
+                                'Key': 'Name',
+                                'Value': '{t}-{v}'.format(t=self.name, v=vpc_id)
+                            },
+                        ]
+                    },
+                ],
+                DryRun=False
+            )
+        except ClientError as exc:
+            msg = 'Problem attaching VPC ID {i} to transit gateway ID {t}'.format(i=vpc_id, t=self.id)
+            raise AwsTransitGatewayError(msg) from exc
+        if 'TransitGatewayVpcAttachment' not in response.keys():
+            raise AwsTransitGatewayError('TransitGatewayVpcAttachment not found in response: {r}'.format(
+                r=str(response)))
+        self.vpc_attachments.append(response['TransitGatewayVpcAttachment'])
+        return response['TransitGatewayVpcAttachment']['TransitGatewayAttachmentId']
+
+    def delete_attachment(self, attachment_id):
+        """Deletes a transit gateway attachment
+
+        :param attachment_id: (str) attachment ID
+        :return: (dict) info about the deleted attachment (see boto3 docs)
+        :raises: AwsTransitGatewayError
+        """
+        log = logging.getLogger(self.cls_logger + '.delete_attachment')
+        found_attached_vpc = None
+        for attached_vpc in self.vpc_attachments:
+            if attached_vpc['TransitGatewayAttachmentId'] == attachment_id:
+                found_attached_vpc = dict(attached_vpc)
+                break
+        if not found_attached_vpc:
+            raise AwsTransitGatewayError('Attachment ID {a} not found in transit gateway {t}'.format(
+                a=attachment_id, t=self.id))
+        associated_route_table_ids = []
+        for association in self.associations:
+            if association['TransitGatewayAttachmentId'] == attachment_id:
+                associated_route_table_ids.append(association['TransitGatewayRouteTableId'])
+        for associated_route_table_id in associated_route_table_ids:
+            self.disassociate_route_table_from_attachment(
+                route_table_id=associated_route_table_id,
+                attachment_id=attachment_id
+            )
+        log.info('Deleting transit gateway attachment {a} from transit gateway: {t}'.format(
+            a=attachment_id, t=self.id))
+        try:
+            self.client.delete_transit_gateway_vpc_attachment(
+                TransitGatewayAttachmentId=attachment_id,
+                DryRun=False
+            )
+        except ClientError as exc:
+            msg = 'Problem deleting transit gateway attachment {a} from transit gateway: {t}'.format(
+                a=attachment_id, t=self.id)
+            raise AwsTransitGatewayError(msg) from exc
+        vpc_attachments = list(self.vpc_attachments)
+        self.vpc_attachments = []
+        for vpc_attachment in vpc_attachments:
+            if vpc_attachment['TransitGatewayAttachmentId'] != attachment_id:
+                self.vpc_attachments.append(vpc_attachment)
+        return found_attached_vpc
+
+    def delete_vpc_attachment(self, vpc_id):
+        """Deletes a transit gateway attachment
+
+        :param vpc_id: (str) ID of the VPC
+        :return: (dict) info about the deleted attachment (see boto3 docs)
+        :raises: AwsTransitGatewayError
+        """
+        log = logging.getLogger(self.cls_logger + '.delete_vpc_attachment')
+        attachment_id = None
+        for attached_vpc in self.vpc_attachments:
+            if attached_vpc['VpcId'] == vpc_id:
+                attachment_id = attached_vpc['TransitGatewayAttachmentId']
+                break
+        if not attachment_id:
+            log.info('VPC ID {v} not attached to transit gateway {t}'.format(v=vpc_id, t=self.id))
+            return
+        log.info('Deleting attachment [{a}] for VPC [{v}] from transit gateway: {t}'.format(
+            a=attachment_id, v=vpc_id, t=self.id))
+        return self.delete_attachment(attachment_id=attachment_id)
+
+    def create_route_table_for_attachment(self, attachment_id, propagation=True):
+        """Creates a route table for the specified attachment ID
+
+        :param attachment_id: (str) ID of the attachment
+        :param propagation: (bool) set True to enable route propagation
+        :return: (str) route table ID
+        :raises: AwsTransitGatwayError
+        """
+        log = logging.getLogger(self.cls_logger + '.create_route_table_for_attachment')
+        self.wait_for_available()
+
+        # Check for existing associated route table
+        route_table_id = None
+        for association in self.associations:
+            if association['TransitGatewayAttachmentId'] == attachment_id:
+                route_table_id = association['TransitGatewayRouteTableId']
+                break
+
+        # If an associated route table was found, return it
+        if route_table_id:
+            log.info('Found existing route table for attachment [{a}]: {r}'.format(a=attachment_id, r=route_table_id))
+            return route_table_id
+
+        # If not found, create a new route table
+        route_table_id = self.create_route_table(route_table_name='{n}-rt'.format(n=self.name))
+
+        # Associate the new route table
+        self.associate_route_table_to_attachment(
+            route_table_id=route_table_id,
+            attachment_id=attachment_id
+        )
+
+        # Enable propagation
+        if propagation:
+            self.enable_propagation(
+                route_table_id=route_table_id,
+                attachment_id=attachment_id
+            )
+        log.info('Completed configuring route table for attachment: {a}'.format(a=attachment_id))
+
+    def create_route_table(self, route_table_name=None):
+        """Creates a new route table
+
+        :return: (str) route table ID
+        :raises: AwsTransitGatewayError
+        """
+        log = logging.getLogger(self.cls_logger + '.create_route_table')
+        if not route_table_name:
+            route_table_name = self.name
+        log.info('Creating route table in transit gateway: {i}'.format(i=self.id))
+        try:
+            response = self.client.create_transit_gateway_route_table(
+                TransitGatewayId=self.id,
+                TagSpecifications=[
+                    {
+                        'ResourceType': 'transit-gateway-route-table',
+                        'Tags': [
+                            {
+                                'Key': 'Name',
+                                'Value': route_table_name
+                            },
+                        ]
+                    },
+                ],
+                DryRun=False
+            )
+        except ClientError as exc:
+            msg = 'Problem creating route table in transit gateway ID {i}'.format(i=self.id)
+            raise AwsTransitGatewayError(msg) from exc
+        if 'TransitGatewayRouteTable' not in response.keys():
+            raise AwsTransitGatewayError('TransitGatewayRouteTable not found in response: {r}'.format(
+                r=str(response)))
+        self.route_tables.append(response['TransitGatewayRouteTable'])
+        return response['TransitGatewayRouteTable']['TransitGatewayRouteTableId']
+
+    def delete_route_table(self, route_table_id):
+        """Deletes associations to and the specified route table ID
+
+        :param route_table_id: (str) ID of the route table
+        :return: (dict) info for the deleted route table (see boto3 docs)
+        """
+        log = logging.getLogger(self.cls_logger + '.delete_route_table')
+        log.info('Deleting associations for route table: {i}'.format(i=route_table_id))
+        for association in self.associations:
+            if association['TransitGatewayRouteTableId'] == route_table_id:
+                self.disassociate_route_table_from_attachment(
+                    route_table_id=route_table_id,
+                    attachment_id=association['TransitGatewayAttachmentId']
+                )
+        log.info('Deleting route table: {i}'.format(i=route_table_id))
+        try:
+            response = self.client.delete_transit_gateway_route_table(
+                TransitGatewayRouteTableId=route_table_id,
+                DryRun=False
+            )
+        except ClientError as exc:
+            msg = 'Problem deleting route table: {i}'.format(i=route_table_id)
+            raise AwsTransitGatewayError(msg) from exc
+        if 'TransitGatewayRouteTable' not in response.keys():
+            msg = 'TransitGatewayRouteTable not found in response: {r}'.format(r=str(response))
+            raise AwsTransitGatewayError(msg)
+        return response['TransitGatewayRouteTable']
+
+    def associate_route_table_to_attachment(self, route_table_id, attachment_id):
+        """Associates the route table ID to the transit gateway attachment
+
+        :param route_table_id: (str) route table ID
+        :param attachment_id: (str) attachment ID
+        :return: (dict) transit route table association (see boto3 docs)
+        :raises: AwsTransitGatewayError
+        """
+        log = logging.getLogger(self.cls_logger + '.associate_route_table_to_attachment')
+        if not self.wait_for_available():
+            msg = 'Resources not available to create attachments'
+            raise AwsTransitGatewayError(msg)
+        for association in self.associations:
+            if association['TransitGatewayRouteTableId'] == route_table_id and \
+                    association['TransitGatewayAttachmentId'] == attachment_id:
+                log.info('Route table {r} already associated to attachment: {a}'.format(
+                    r=route_table_id, a=attachment_id))
+                return association
+        log.info('Associating route table {r} to attachment: {a}'.format(r=route_table_id, a=attachment_id))
+        try:
+            response = self.client.associate_transit_gateway_route_table(
+                TransitGatewayRouteTableId=route_table_id,
+                TransitGatewayAttachmentId=attachment_id,
+                DryRun=False
+            )
+        except ClientError as exc:
+            msg = 'Problem creating association between route table [{r}] and attachment: {a}'.format(
+                r=route_table_id, a=attachment_id)
+            raise AwsTransitGatewayError(msg) from exc
+        if 'Association' not in response.keys():
+            raise AwsTransitGatewayError('Association not found in response: {r}'.format(
+                r=str(response)))
+        self.associations.append(response['Association'])
+        return response['Association']
+
+    def disassociate_route_table_from_attachment(self, route_table_id, attachment_id):
+        """Disassociate the route table from the specified attachment
+
+        :param route_table_id: (str) ID of the route table
+        :param attachment_id: (str) ID of the attachment
+        :return: (dict) containing info about the deleted association
+        :raises: AwsTransitGatewayError
+        """
+        log = logging.getLogger(self.cls_logger + '.disassociate_route_table_from_attachment')
+        log.info('Disassociating route table ID {r} from attachment: {a}'.format(r=route_table_id, a=attachment_id))
+        for propagation in self.propagations:
+            if propagation['TransitGatewayRouteTableId'] == route_table_id and \
+               propagation['TransitGatewayAttachmentId'] == attachment_id:
+                self.disable_propagation(
+                    route_table_id=route_table_id,
+                    attachment_id=attachment_id
+                )
+        self.wait_for_available()
+        self.delete_routes(
+            routes=self.get_routes_for_route_table(route_table_id=route_table_id, attachment_id=attachment_id)
+        )
+        try:
+            response = self.client.disassociate_transit_gateway_route_table(
+                TransitGatewayRouteTableId=route_table_id,
+                TransitGatewayAttachmentId=attachment_id,
+                DryRun=False
+            )
+        except ClientError as exc:
+            msg = 'Problem disassociating route table {r} from attachment: {a}'.format(
+                r=route_table_id, a=attachment_id)
+            raise AwsTransitGatewayError(msg) from exc
+        if 'Association' not in response.keys():
+            msg = 'Association not found in response: {r}'.format(r=str(response))
+            raise AwsTransitGatewayError(msg)
+        return response['Association']
+
+    def enable_propagation(self, route_table_id, attachment_id):
+        """Enables the route propagation for the provided route table ID and attachment ID
+
+        :param route_table_id: (str) ID of the route table
+        :param attachment_id: (str) ID of the attachment
+        :return: (dict) info for the enabled propagation (see boto3 docs)
+        :raises: AwsTransitGatewayError
+        """
+        log = logging.getLogger(self.cls_logger + '.enable_propagation')
+        log.info('Enabling route propagation route route table (r) to attachment: {a}'.format(
+            r=route_table_id, a=attachment_id))
+        try:
+            response = self.client.enable_transit_gateway_route_table_propagation(
+                TransitGatewayRouteTableId=route_table_id,
+                TransitGatewayAttachmentId=attachment_id,
+                DryRun=False
+            )
+        except ClientError as exc:
+            msg = 'Problem enabling route propagation route route table (r) to attachment: {a}'.format(
+                r=route_table_id, a=attachment_id)
+            raise AwsTransitGatewayError(msg) from exc
+        if 'Propagation' not in response.keys():
+            msg = 'Propagation not found in response: {r}'.format(r=str(response))
+            raise AwsTransitGatewayError(msg)
+        return response['Propagation']
+
+    def disable_propagation(self, route_table_id, attachment_id):
+        """Disables the route propagation for the provided route table ID and attachment ID
+
+        :param route_table_id: (str) ID of the route table
+        :param attachment_id: (str) ID of the attachment
+        :return: (dict) info for the disabled propagation (see boto3 docs)
+        :raises: AwsTransitGatewayError
+        """
+        log = logging.getLogger(self.cls_logger + '.disable_propagation')
+        log.info('Disabling route propagation route route table (r) to attachment: {a}'.format(
+            r=route_table_id, a=attachment_id))
+        try:
+            response = self.client.disable_transit_gateway_route_table_propagation(
+                TransitGatewayRouteTableId=route_table_id,
+                TransitGatewayAttachmentId=attachment_id,
+                DryRun=False
+            )
+        except ClientError as exc:
+            msg = 'Problem disabling route propagation route route table (r) to attachment: {a}'.format(
+                r=route_table_id, a=attachment_id)
+            raise AwsTransitGatewayError(msg) from exc
+        if 'Propagation' not in response.keys():
+            msg = 'Propagation not found in response: {r}'.format(r=str(response))
+            raise AwsTransitGatewayError(msg)
+        return response['Propagation']
+
+    def create_transit_gateway_route(self, cidr, route_table_id, attachment_id, black_hole=False):
+        """Creates a route in the specified route table ID
+
+        :param cidr: (str) destination CIDR block
+        :param route_table_id: (str) ID of the route table
+        :param attachment_id: (str) ID of the target attachment
+        :param black_hole: (bool) True to black hole traffic, False otherwise
+        :return: (dict) Route (see boto3 docs)
+        :raises: AwsTransitGatewayError
+        """
+        log = logging.getLogger(self.cls_logger + '.create_transit_gateway_route')
+        log.info('Creating route in route table [{r}] with CIDR [{c}] to attachment [{a}] with black hole {b}'.format(
+            r=route_table_id, a=attachment_id, b=str(black_hole), c=cidr))
+        try:
+            response = self.client.create_transit_gateway_route(
+                DestinationCidrBlock=cidr,
+                TransitGatewayRouteTableId=route_table_id,
+                TransitGatewayAttachmentId=attachment_id,
+                Blackhole=black_hole,
+                DryRun=False
+            )
+        except ClientError as exc:
+            msg = 'Problem creating route in route table [{r}] with CIDR [{c}] to attachment [{a}] with black hole ' \
+                  '{b}'.format(r=route_table_id, a=attachment_id, b=str(black_hole), c=cidr)
+            raise AwsTransitGatewayError(msg) from exc
+        if 'Route' not in response.keys():
+            msg = 'Route not found in response: {r}'.format(r=str(response))
+            raise AwsTransitGatewayError(msg)
+        return response['Route']
+
+    def delete_transit_gateway_route(self, route_table_id, cidr):
+        """Deletes the specified transit gateway route
+
+        :param cidr: (str) destination CIDR block
+        :param route_table_id: (str) ID of the route table
+        :return:
+        """
+        log = logging.getLogger(self.cls_logger + '.delete_transit_gateway_route')
+        log.info('Deleting route in route table [{r}] with CIDR [{c}]'.format(r=route_table_id, c=cidr))
+        try:
+            response = self.client.delete_transit_gateway_route(
+                DestinationCidrBlock=cidr,
+                TransitGatewayRouteTableId=route_table_id,
+                DryRun=False
+            )
+        except ClientError as exc:
+            msg = 'Problem deleting route in route table [{r}] with CIDR [{c}]'.format(r=route_table_id, c=cidr)
+            raise AwsTransitGatewayError(msg) from exc
+        if 'Route' not in response.keys():
+            msg = 'Route not found in response: {r}'.format(r=str(response))
+            raise AwsTransitGatewayError(msg)
+        return response['Route']
+
+    def get_routes_for_route_table(self, route_table_id, attachment_id=None, vpc_id=None):
+        """Retrieves the routes for the route table ID
+
+        :param route_table_id: (str) ID of the route table
+        :param attachment_id: (str) ID of the attachment to filter on
+        :param vpc_id: (str) ID of a VPC to filter on
+        :return: (list) of TransitGatewayRoute objects
+        :raises: AwsTransitGatewayError
+        """
+        log = logging.getLogger(self.cls_logger + '.get_routes_for_route_table')
+        filters = []
+        if attachment_id:
+            filters.append({'Name': 'attachment.transit-gateway-attachment-id', 'Values': [attachment_id]})
+        if vpc_id:
+            filters.append({'Name': 'attachment.resource-id', 'Values': [vpc_id]})
+        log.info('Searching for routes in table [{r}] with filters: {f}'.format(r=route_table_id, f=str(filters)))
+        try:
+            response = self.client.search_transit_gateway_routes(
+                TransitGatewayRouteTableId=route_table_id,
+                Filters=filters,
+                DryRun=False
+            )
+        except ClientError as exc:
+            msg = 'Problem searching routes in route table: {r}'.format(r=route_table_id)
+            raise AwsTransitGatewayError(msg) from exc
+        if 'Routes' not in response.keys():
+            msg = 'Routes not found in response: {r}'.format(r=str(response))
+            raise AwsTransitGatewayError(msg)
+        if 'AdditionalRoutesAvailable' in response.keys():
+            if response['AdditionalRoutesAvailable']:
+                log.warning('Additional routes are available but not provided in response')
+        parsed_routes =  parse_transit_gateway_routes(
+            route_table_id=route_table_id,
+            transit_gateway_routes=response['Routes']
+        )
+        for parsed_route in parsed_routes:
+            log.info('Found route: {r}'.format(r=str(parsed_route)))
+        return parsed_routes
+
+    def delete_route(self, route):
+        """Deletes the specified route from the route table
+
+        :param route: (TransitGatewayRoute)
+        :return: None
+        :raises: AwsTransitGatewayError
+        """
+        log = logging.getLogger(self.cls_logger + '.delete_route')
+        if route.type:
+            if route.type == 'propagated':
+                log.info('Route type is propagated, will not be deleted, propagation must be disabled instead: '
+                         '{r}'.format(r=str(route)))
+                return
+        if route.state:
+            if route.state in ['deleting', 'deleted']:
+                log.info('Route is already deleted or deleting: {r}'.format(r=str(route)))
+                return
+        self.delete_transit_gateway_route(route_table_id=route.route_table_id, cidr=route.cidr)
+
+    def delete_routes(self, routes):
+        """Deletes the list of routes
+
+        :param routes: (list) of TransitGatewayRoute objects
+        :return: None
+        :raises: AwsTransitGatewayError
+        """
+        log = logging.getLogger(self.cls_logger + '.delete_routes')
+        log.info('Attempting to delete {n} routes'.format(n=str(len(routes))))
+        for route in routes:
+            self.delete_route(route=route)
+
+    def add_route(self, route):
+        """Adds the route
+
+        :param route: (TransitGatewayRoute)
+        :return: None
+        :raises: AwsTransitGatewayError
+        """
+        self.create_transit_gateway_route(
+            cidr=route.cidr,
+            route_table_id=route.route_table_id,
+            attachment_id=route.attachment_id,
+            black_hole=route.black_hole
+        )
+
+    def add_routes(self, routes):
+        """Adds the list of routes
+
+        :param routes: (list) of TransitGatewayRoute objects
+        :return: none
+        :raises: AwsTransitGatewayError
+        """
+        for route in routes:
+            self.add_route(route=route)
+
+    def configure_routes(self, route_table_id, desired_routes):
+        """Configure routes for the route table, deletes
+
+        :param route_table_id: (str) ID of the route table
+        :param desired_routes: (list) of TransitGatewayRoute objects
+        :return: None
+        :raise: AwsTransitGatewayError
+        """
+        log = logging.getLogger(self.cls_logger + '.configure_routes')
+        existing_routes = self.get_routes_for_route_table(route_table_id=route_table_id)
+
+        log.info('Existing routes:')
+        for existing_route in existing_routes:
+            log.info('Existing route: {r}'.format(r=str(existing_route)))
+        log.info('Desired routes:')
+        for desired_route in desired_routes:
+            log.info('Desired route: {r}'.format(r=str(desired_route)))
+
+        # Determine which routes to delete
+        delete_routes = []
+        for existing_route in existing_routes:
+            delete = True
+            for desired_route in desired_routes:
+                if existing_route == desired_route:
+                    delete = False
+            if delete:
+                delete_routes.append(existing_route)
+
+        # Determine which routes to add
+        add_routes = []
+        for desired_route in desired_routes:
+            if desired_route.route_table_id != route_table_id:
+                continue
+            add = True
+            for existing_route in existing_routes:
+                if desired_route == existing_route:
+                    add = False
+            if add:
+                add_routes.append(desired_route)
+
+        # Delete routes
+        self.delete_routes(routes=delete_routes)
+
+        # Add rules
+        self.add_routes(routes=add_routes)
+        log.info('Completed configuring rules for route table: {r}'.format(r=route_table_id))
+
+    def remove_vpc(self, vpc_id):
+        """Removed the specified VPC ID from the transit gateway
+
+        :param vpc_id: (str) ID of the VPC
+        :return: None
+        :raises: AwsTransitGatewayError
+        """
+        log = logging.getLogger(self.cls_logger + '.remove_vpc')
+        log.info('Attempting to remove VPC ID {v} from transit gateway: {i}'.format(v=vpc_id, i=self.id))
+        self.update_state()
+        self.delete_vpc_attachment(vpc_id=vpc_id)
+
+    def attachments_available(self):
+        """Returns true when all the attachments have the available state
+
+        :return: (bool) True when all the attachments have the available state, False otherwise
+        """
+        log = logging.getLogger(self.cls_logger + '.attachments_available')
+        for attached_vpc in self.vpc_attachments:
+            if attached_vpc['State'] not in ['available', 'deleted']:
+                log.info('VPC attachment ID [{a}] in state: {s}'.format(
+                    a=attached_vpc['TransitGatewayAttachmentId'], s=attached_vpc['State']))
+                return False
+        return True
+
+    def route_tables_available(self):
+        """Returns true when all the route tables have the available state
+
+        :return: (bool) True when all the route tables have the available state, False otherwise
+        """
+        log = logging.getLogger(self.cls_logger + '.route_tables_available')
+        for route_table in self.route_tables:
+            if route_table['State'] not in ['available', 'deleted']:
+                log.info('Route table [{r}] in state: {s}'.format(
+                    r=route_table['TransitGatewayRouteTableId'], s=route_table['State']))
+                return False
+        return True
+
+    def associations_available(self):
+        """Returns true when all the associations have the associated state
+
+        :return: (bool) True when all the associations have the associated state, False otherwise
+        """
+        log = logging.getLogger(self.cls_logger + '.associations_available')
+        for association in self.associations:
+            if association['State'] not in ['associated', 'disassociated']:
+                log.info('Route table [{r}] association to attachment ID [{a}] in state: {s}'.format(
+                    r=association['TransitGatewayRouteTableId'], a=association['TransitGatewayAttachmentId'],
+                    s=association['State']))
+                return False
+        return True
+
+    def propagations_available(self):
+        """Returns true when all the propagations have the enabled state
+
+        :return: (bool) True when all the propagations have the enabled state, False otherwise
+        """
+        log = logging.getLogger(self.cls_logger + '.propagations_available')
+        for propagation in self.propagations:
+            if propagation['State'] not in ['enabled', 'disabled']:
+                log.info('Route table [{r}] propagation to attachment ID [{a}] in state: {s}'.format(
+                    r=propagation['TransitGatewayRouteTableId'], a=propagation['TransitGatewayAttachmentId'],
+                    s=propagation['State']))
+                return False
+        return True
+
+    def available(self):
+        """Returns True when all resources are available, False otherwise
+
+        :return: (bool)
+        """
+        if self.state != 'available':
+            return False
+        if not self.attachments_available():
+            return False
+        if not self.route_tables_available():
+            return False
+        if not self.associations_available():
+            return False
+        if not self.propagations_available():
+            return False
+        return True
+
+    def wait_for_available(self):
+        """Waits a max time for resources to become available before proceeding
+
+        :return: (bool) True if everything is available, False if max time is reached before availability
+        """
+        max_wait_time_sec = 1200
+        start_time = time.time()
+        while not self.available():
+            if round((time.time() - start_time)) > max_wait_time_sec:
+                return False
+            time.sleep(5)
+            self.update_state()
+        return True
+
+
+class TransitGatewayRoute(object):
+
+    def __init__(self, route_table_id, cidr, attachment_id, resource_type=None, resource_id=None, route_type=None,
+                 state=None):
+        self.route_table_id = route_table_id
+        self.cidr = cidr
+        self.attachment_id = attachment_id
+        self.resource_type = resource_type
+        self.resource_id = resource_id
+        self.route_type = route_type
+        self.state = state
+
+    def __str__(self):
+        out_str = 'Route Table {r}: CIDR [{c}], Attachment ID [{a}]'.format(
+            r=self.route_table_id, c=self.cidr, a=self.attachment_id)
+        if self.resource_type:
+            out_str += ', Type [{t}]'.format(t=self.resource_type)
+        if self.resource_id:
+            out_str += ', ID: {i}'.format(i=self.resource_id)
+        if self.route_type:
+            out_str += ', Type: {t}'.format(t=self.route_type)
+        if self.state:
+            out_str += ', State: {s}'.format(s=self.state)
+        return out_str
+
+    def __eq__(self, other):
+        if self.route_table_id and other.route_table_id:
+            if self.cidr == other.cidr:
+                if self.attachment_id == other.attachment_id:
+                    return True
+        return False
+
+    def get_json(self):
+        json_output = {
+            'DestinationCidrBlock': self.cidr
+        }
+        if self.route_type:
+            json_output['Type'] = self.route_type
+        if self.state:
+            json_output['State'] = self.state
+        attachment = {
+            'TransitGatewayAttachmentId': self.attachment_id
+        }
+        if self.resource_type:
+            attachment['ResourceType'] = self.resource_type
+        if self.resource_id:
+            attachment['ResourceId'] = self.resource_id
+        json_output['TransitGatewayAttachments'] = [attachment]
+        return json_output
+
+
 def get_ec2_client(region_name=None, aws_access_key_id=None, aws_secret_access_key=None):
     """Gets an EC2 client
 
@@ -1600,17 +3482,114 @@ def parse_ip_permissions(ip_permissions):
     return permissions_list
 
 
-def main():
-    """Sample usage for this python module
+def parse_ip_routes(ip_routes):
+    """Parse a list of Routes as defined in the boto3 documentation and returns
+    a list of IpRoutes objects
 
-    This main method simply illustrates sample usage for this python
-    module.
-
-    :return: None
     """
-    log = logging.getLogger(mod_logger + '.main')
-    log.info('Main!')
+    log = logging.getLogger(mod_logger + '.parse_ip_routes')
+    if not isinstance(ip_routes, list):
+        log.warning('list expected, found: {t}'.format(t=ip_routes.__class__.__name__))
+        return []
+    routes_list = []
+    for ip_route in ip_routes:
+        if not isinstance(ip_route, dict):
+            log.warning('Dict expected, found type {t} for permission: {p}'.format(
+                t=ip_route.__class__.__name__, p=str(ip_route)))
+            return []
+        cidr = None
+        cidr_ipv6 = None
+        target = None
+        instance_owner_id = None
+        state = None
+        origin = None
+        if 'DestinationCidrBlock' in ip_route.keys():
+            cidr = ip_route['DestinationCidrBlock']
+        if 'DestinationIpv6CidrBlock' in ip_route.keys():
+            cidr_ipv6 = ip_route['DestinationIpv6CidrBlock']
+        if 'EgressOnlyInternetGatewayId' in ip_route.keys():
+            target = ip_route['EgressOnlyInternetGatewayId']
+        elif 'GatewayId' in ip_route.keys():
+            target = ip_route['GatewayId']
+        elif 'InstanceId' in ip_route.keys():
+            target = ip_route['InstanceId']
+        elif 'NatGatewayId' in ip_route.keys():
+            target = ip_route['NatGatewayId']
+        elif 'TransitGatewayId' in ip_route.keys():
+            target = ip_route['TransitGatewayId']
+        elif 'LocalGatewayId' in ip_route.keys():
+            target = ip_route['LocalGatewayId']
+        elif 'NetworkInterfaceId' in ip_route.keys():
+            target = ip_route['NetworkInterfaceId']
+        elif 'VpcPeeringConnectionId' in ip_route.keys():
+            target = ip_route['VpcPeeringConnectionId']
+        if 'InstanceOwnerId' in ip_route.keys():
+            instance_owner_id = ip_route['InstanceOwnerId']
+        if 'State' in ip_route.keys():
+            state = ip_route['State']
+        if 'Origin' in ip_route.keys():
+            origin = ip_route['Origin']
+        try:
+            routes_list.append(
+                IpRoute(
+                    cidr=cidr,
+                    cidr_ipv6=cidr_ipv6,
+                    target=target,
+                    instance_owner_id=instance_owner_id,
+                    state=state,
+                    origin=origin
+                )
+            )
+        except AttributeError as exc:
+            log.warning('Problem creating IpRoute object from data: {d}\n{e}\n{t}'.format(
+                d=str(ip_route), e=str(exc), t=traceback.format_exc()))
+    return routes_list
 
 
-if __name__ == '__main__':
-    main()
+def parse_transit_gateway_routes(route_table_id, transit_gateway_routes):
+    """Parse a list of Transit gateway Routes as defined in the boto3 documentation and returns
+    a list of TransitGatewayRoute objects
+
+    """
+    log = logging.getLogger(mod_logger + '.parse_transit_gateway_routes')
+    if not isinstance(transit_gateway_routes, list):
+        log.warning('list expected, found: {t}'.format(t=transit_gateway_routes.__class__.__name__))
+        return []
+    transit_routes_list = []
+    for transit_gateway_route in transit_gateway_routes:
+        if not isinstance(transit_gateway_route, dict):
+            log.warning('Dict expected, found type {t} for permission: {p}'.format(
+                t=transit_gateway_route.__class__.__name__, p=str(transit_gateway_route)))
+            return []
+        cidr = None
+        resource_type = None
+        resource_id = None
+        route_type = None
+        state = None
+        if 'DestinationCidrBlock' in transit_gateway_route.keys():
+            cidr = transit_gateway_route['DestinationCidrBlock']
+        if 'Type' in transit_gateway_route.keys():
+            route_type = transit_gateway_route['Type']
+        if 'State' in transit_gateway_route.keys():
+            state = transit_gateway_route['State']
+        if 'TransitGatewayAttachments' in transit_gateway_route.keys():
+            for attachment in transit_gateway_route['TransitGatewayAttachments']:
+                if 'TransitGatewayAttachmentId' not in attachment.keys():
+                    continue
+                attachment_id = attachment['TransitGatewayAttachmentId']
+                if 'ResourceType' in attachment.keys():
+                    resource_type = attachment['ResourceType']
+                if 'ResourceId' in attachment.keys():
+                    resource_id = attachment['ResourceId']
+                transit_routes_list.append(
+                    TransitGatewayRoute(
+                        cidr=cidr,
+                        route_table_id=route_table_id,
+                        attachment_id=attachment_id,
+                        resource_type=resource_type,
+                        resource_id=resource_id,
+                        route_type=route_type,
+                        state=state
+                    )
+                )
+    return transit_routes_list

@@ -1001,7 +1001,7 @@ class Cons3rtApi(object):
                 raise Cons3rtApiError(msg) from exc
 
         try:
-            drs = self.cons3rt_client.list_deployment_runs_for_deployment(deployment_id=deployment_id)
+            drs = self.cons3rt_client.list_all_deployment_runs_for_deployment(deployment_id=deployment_id)
         except Cons3rtClientError as exc:
             msg = 'Problem listing runs for deployment ID: {i}'.format(i=str(deployment_id))
             raise Cons3rtClientError(msg) from exc

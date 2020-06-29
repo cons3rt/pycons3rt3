@@ -825,16 +825,48 @@ class Cons3rtClient:
         result = self.http_client.parse_response(response=response)
         return result
 
-    def list_deployment_runs_for_deployment(self, deployment_id):
+    def list_deployment_runs_for_deployment(self, deployment_id, max_results=40, page_num=0):
         response = self.http_client.http_get(
             rest_user=self.user,
-            target='deployments/{i}/runs'.format(i=str(deployment_id)))
+            target='deployments/{i}/runs?maxresults={m}&page={p}'.format(
+                i=str(deployment_id), m=str(max_results), p=str(page_num)))
         try:
             result = self.http_client.parse_response(response=response)
         except Cons3rtClientError as exc:
             msg = 'The HTTP response contains a bad status code'
             raise Cons3rtClientError(msg) from exc
         drs = json.loads(result)
+        return drs
+
+    def list_all_deployment_runs_for_deployment(self, deployment_id):
+        """Lists all of the deployment runs in a deployment by page
+
+        :param deployment_id: (int) ID of the virtualization realm
+        :return: (list) of deployment runs
+        :raises: Cons3rtClientError
+        """
+        drs = []
+        page_num = 0
+        max_results = 40
+        while True:
+            print('Retrieving deployment runs in deployment [{i}]: page {p}'.format(
+                i=str(deployment_id), p=str(page_num)))
+            try:
+                page_of_drs = self.list_deployment_runs_for_deployment(
+                    deployment_id=deployment_id,
+                    max_results=max_results,
+                    page_num=page_num
+                )
+            except Cons3rtClientError as exc:
+                msg = 'There was a problem querying CONS3RT for a list of runs in deployment ID: {i}, ' \
+                      'page: {p}, max results: {m}'.format(i=str(deployment_id), p=str(page_num), m=str(max_results))
+                raise Cons3rtClientError(msg) from exc
+            drs += page_of_drs
+            if len(page_of_drs) < max_results:
+                break
+            else:
+                page_num += 1
+            print('Found {n} deployment runs...'.format(n=str(len(drs))))
         return drs
 
     def list_deployment_runs_in_virtualization_realm(self, vr_id, search_type='SEARCH_ALL', max_results=40, page_num=0):
@@ -863,7 +895,8 @@ class Cons3rtClient:
         page_num = 0
         max_results = 40
         while True:
-            print('Retrieving deployment runs: page {p}'.format(p=str(page_num)))
+            print('Retrieving deployment runs in virtualization realm [{i}]: page {p}'.format(
+                i=str(vr_id), p=str(page_num)))
             try:
                 page_of_drs = self.list_deployment_runs_in_virtualization_realm(
                     vr_id=vr_id,
