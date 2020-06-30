@@ -733,10 +733,12 @@ class EC2Util(object):
         """
         log = logging.getLogger(self.cls_logger + '.delete_route')
         log.info('Deleting route from route table [{i}]: {r}'.format(i=route_table_id, r=str(route)))
-        if route.get_cidr_type == 'DestinationIpv6CidrBlock':
-            self.delete_route_ipv6(route_table_id=route.route_table_id, cidr_ipv6=route.cidr_ipv6)
-        elif route.get_cidr_type == 'DestinationCidrBlock':
-            self.delete_route_ipv4(route_table_id=route.route_table_id, cidr=route.cidr)
+        if route.get_cidr_type() == 'DestinationIpv6CidrBlock':
+            self.delete_route_ipv6(route_table_id=route_table_id, cidr_ipv6=route.cidr_ipv6)
+        elif route.get_cidr_type() == 'DestinationCidrBlock':
+            self.delete_route_ipv4(route_table_id=route_table_id, cidr=route.cidr)
+        else:
+            raise EC2UtilError('Unrecognized CIDR type: {t}'.format(t=route.get_cidr_type()))
 
     def delete_routes(self, route_table_id, routes):
         """Deletes the list of routes from the route table
@@ -921,6 +923,7 @@ class EC2Util(object):
             for desired_route in desired_routes:
                 if existing_route == desired_route:
                     delete = False
+                    break
             if delete:
                 delete_routes.append(existing_route)
 
@@ -931,6 +934,7 @@ class EC2Util(object):
             for existing_route in existing_routes:
                 if desired_route == existing_route:
                     add = False
+                    break
             if add:
                 add_routes.append(desired_route)
 
@@ -2431,11 +2435,13 @@ class IpRoute(object):
 
     def __eq__(self, other):
         if self.cidr and other.cidr:
-            if self.target == other.target:
-                return True
+            if self.cidr == other.cidr:
+                if self.target == other.target:
+                    return True
         if self.cidr_ipv6 and other.cidr_ipv6:
-            if self.target == other.target:
-                return True
+            if self.cidr_ipv6 == other.cidr_ipv6:
+                if self.target == other.target:
+                    return True
         return False
 
     def get_json(self):
@@ -3150,7 +3156,7 @@ class TransitGateway(object):
         """
         log = logging.getLogger(self.cls_logger + '.delete_route')
         if route.type:
-            if route.type == 'propagated':
+            if route.route_type == 'propagated':
                 log.info('Route type is propagated, will not be deleted, propagation must be disabled instead: '
                          '{r}'.format(r=str(route)))
                 return
@@ -3368,9 +3374,10 @@ class TransitGatewayRoute(object):
 
     def __eq__(self, other):
         if self.route_table_id and other.route_table_id:
-            if self.cidr == other.cidr:
-                if self.attachment_id == other.attachment_id:
-                    return True
+            if self.route_table_id == other.route_table_id:
+                if self.cidr == other.cidr:
+                    if self.attachment_id == other.attachment_id:
+                        return True
         return False
 
     def get_json(self):
