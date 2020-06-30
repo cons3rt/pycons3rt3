@@ -2734,13 +2734,38 @@ class TransitGateway(object):
             msg = 'Unable to retrieve transit gateway info from response: {d}'.format(d=str(response))
             raise AwsTransitGatewayError(msg) from exc
 
-    def delete_transit_gateway(self):
+    def delete(self):
         """Deletes this transit gateway
 
         :return: (dict) into about the deleted transit gateway (see boto3 docs)
         :raises: AwsTransitGatewayError
         """
         log = logging.getLogger(self.cls_logger + '.delete_transit_gateway')
+        log.info('Disabling propagations in transit gateway: {i}'.format(i=self.id))
+        for propagation in self.propagations:
+            self.disable_propagation(
+                route_table_id=propagation['TransitGatewayRouteTableId'],
+                attachment_id=propagation['TransitGatewayAttachmentId']
+            )
+        log.info('Disassociating route tables in transit gateway: {i}'.format(i=self.id))
+        for association in self.associations:
+            self.disassociate_route_table_from_attachment(
+                route_table_id=association['TransitGatewayRouteTableId'],
+                attachment_id=association['TransitGatewayAttachmentId']
+            )
+        self.wait_for_available()
+        log.info('Deleting route tables in transit gateway: {i}'.format(i=self.id))
+        for route_table in self.route_tables:
+            if route_table['DefaultAssociationRouteTable']:
+                log.info('Skipping deletion of default association route table: {i}'.format(
+                    i=route_table['TransitGatewayRouteTableId']
+                ))
+                continue
+            self.delete_route_table(route_table_id=route_table['TransitGatewayRouteTableId'])
+        self.wait_for_available()
+        for attached_vpc in self.vpc_attachments:
+            self.delete_attachment(attachment_id=attached_vpc['TransitGatewayAttachmentId'])
+        self.wait_for_available()
         log.info('Deleting transit gateway: {t}'.format(t=self.id))
         try:
             response = self.client.delete_transit_gateway(
@@ -3045,7 +3070,8 @@ class TransitGateway(object):
         :raises: AwsTransitGatewayError
         """
         log = logging.getLogger(self.cls_logger + '.disassociate_route_table_from_attachment')
-        log.info('Disassociating route table ID {r} from attachment: {a}'.format(r=route_table_id, a=attachment_id))
+        log.info('Removing propagations in route table {r} to attachment: {a}'.format(
+            r=route_table_id, a=attachment_id))
         for propagation in self.propagations:
             if propagation['TransitGatewayRouteTableId'] == route_table_id and \
                propagation['TransitGatewayAttachmentId'] == attachment_id:
@@ -3057,6 +3083,7 @@ class TransitGateway(object):
         self.delete_routes(
             routes=self.get_routes_for_route_table(route_table_id=route_table_id, attachment_id=attachment_id)
         )
+        log.info('Disassociating route table ID {r} from attachment: {a}'.format(r=route_table_id, a=attachment_id))
         try:
             response = self.client.disassociate_transit_gateway_route_table(
                 TransitGatewayRouteTableId=route_table_id,
@@ -3071,6 +3098,21 @@ class TransitGateway(object):
             msg = 'Association not found in response: {r}'.format(r=str(response))
             raise AwsTransitGatewayError(msg)
         return response['Association']
+
+    def get_route_table_for_vpc(self, vpc_id):
+        """For the provided VPC ID, return the route table if one exists
+
+        :param vpc_id: (str) ID of the VPC
+        :return: (str) ID of the route table or None
+        """
+        log = logging.getLogger(self.cls_logger + '.get_route_table_for_vpc')
+        attachment_id = self.get_attachment_for_vpc(vpc_id=vpc_id)
+        if not attachment_id:
+            log.info('No attachment found for VPC: {v}'.format(v=vpc_id))
+            return
+        for association in self.associations:
+            if attachment_id == association['TransitGatewayAttachmentId']:
+                return association['TransitGatewayRouteTableId']
 
     def enable_propagation(self, route_table_id, attachment_id):
         """Enables the route propagation for the provided route table ID and attachment ID
@@ -3107,7 +3149,7 @@ class TransitGateway(object):
         :raises: AwsTransitGatewayError
         """
         log = logging.getLogger(self.cls_logger + '.disable_propagation')
-        log.info('Disabling route propagation route route table (r) to attachment: {a}'.format(
+        log.info('Disabling propagation to attachment {a} in route table: {r}'.format(
             r=route_table_id, a=attachment_id))
         try:
             response = self.client.disable_transit_gateway_route_table_propagation(
