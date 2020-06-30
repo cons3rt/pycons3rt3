@@ -1595,8 +1595,7 @@ class Cons3rtApi(object):
         try:
             self.cons3rt_client.disable_remote_access(vr_id=vr_id)
         except Cons3rtClientError as exc:
-            msg = 'There was a problem disabling remote access in virtualization realm ID: {i}'.format(
-                i=vr_id)
+            msg = 'There was a problem disabling remote access in virtualization realm ID: {i}'.format(i=vr_id)
             raise Cons3rtApiError(msg) from exc
         log.info('Successfully disabled remote access in virtualization realm: {i}'.format(i=vr_id))
 
@@ -2383,9 +2382,11 @@ class Cons3rtApi(object):
 
         # Clean out all DRs, remove all projects, deactivate
         log.info('Preparing VR ID {i} for de-allocation or unregistering...'.format(i=str(vr_id)))
-        self.clean_all_runs_in_virtualization_realm(vr_id=vr_id, unlock=True)
         self.disable_remote_access(vr_id=vr_id)
         self.remove_all_projects_in_virtualization_realm(vr_id=vr_id)
+        log.info('Waiting 60 seconds to proceed to removing runs...')
+        time.sleep(60)
+        self.clean_all_runs_in_virtualization_realm(vr_id=vr_id, unlock=True)
         state_result = self.set_virtualization_realm_state(vr_id=vr_id, state=False)
         if not state_result:
             msg = 'Unable to deactivate VR ID {i} before attempting to unregister/de-allocate'.format(i=str(vr_id))
