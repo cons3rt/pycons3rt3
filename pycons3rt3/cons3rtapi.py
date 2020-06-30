@@ -2387,6 +2387,8 @@ class Cons3rtApi(object):
         log.info('Waiting 60 seconds to proceed to removing runs...')
         time.sleep(60)
         self.clean_all_runs_in_virtualization_realm(vr_id=vr_id, unlock=True)
+        log.info('Waiting 60 seconds to proceed to deactivation of the VR...')
+        time.sleep(60)
         state_result = self.set_virtualization_realm_state(vr_id=vr_id, state=False)
         if not state_result:
             msg = 'Unable to deactivate VR ID {i} before attempting to unregister/de-allocate'.format(i=str(vr_id))
