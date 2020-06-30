@@ -162,6 +162,21 @@ class EC2Util(object):
             raise EC2UtilError(msg)
         return response['Subnets'][0]
 
+    def retrieve_subnet_cidr_block(self, subnet_id):
+        """Returns the CIDR block of the specified subnet ID
+
+        :param subnet_id: (str) subnet ID
+        :return: (str) CIDR block
+        """
+        log = logging.getLogger(self.cls_logger + '.retrieve_subnet_cidr_block')
+        subnet = self.retrieve_subnet(subnet_id=subnet_id)
+        if 'CidrBlock' not in subnet.keys():
+            msg = 'CidrBlock not found in subnet: {s}'.format(s=str(subnet))
+            raise EC2UtilError(msg)
+        cidr = subnet['CidrBlock']
+        log.info('Found CIDR for subnet ID [{i}]: {c}'.format(i=subnet_id, c=cidr))
+        return cidr
+
     def list_route_tables_with_token(self, next_token=None, vpc_id=None):
         """Listing route tables in the VPC with continuation token if provided
 
@@ -2167,6 +2182,30 @@ class EC2Util(object):
             raise EC2UtilError(msg)
         return response['Vpcs'][0]
 
+    def retrieve_vpc_cidr_blocks(self, vpc_id):
+        """Returns a list of associated CIDR blocks for the VPC
+
+        :param vpc_id: (str) ID of the VPC
+        :return: (list) of (str) CIDR blocks
+        :raises: EC2UtilError
+        """
+        log = logging.getLogger(self.cls_logger + '.retrieve_vpc_cidr_blocks')
+        cidr_blocks = []
+        vpc = self.retrieve_vpc(vpc_id=vpc_id)
+        if 'CidrBlockAssociationSet' not in vpc.keys():
+            log.warning('No CIDR blocks found associated to VPC ID: {v}'.format(v=vpc_id))
+            return cidr_blocks
+        for cidr_block_assoc_set in vpc['CidrBlockAssociationSet']:
+            if 'CidrBlock' not in cidr_block_assoc_set.keys():
+                continue
+            if 'CidrBlockState' not in cidr_block_assoc_set.keys():
+                continue
+            if 'State' not in cidr_block_assoc_set['CidrBlockState']:
+                continue
+            if cidr_block_assoc_set['CidrBlockState']['State'] == 'associated':
+                cidr_blocks.append(cidr_block_assoc_set['CidrBlock'])
+        return cidr_blocks
+
     def get_vpc_id_by_name(self, vpc_name):
         """Return the VPC ID matching the provided name or None if not found
 
@@ -2512,7 +2551,7 @@ class TransitGateway(object):
         self.route_tables = []
         self.associations = []
         self.propagations = []
-        self.routes = [] # List of TransitGatewayRoute objects
+        self.routes = []  # List of TransitGatewayRoute objects
         self.client = get_ec2_client()
         if self.id:
             self.update_state()
@@ -2829,13 +2868,32 @@ class TransitGateway(object):
             a=attachment_id, v=vpc_id, t=self.id))
         return self.delete_attachment(attachment_id=attachment_id)
 
-    def create_route_table_for_attachment(self, attachment_id, propagation=True):
+    def get_attachment_for_vpc(self, vpc_id):
+        """For the provided VPC ID, return the attachment ID if one exists
+
+        :param vpc_id: (str) ID of the VPC
+        :return: (str) ID of the attachment or None
+        """
+        log = logging.getLogger(self.cls_logger + '.get_attachment_for_vpc')
+        self.update_state()
+        attachment_id = None
+        for attached_vpc in self.vpc_attachments:
+            if attached_vpc['VpcId'] == vpc_id:
+                attachment_id = attached_vpc['TransitGatewayAttachmentId']
+        if attachment_id:
+            log.info('Found attachment for VPC [{v}]: {a}'.format(v=vpc_id, a=attachment_id))
+            return attachment_id
+        else:
+            log.info('No attachments found for VPC ID: {v}'.format(v=vpc_id))
+
+    def create_route_table_for_attachment(self, attachment_id, remove_existing=True, propagation=False):
         """Creates a route table for the specified attachment ID
 
         :param attachment_id: (str) ID of the attachment
-        :param propagation: (bool) set True to enable route propagation
+        :param remove_existing: (bool) Set True to remove existing association and create a new one if it exists
+        :param propagation: (bool) set True to enable route propagation to the attachment ID
         :return: (str) route table ID
-        :raises: AwsTransitGatwayError
+        :raises: AwsTransitGatewayError
         """
         log = logging.getLogger(self.cls_logger + '.create_route_table_for_attachment')
         self.wait_for_available()
@@ -2850,7 +2908,17 @@ class TransitGateway(object):
         # If an associated route table was found, return it
         if route_table_id:
             log.info('Found existing route table for attachment [{a}]: {r}'.format(a=attachment_id, r=route_table_id))
-            return route_table_id
+            if not remove_existing:
+                log.info('remove_existing not set, returning the existing route table ID: {i}'.format(i=route_table_id))
+                return route_table_id
+            else:
+                log.info('Removing association to existing route table ID: {i}'.format(i=route_table_id))
+                self.disassociate_route_table_from_attachment(
+                    route_table_id=route_table_id,
+                    attachment_id=attachment_id
+                )
+                self.wait_for_available()
+                route_table_id = None
 
         # If not found, create a new route table
         route_table_id = self.create_route_table(route_table_name='{n}-rt'.format(n=self.name))
@@ -2868,6 +2936,7 @@ class TransitGateway(object):
                 attachment_id=attachment_id
             )
         log.info('Completed configuring route table for attachment: {a}'.format(a=attachment_id))
+        return route_table_id
 
     def create_route_table(self, route_table_name=None):
         """Creates a new route table
@@ -3012,7 +3081,7 @@ class TransitGateway(object):
         :raises: AwsTransitGatewayError
         """
         log = logging.getLogger(self.cls_logger + '.enable_propagation')
-        log.info('Enabling route propagation route route table (r) to attachment: {a}'.format(
+        log.info('Enabling route propagation from route table [{r}] to attachment: {a}'.format(
             r=route_table_id, a=attachment_id))
         try:
             response = self.client.enable_transit_gateway_route_table_propagation(
@@ -3155,7 +3224,7 @@ class TransitGateway(object):
         :raises: AwsTransitGatewayError
         """
         log = logging.getLogger(self.cls_logger + '.delete_route')
-        if route.type:
+        if route.route_type:
             if route.route_type == 'propagated':
                 log.info('Route type is propagated, will not be deleted, propagation must be disabled instead: '
                          '{r}'.format(r=str(route)))
