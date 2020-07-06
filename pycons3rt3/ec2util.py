@@ -3617,11 +3617,11 @@ def get_aws_service_permissions(regions, ipv6=False):
     for ip_range in ip_ranges:
         if ipv6:
             permissions_list.append(
-                IpPermission(IpProtocol=-1, CidrIpv6=ip_range, Description='AWS_Service_Range')
+                IpPermission(IpProtocol='-1', CidrIpv6=ip_range, Description='AWS_Service_Range')
             )
         else:
             permissions_list.append(
-                IpPermission(IpProtocol=-1, CidrIp=ip_range, Description='AWS_Service_Range')
+                IpPermission(IpProtocol='-1', CidrIp=ip_range, Description='AWS_Service_Range')
             )
     permissions_list.append(
         IpPermission(IpProtocol='-1', CidrIp='169.254.169.254/32', Description='AWS_MetaData_Service')
