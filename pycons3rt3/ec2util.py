@@ -12,6 +12,7 @@ import traceback
 
 import boto3
 from botocore.client import ClientError
+import requests
 
 from .bash import get_ip_addresses
 from .logify import Logify
@@ -3600,6 +3601,34 @@ def parse_ip_permissions(ip_permissions):
     return permissions_list
 
 
+def get_aws_service_permissions(regions, ipv6=False):
+    """Returns a list of IpPermissions objects for a list of regions
+
+    :param regions: (list) of (str) region IDs to include in the permissions set
+    :param ipv6: (bool) Set True to include only IPv6 results, False for IPv4
+    :return: (list) of IpPermissions objects
+    """
+    log = logging.getLogger(mod_logger + '.get_aws_service_permissions')
+    if not isinstance(regions, list):
+        log.warning('list expected, found: {t}'.format(t=regions.__class__.__name__))
+        return []
+    permissions_list = []
+    ip_ranges = get_aws_service_ips(regions=regions, include_elastic_ips=False, ipv6=ipv6)
+    for ip_range in ip_ranges:
+        if ipv6:
+            permissions_list.append(
+                IpPermission(IpProtocol=-1, CidrIpv6=ip_range, Description='AWS_Service_Range')
+            )
+        else:
+            permissions_list.append(
+                IpPermission(IpProtocol=-1, CidrIp=ip_range, Description='AWS_Service_Range')
+            )
+    permissions_list.append(
+        IpPermission(IpProtocol='-1', CidrIp='169.254.169.254/32', Description='AWS_MetaData_Service')
+    )
+    return permissions_list
+
+
 def parse_ip_routes(ip_routes):
     """Parse a list of Routes as defined in the boto3 documentation and returns
     a list of IpRoutes objects
@@ -3711,3 +3740,74 @@ def parse_transit_gateway_routes(route_table_id, transit_gateway_routes):
                     )
                 )
     return transit_routes_list
+
+
+def get_aws_service_ips(regions=None, include_elastic_ips=False, ipv6=False):
+    """Returns a list of AWS service IP addresses
+
+    Ref: https://docs.aws.amazon.com/general/latest/gr/aws-ip-ranges.html#aws-ip-egress-control
+
+    :param regions: (list) region IDs to include in the results (e.g. [us-gov-west-1, us-gov-east-1])
+    :param include_elastic_ips: (bool) Set True to include attachable EC2 elastic IPs in the results
+    :param ipv6: (bool) Set True to return only IPv6 results, False for IPv4 only
+    :return: (list) of IP addresses
+    """
+    log = logging.getLogger(mod_logger + '.get_aws_service_ips')
+    matching_ip_ranges = []
+    if ipv6:
+        prefix_id = 'ipv6_prefixes'
+    else:
+        prefix_id = 'prefixes'
+    try:
+        ip_ranges = requests.get('https://ip-ranges.amazonaws.com/ip-ranges.json').json()[prefix_id]
+    except Exception as exc:
+        log.error('Problem retrieving the list of IP ranges from AWS{e}\n'.format(e=str(exc)))
+        return matching_ip_ranges
+
+    if ipv6:
+        prefix_key = 'ipv6_prefix'
+        log.info('Returning IPv6 results only')
+    else:
+        prefix_key = 'ip_prefix'
+        log.info('Returning IPv4 results only')
+
+    # Gets the list of 'AMAZON' prefixes, these are used for AWS services
+    candidate_ip_ranges = []
+    amazon_ips = []
+    for ip_range in ip_ranges:
+        if prefix_key not in ip_range.keys():
+            continue
+        if ip_range['service'] == 'AMAZON':
+            amazon_ips.append(ip_range[prefix_key])
+    log.info('Found {n} AMAZON IP prefixes'.format(n=str(len(amazon_ips))))
+
+    # Exclude EC2 elastic IPs if specified
+    if not include_elastic_ips:
+        ec2_ips = [item[prefix_key] for item in ip_ranges if item['service'] == 'EC2']
+        log.info('Excluding {n} EC2 elastic IP prefixes'.format(n=str(len(ec2_ips))))
+        for ip in amazon_ips:
+            if ip not in ec2_ips:
+                candidate_ip_ranges.append(ip)
+    else:
+        log.info('Not excluding EC2 elastic IP addresses')
+        candidate_ip_ranges = list(amazon_ips)
+    log.info('Found {n} candidate IP address prefixes'.format(n=str(len(candidate_ip_ranges))))
+
+    # If regions are not specified, return the candidate list
+    if not regions:
+        return candidate_ip_ranges
+
+    # Filter results by region
+    region_filtered_ip_ranges = []
+    log.info('Filtering results by regions: {r}'.format(r=','.join(regions)))
+    region_ips = []
+    for region in regions:
+        this_region_ips = [item[prefix_key] for item in ip_ranges if item['region'] == region]
+        log.info('Found {n} IP ranges in region: {r}'.format(n=str(len(this_region_ips)), r=region))
+        region_ips += this_region_ips
+    log.info('Found {n} total IP ranges in regions: {r}'.format(n=str(len(region_ips)), r=','.join(regions)))
+    for candidate_ip_range in candidate_ip_ranges:
+        if candidate_ip_range in region_ips:
+            region_filtered_ip_ranges.append(candidate_ip_range)
+    log.info('Found {n} matching IP ranges in regions: {r}'.format(n=str(len(region_filtered_ip_ranges)), r=','.join(regions)))
+    return region_filtered_ip_ranges
