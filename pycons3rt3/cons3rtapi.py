@@ -5,6 +5,7 @@ import json
 import logging
 import os
 import time
+import traceback
 
 from .logify import Logify
 
@@ -4726,14 +4727,18 @@ class Cons3rtApi(object):
             )
 
         for template in templates:
-            self.share_template_to_vrs(
-                provider_vr_id=provider_vr_id,
-                template=template,
-                vr_ids=vr_ids,
-                subscribe=subscribe,
-                online=online,
-                subscriber_vrs_subscriptions=subscriber_vrs_subscriptions
-            )
+            try:
+                self.share_template_to_vrs(
+                    provider_vr_id=provider_vr_id,
+                    template=template,
+                    vr_ids=vr_ids,
+                    subscribe=subscribe,
+                    online=online,
+                    subscriber_vrs_subscriptions=subscriber_vrs_subscriptions
+                )
+            except Cons3rtApiError as exc:
+                msg = 'Problem sharing template to VRs\n{e}\n{t}'.format(e=str(exc), t=traceback.format_exc())
+                log.warning(msg)
 
     def share_templates_to_vrs_by_name(self, provider_vr_id, vr_ids, template_names=None):
         """Shares template by name from the provider VR ID to the list of target VR IDs
