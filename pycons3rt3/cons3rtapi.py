@@ -4681,11 +4681,16 @@ class Cons3rtApi(object):
                 continue
 
             log.info('Setting template {n} online in VR ID: {i}'.format(n=template_name, i=str(vr_id)))
+            # TODO when Tracker 4459 is fixed, include the reg_details['templateData']['maxCpu']
             try:
                 self.update_template_subscription(
                     vr_id=vr_id,
                     template_subscription_id=subscription['id'],
-                    offline=False
+                    offline=False,
+                    state='IN_DEVELOPMENT',
+                    allow_gpu=reg_details['templateData']['hasGpu'],
+                    max_cpus=16,
+                    max_ram_mb=reg_details['templateData']['maxRamInMegabytes']
                 )
             except Cons3rtApiError as exc:
                 msg = 'Problem setting template [{n}] online in VR ID: {i}'.format(n=template_name, i=str(vr_id))
