@@ -2043,7 +2043,8 @@ class EC2Util(object):
             raise AWSAPIError(msg) from exc
 
     def launch_instance(self, ami_id, key_name, subnet_id, security_group_id=None, security_group_list=None,
-                        user_data_script_path=None, instance_type='t2.small', root_device_name='/dev/xvda'):
+                        user_data_script_path=None, instance_type='t3.small', root_volume_location='/dev/xvda',
+                        root_volume_size_gb=100):
         """Launches an EC2 instance with the specified parameters, intended to launch
         an instance for creation of a CONS3RT template.
 
@@ -2055,8 +2056,10 @@ class EC2Util(object):
         :param security_group_list: (list) of IDs of the security group, if not provided the default will be applied
         :param user_data_script_path: (str) Path to the user-data script to run
         :param instance_type: (str) Instance Type (e.g. t2.micro)
-        :param root_device_name: (str) The device name for the root volume
-        :return:
+        :param root_volume_location: (str) The device name for the root volume
+        :param root_volume_size_gb: (int) Size of the root volume in GB
+        :return: (dict) Instance info
+        :raises: EC2UtilError
         """
         log = logging.getLogger(self.cls_logger + '.launch_instance')
         log.info('Launching with AMI ID: {a}'.format(a=ami_id))
@@ -2079,10 +2082,11 @@ class EC2Util(object):
         monitoring = {'Enabled': False}
         block_device_mappings = [
             {
-                'DeviceName': root_device_name,
+                'DeviceName': root_volume_location,
                 'Ebs': {
-                    'VolumeSize': 100,
-                    'DeleteOnTermination': True
+                    'VolumeSize': root_volume_size_gb,
+                    'DeleteOnTermination': True,
+                    'Encrypted': False
                 }
             }
         ]
@@ -3511,7 +3515,7 @@ class TransitGatewayRoute(object):
         return json_output
 
 
-def get_ec2_client(region_name=None, aws_access_key_id=None, aws_secret_access_key=None):
+def get_ec2_client(region_name=None, aws_access_key_id=None, aws_secret_access_key=None, aws_session_token=None):
     """Gets an EC2 client
 
     :return: boto3.client object
@@ -3520,16 +3524,19 @@ def get_ec2_client(region_name=None, aws_access_key_id=None, aws_secret_access_k
     log = logging.getLogger(mod_logger + '.get_ec2_client')
     # Connect to EC2 API
     try:
-        client = boto3.client('ec2', region_name=region_name, aws_access_key_id=aws_access_key_id,
-                              aws_secret_access_key=aws_secret_access_key)
+        client = boto3.client(
+            'ec2',
+            region_name=region_name,
+            aws_access_key_id=aws_access_key_id,
+            aws_secret_access_key=aws_secret_access_key,
+            aws_session_token=aws_session_token
+        )
     except ClientError as exc:
         msg = 'There was a problem connecting to EC2, please check AWS CLI and boto configuration, ensure ' \
               'credentials and region are set appropriately.'
         log.error(msg)
         raise AWSAPIError(msg) from exc
-    else:
-        log.debug('Successfully created an EC2 client')
-        return client
+    return client
 
 
 def parse_ip_permissions(ip_permissions):
@@ -3604,7 +3611,8 @@ def parse_ip_permissions(ip_permissions):
 def get_aws_service_permissions(regions, ipv6=False):
     """Returns a list of IpPermissions objects for a list of regions
 
-    :param regions: (list) of (str) region IDs to include in the permissions set
+    :param regions: (list) of (str) regions to include in the permissions set (e.g. ['us-gov-west-1', 'us-gov-east-1'])
+                    use the region 'GLOBAL' to include global non-region-specific ranges
     :param ipv6: (bool) Set True to include only IPv6 results, False for IPv4
     :return: (list) of IpPermissions objects
     """
@@ -3748,6 +3756,7 @@ def get_aws_service_ips(regions=None, include_elastic_ips=False, ipv6=False):
     Ref: https://docs.aws.amazon.com/general/latest/gr/aws-ip-ranges.html#aws-ip-egress-control
 
     :param regions: (list) region IDs to include in the results (e.g. [us-gov-west-1, us-gov-east-1])
+                           use the region 'GLOBAL' to include global non-region-specific ranges
     :param include_elastic_ips: (bool) Set True to include attachable EC2 elastic IPs in the results
     :param ipv6: (bool) Set True to return only IPv6 results, False for IPv4 only
     :return: (list) of IP addresses

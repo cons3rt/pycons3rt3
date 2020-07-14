@@ -31,7 +31,8 @@ default_image_tags = [
 
 class ImageUtil(object):
 
-    def __init__(self, account_id, region_name=None, aws_access_key_id=None, aws_secret_access_key=None):
+    def __init__(self, account_id, region_name=None, aws_access_key_id=None, aws_secret_access_key=None,
+                 aws_session_token=None):
         self.cls_logger = mod_logger + '.ImageUtil'
         if not isinstance(account_id, str):
             self.account_id = None
@@ -41,10 +42,128 @@ class ImageUtil(object):
             self.ec2 = get_ec2_client(
                 region_name=region_name,
                 aws_access_key_id=aws_access_key_id,
-                aws_secret_access_key=aws_secret_access_key
+                aws_secret_access_key=aws_secret_access_key,
+                aws_session_token=aws_session_token
             )
         except AWSAPIError:
             raise
+
+    def get_image(self, ami_id):
+        """Returns detailed info about the AMI ID
+
+        :param ami_id: (str) ID of the AMI to retrieve
+        :return: (dict) data about the AMI (see boto3 docs)
+        :raises: AWSAPIError
+        """
+        log = logging.getLogger(self.cls_logger + '.update_image')
+        log.info('Describing AMI ID: {i}'.format(i=ami_id))
+        try:
+            response = self.ec2.describe_images(DryRun=False, ImageIds=[ami_id])
+        except ClientError as exc:
+            msg = 'Unable to describe image ID: {a}'.format(a=ami_id)
+            raise AWSAPIError(msg) from exc
+        if 'Images' not in response:
+            msg = 'Images not found in response: {r}'.format(r=str(response))
+            raise AWSAPIError(msg)
+        if len(response['Images']) != 1:
+            msg = 'Expected to find 1 image, found {n} in response: {r}'.format(
+                n=str(len(response['Images'])), r=str(response))
+            raise AWSAPIError(msg)
+        return response['Images'][0]
+
+    def get_image_by_name(self, image_name):
+        """Returns data for the AMI matching the provided AMI name, or None if not found
+
+        :param image_name: (str) Name of the image
+        :return: (dict) data about the AMI (see boto3 docs)
+        """
+        log = logging.getLogger(self.cls_logger + '.get_image_by_name')
+        log.info('Retrieving image with name: {n}'.format(n=image_name))
+        images = self.get_all_images()
+        for image in images:
+            if image['Name'] == image_name:
+                log.info('Found matching image with name [{n}] and ID: {i}'.format(n=image_name, i=image['ImageId']))
+                return image
+        log.info('Image not found matching name: {n}'.format(n=image_name))
+
+    def get_all_images(self):
+        """Returns details about all images in this AWS account
+
+        :return: (list) containing (dict) data about the AMIs (see boto3 docs)
+        :raises: AWSAPIError
+        """
+        log = logging.getLogger(self.cls_logger + '.update_image')
+        log.info('Describing AMIs...')
+        try:
+            response = self.ec2.describe_images(DryRun=False, Owners=[self.account_id])
+        except ClientError as exc:
+            msg = 'Problem describing images in account ID: {i}'.format(i=self.account_id)
+            raise AWSAPIError(msg) from exc
+        if 'Images' not in response:
+            msg = 'Images not found in response: {r}'.format(r=str(response))
+            raise AWSAPIError(msg)
+        return response['Images']
+
+    def delete_image(self, ami_id):
+        """De-registers the AMI, deletes the underlying snapshot(s), and returns the
+        image tags and description for the deleted image
+
+        :param ami_id: (str) ID of the AMI to delete
+        :return: (tuple) name, description, image tags of the deleted image
+        :raises: ImageUtilError
+        """
+        log = logging.getLogger(self.cls_logger + '.delete_image')
+        ami_info = self.get_image(ami_id=ami_id)
+        image_name = None
+
+        # Grab the Image description
+        try:
+            image_name = ami_info['Name']
+            image_description = ami_info['Description']
+            image_tags = ami_info['Tags']
+        except KeyError as exc:
+            log.warning('Name, Description, or Tags not found AMI ID {a}\n{e}'.format(a=ami_id, e=str(exc)))
+            image_description = 'CONS3RT OS Template'
+            image_tags = []
+        log.info('Using description of the current image: {d}'.format(d=image_description))
+
+        for image_tag in image_tags:
+            if image_tag['Key'] == 'cons3rtuuid':
+                cons3rt_uuid = image_tag['Value']
+                log.info('Found existing image cons3rtuuid: {u}'.format(u=cons3rt_uuid))
+
+        # Grab the Snapshot ID
+        snapshot_ids = []
+        for block_device_mapping in ami_info['BlockDeviceMappings']:
+            try:
+                snapshot_id = block_device_mapping['Ebs']['SnapshotId']
+            except KeyError as exc:
+                msg = 'Unable to determine Snapshot ID for AMI ID {a}'.format(a=ami_id)
+                raise ImageUtilError(msg) from exc
+            log.info('Found Snapshot ID of the current image: {s}'.format(s=snapshot_id))
+            snapshot_ids.append(snapshot_id)
+
+        # Deregister the image
+        log.debug('De-registering image ID: {a}...'.format(a=ami_id))
+        try:
+            self.ec2.deregister_image(DryRun=False, ImageId=ami_id)
+        except ClientError as exc:
+            msg = 'Unable to de-register AMI ID: {a}'.format(a=ami_id)
+            raise ImageUtilError(msg) from exc
+        log.info('De-registered image ID: {a}'.format(a=ami_id))
+
+        # Wait 20 seconds
+        log.info('Waiting 20 seconds for the image to de-register...')
+        time.sleep(20)
+
+        # Delete the underlying snapshots
+        for snapshot_id in snapshot_ids:
+            log.info('Deleting snapshot for the old image with ID: {s}'.format(s=snapshot_id))
+            try:
+                self.ec2.delete_snapshot(DryRun=False, SnapshotId=snapshot_id)
+            except ClientError as exc:
+                log.warning('Unable to delete snapshot ID: {s}\n{e}'.format(s=snapshot_id, e=str(exc)))
+        return image_name, image_description, image_tags
 
     def update_image(self, ami_id, instance_id):
         """Replaces an existing AMI ID with an image created from the provided
@@ -52,7 +171,8 @@ class ImageUtil(object):
         
         :param ami_id: (str) ID of the AMI to delete and replace 
         :param instance_id: (str) ID of the instance ID to create an image from
-        :return: None
+        :return: (str) ID of the new AMI
+        :raises: ImageUtilError
         """
         log = logging.getLogger(self.cls_logger + '.update_image')
         if not isinstance(ami_id, str):
@@ -67,67 +187,7 @@ class ImageUtil(object):
         log.info('Removing AMI ID: {a}, and replacing with an image for Instance ID: {i}'.format(
             a=ami_id, i=instance_id))
 
-        # Get the current AMI info
-        try:
-            ami_info = self.ec2.describe_images(DryRun=False, ImageIds=[ami_id], Owners=[self.account_id])
-        except ClientError as exc:
-            msg = 'Unable to describe image ID: {a}.'.format(a=ami_id)
-            raise AWSAPIError(msg) from exc
-        log.debug('Found AMI info: {a}'.format(a=ami_info))
-
-        # Grab the current cons3rtuuid tag data
-        cons3rt_uuid = None
-        try:
-            image_tags = ami_info['Images'][0]['Tags']
-            for image_tag in image_tags:
-                if image_tag['Key'] == 'cons3rtuuid':
-                    cons3rt_uuid = image_tag['Value']
-        except KeyError as exc:
-            msg = 'Unable to find image tags for AMI ID: {a}'.format(
-                a=ami_id)
-            raise ImageUtilError(msg) from exc
-        if cons3rt_uuid is None:
-            raise ImageUtilError('AMI tag cons3rtuuid not found on image ID: {a}'.format(a=ami_id))
-        log.info('Found image tag for cons3rtuuid: {u}'.format(u=cons3rt_uuid))
-        log.debug('Found image tags: {t}'.format(t=image_tags))
-
-        # Grab the Snapshot ID
-        try:
-            snapshot_id = ami_info['Images'][0]['BlockDeviceMappings'][0]['Ebs']['SnapshotId']
-        except KeyError as exc:
-            raise ImageUtilError('Unable to determine Snapshot ID for AMI ID {a}'.format(
-                a=ami_id)) from exc
-        log.info('Found Snapshot ID of the current image: {s}'.format(s=snapshot_id))
-
-        # Grab the Image name
-        try:
-            image_name = ami_info['Images'][0]['Name']
-        except KeyError as exc:
-            raise ImageUtilError('Unable to determine Image name for AMI ID {a}'.format(
-                a=ami_id)) from exc
-        log.info('Found name of the current image: {n}'.format(n=image_name))
-
-        # Grab the Image description
-        try:
-            image_description = ami_info['Images'][0]['Description']
-        except KeyError as exc:
-            log.warning('Unable to determine Image description for AMI ID {a}\n{e}'.format(
-                a=ami_id, e=str(exc)))
-            image_description = 'CONS3RT OS Template'
-        log.info('Using description of the current image: {d}'.format(d=image_description))
-
-        # Deregister the image
-        log.debug('De-registering image ID: {a}...'.format(a=ami_id))
-        try:
-            self.ec2.deregister_image(DryRun=False, ImageId=ami_id)
-        except ClientError as exc:
-            msg = 'Unable to de-register AMI ID: {a}'.format(a=ami_id)
-            raise ImageUtilError(msg) from exc
-        log.info('De-registered image ID: {a}'.format(a=ami_id))
-
-        # Wait 20 seconds
-        log.info('Waiting 20 seconds for the image to de-register...')
-        time.sleep(20)
+        image_name, image_description, image_tags = self.delete_image(ami_id=ami_id)
 
         # Create the new image
         log.info('Creating new image from instance ID: {i}'.format(i=instance_id))
@@ -158,22 +218,17 @@ class ImageUtil(object):
         time.sleep(20)
 
         # Add tags to the new AMI
-        try:
-            self.ec2.create_tags(DryRun=False, Resources=[new_ami_id], Tags=image_tags)
-        except ClientError as exc:
-            msg = 'There was a problem adding tags to the new image ID: {i}\n\nTags: {t}'.format(
-                i=new_ami_id, t=image_tags)
-            raise ImageUtilError(msg) from exc
-        log.info('Successfully added tags to the new image ID: {w}\nTags: {t}'.format(w=new_ami_id, t=image_tags))
-
-        # Delete the Snapshot ID
-        log.debug('Deleting snapshot for the old image with ID: {s}'.format(s=snapshot_id))
-        try:
-            self.ec2.delete_snapshot(DryRun=False, SnapshotId=snapshot_id)
-        except ClientError as exc:
-            msg = 'Unable to delete snapshot ID: {s}'.format(
-                s=snapshot_id)
-            raise ImageUtilError(msg) from exc
+        if len(image_tags) > 0:
+            try:
+                self.ec2.create_tags(DryRun=False, Resources=[new_ami_id], Tags=image_tags)
+            except ClientError as exc:
+                msg = 'There was a problem adding tags to the new image ID: {i}\n\nTags: {t}'.format(
+                    i=new_ami_id, t=image_tags)
+                raise ImageUtilError(msg) from exc
+            log.info('Added tags to the new image ID: {w}\nTags: {t}'.format(w=new_ami_id, t=image_tags))
+        else:
+            log.info('No tags to add to new image ID: {i}'.format(i=new_ami_id))
+        return new_ami_id
 
     def create_cons3rt_template(self, instance_id, name, description='CONS3RT OS template'):
         """Created a new CONS3RT-ready template from an instance ID
@@ -181,7 +236,8 @@ class ImageUtil(object):
         :param instance_id: (str) Instance ID to create the image from
         :param name: (str) Name of the new image
         :param description: (str) Description of the new image
-        :return: None
+        :return: (str) ID of the new AMI
+        :raises: ImageUtilError
         """
         log = logging.getLogger(self.cls_logger + '.create_cons3rt_template')
         if not isinstance(instance_id, str):
@@ -230,39 +286,139 @@ class ImageUtil(object):
             raise ImageUtilError(msg) from exc
         log.info('Successfully added tags to the new image ID: {w}\nTags: {t}'.format(
             w=new_ami_id, t=default_image_tags))
+        return new_ami_id
 
-    def copy_cons3rt_template(self, ami_id, target_region):
-        """Copy a template to another region
+    def set_cons3rt_enabled(self, ami_id, value=True):
+        """Sets the cons3rtenabled tag on an AMI to true or false
+
+        :param ami_id: (str) ID of the AMI to tag
+        :param value: (bool) Set True to set the value of the tag true, False otherwise
+        :return: None
+        :raises: ImageUtilError
+        """
+        log = logging.getLogger(self.cls_logger + '.set_cons3rt_enabled')
+        log.info('Setting cons3rtenabled [{v}] on AMI ID: {i}'.format(v=str(value), i=ami_id))
+        cons3rt_enabled_tag = {
+            'Key': 'cons3rtenabled',
+            'Value': 'true'
+        }
+        if not value:
+            cons3rt_enabled_tag['Value'] = 'false'
+        try:
+            self.ec2.create_tags(DryRun=False, Resources=[ami_id], Tags=[cons3rt_enabled_tag])
+        except ClientError as exc:
+            msg = 'There was a problem adding tags to AMI ID: {i}\n\nTags: {t}'.format(
+                i=ami_id, t=cons3rt_enabled_tag)
+            raise ImageUtilError(msg) from exc
+
+    def set_cons3rt_uuid(self, ami_id, uuid):
+        """Sets the cons3rtuuid tag on an AMI to true or false
+
+        :param ami_id: (str) ID of the AMI to tag
+        :param uuid: (str) cons3rtuuid tag value
+        :return: None
+        :raises: ImageUtilError
+        """
+        log = logging.getLogger(self.cls_logger + '.set_cons3rt_enabled')
+        log.info('Setting cons3rtuuid tag [{u}] on AMI ID: {i}'.format(u=uuid, i=ami_id))
+        cons3rt_uuid_tag = {
+            'Key': 'cons3rtuuid',
+            'Value': uuid
+        }
+        try:
+            self.ec2.create_tags(DryRun=False, Resources=[ami_id], Tags=[cons3rt_uuid_tag])
+        except ClientError as exc:
+            msg = 'There was a problem adding tags to AMI ID: {i}\n\nTags: {t}'.format(
+                i=ami_id, t=cons3rt_uuid_tag)
+            raise ImageUtilError(msg) from exc
+
+    def make_image_public(self, ami_id):
+        """Sets permissions for the AMI ID to public
+
+        :param ami_id: (str) ID of the AMI to make public
+        :return: None
+        :raises: ImageUtilError
+        """
+        log = logging.getLogger(self.cls_logger + '.make_image_public')
+        log.info('Setting AMI to public: {i}'.format(i=ami_id))
+        try:
+            self.ec2.modify_image_attribute(
+                ImageId=ami_id,
+                LaunchPermission={
+                    'Add': [
+                        {
+                            'Group': 'all',
+                        },
+                    ],
+                },
+            )
+        except ClientError as exc:
+            msg = 'Problem setting AMI to public: {i}'.format(i=ami_id)
+            raise ImageUtilError(msg) from exc
+
+    def copy_cons3rt_template(self, ami_id, image_name, source_region, description='CONS3RT OS template'):
+        """Copy a template to another region, includes replacing the existing image of the same name
+        and retaining the cons3rtuuid tag
+
+        Note: The EC2 util must be configured for the DESTINATION region of the copy for this call
         
         :param ami_id: (str) ID of the AMI
-        :param target_region: (str) region ID for the copy destination
-        :return: 
+        :param image_name: (str) Name of the AMI being copied
+        :param source_region: (str) region ID for the copy destination
+        :param description: (str) image description for the new image
+        :return: (str) new copied AMI ID
+        :raises: ImageUtilError
         """
         log = logging.getLogger(self.cls_logger + '.copy_cons3rt_template')
 
-        # Get the current AMI info
-        try:
-            ami_info = self.ec2.describe_images(DryRun=False, ImageIds=[ami_id], Owners=[self.account_id])
-        except ClientError as exc:
-            msg = 'Unable to describe image ID: {a}.'.format(a=ami_id)
-            raise AWSAPIError(msg) from exc
-        log.debug('Found AMI info: {a}'.format(a=ami_info))
-
-        # Grab the current cons3rtuuid tag data
-        cons3rt_uuid = None
-        try:
-            image_tags = ami_info['Images'][0]['Tags']
+        # Check for an existing image of the same name and get its tags and description
+        existing_ami = self.get_image_by_name(image_name=image_name)
+        image_description = description
+        if existing_ami:
+            _, image_description, image_tags = self.delete_image(ami_id=ami_id)
             for image_tag in image_tags:
                 if image_tag['Key'] == 'cons3rtuuid':
                     cons3rt_uuid = image_tag['Value']
-        except KeyError as exc:
-            msg = 'Unable to find image tags for AMI ID: {a}'.format(
-                a=ami_id)
+                    log.info('Found existing image cons3rtuuid: {u}'.format(u=cons3rt_uuid))
+        else:
+            log.info('No existing image found with name: {n}'.format(n=image_name))
+            image_tags = default_image_tags
+
+        # Copy the image
+        log.info('Coping image [{n}] with ID [{i}] from source region: {r}'.format(
+            n=image_name, i=ami_id, r=source_region))
+        try:
+            response = self.ec2.copy_image(
+                Description=image_description,
+                Encrypted=False,
+                Name=image_name,
+                SourceImageId=ami_id,
+                SourceRegion=source_region,
+                DryRun=False
+            )
+        except ClientError as exc:
+            msg = 'Problem copying AMI {i} from region {r}'.format(i=ami_id, r=source_region)
             raise ImageUtilError(msg) from exc
-        if cons3rt_uuid is None:
-            raise ImageUtilError('AMI tag cons3rtuuid not found on image ID: {a}'.format(a=ami_id))
-        log.info('Found image tag for cons3rtuuid: {u}'.format(u=cons3rt_uuid))
-        log.debug('Found image tags: {t}'.format(t=image_tags))
+        if 'ImageId' not in response.keys():
+            msg = 'ImageId not found in response: {r}'.format(r=str(response))
+            raise ImageUtilError(msg)
+        new_ami_id = response['ImageId']
+        log.info('Copied to new image ID: {i}'.format(i=new_ami_id))
+
+        # Wait 20 seconds
+        log.info('Waiting 20 seconds for the image ID {w} to become available...'.format(w=new_ami_id))
+        time.sleep(20)
+
+        # Add tags to the new AMI
+        try:
+            self.ec2.create_tags(DryRun=False, Resources=[new_ami_id], Tags=image_tags)
+        except ClientError as exc:
+            msg = 'There was a problem adding tags to the new image ID: {i}\n\nTags: {t}'.format(
+                i=new_ami_id, t=default_image_tags)
+            raise ImageUtilError(msg) from exc
+        log.info('Successfully added tags to the new image ID: {w}\nTags: {t}'.format(
+            w=new_ami_id, t=default_image_tags))
+        return new_ami_id
 
 
 def main():
