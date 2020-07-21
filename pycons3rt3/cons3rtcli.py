@@ -17,6 +17,7 @@ class Cons3rtCli(object):
         self.args = args
         self.ids = None
         self.names = None
+        self.runs = None
         try:
             self.c5t = Cons3rtApi()
         except Cons3rtApiError as exc:
@@ -24,15 +25,13 @@ class Cons3rtCli(object):
                 e=str(exc)))
 
     def validate_args(self):
-        if not self.args:
-            self.err('No args provided')
-            return False
         try:
             self.ids = validate_ids(self.args)
         except Cons3rtCliError:
             traceback.print_exc()
             return False
         self.names = validate_names(self.args)
+        self.runs = validate_runs(self.args)
         return True
 
     @staticmethod
@@ -565,16 +564,57 @@ class ProjectCli(Cons3rtCli):
 
     def __init__(self, args, subcommands):
         Cons3rtCli.__init__(self, args=args, subcommands=subcommands)
+        self.valid_subcommands = [
+            'list',
+            'run'
+        ]
 
     def process_args(self):
         if not self.validate_args():
             return False
-        if self.args.list:
+        if not self.process_subcommands():
+            return False
+        return True
+
+    def process_subcommands(self):
+        if not self.subcommands:
+            return True
+        if len(self.subcommands) < 1:
+            return True
+        if self.subcommands[0] not in self.valid_subcommands:
+            self.err('Unrecognized command: {c}'.format(c=self.subcommands[0]))
+            return False
+        if self.subcommands[0] == 'list':
             try:
                 self.list_projects()
             except Cons3rtCliError:
                 return False
+        if self.subcommands[0] == 'run':
+            try:
+                self.run()
+            except Cons3rtCliError:
+                return False
         return True
+
+    def run(self):
+        if not self.ids:
+            msg = '--id or --ids arg required to specify the project ID(s)'
+            self.err(msg)
+            raise Cons3rtCliError(msg)
+        if len(self.subcommands) > 1:
+            project_subcommand = self.subcommands[1]
+            if project_subcommand == 'delete':
+                self.delete_runs()
+                return
+            elif project_subcommand == 'list':
+                self.list_runs()
+                return
+            elif project_subcommand == 'release':
+                self.release_runs()
+                return
+            else:
+                self.err('Unrecognized command: {c}'.format(c=project_subcommand))
+            return False
 
     def list_projects(self):
         projects = []
@@ -596,6 +636,67 @@ class ProjectCli(Cons3rtCli):
             projects = self.sort_by_id(projects)
             self.print_projects(project_list=projects)
         print('Total number of projects found: {n}'.format(n=str(len(projects))))
+
+    def list_runs(self):
+        runs = self.list_runs_for_projects()
+        if len(runs) > 0:
+            runs = self.sort_by_id(runs)
+            self.print_drs(dr_list=runs)
+        print('Total number of runs found: {n}'.format(n=str(len(runs))))
+
+    def list_runs_for_projects(self):
+        runs = []
+        if self.args.all:
+            search_type = 'SEARCH_ALL'
+        elif self.args.active:
+            search_type = 'SEARCH_ACTIVE'
+        elif self.args.inactive:
+            search_type = 'SEARCH_INACTIVE'
+        else:
+            search_type = 'SEARCH_ALL'
+        for project_id in self.ids:
+            runs += self.list_runs_for_project(project_id=project_id, search_type=search_type)
+        return runs
+
+    def list_runs_for_project(self, project_id, search_type):
+        try:
+            runs = self.c5t.list_runs_in_project(
+                project_id=project_id,
+                search_type=search_type
+            )
+        except Cons3rtApiError as exc:
+            msg = 'Problem listing runs in project ID: {i}\n{e}'.format(i=str(project_id), e=str(exc))
+            self.err(msg)
+            raise Cons3rtCliError(msg) from exc
+        return runs
+
+    def delete_runs(self):
+        runs = []
+        for project_id in self.ids:
+            runs += self.list_runs_for_project(project_id=project_id, search_type='SEARCH_INACTIVE')
+        if len(runs) > 0:
+            runs = self.sort_by_id(runs)
+        print('Total number of inactive runs found to delete: {n}'.format(n=str(len(runs))))
+        for run in runs:
+            self.c5t.delete_inactive_run(dr_id=run['id'])
+
+    def release_runs(self):
+        runs = []
+        for project_id in self.ids:
+            runs += self.list_runs_for_project(project_id=project_id, search_type='SEARCH_ACTIVE')
+        if len(runs) > 0:
+            runs = self.sort_by_id(runs)
+        else:
+            print('No runs found to release')
+            return
+        print('Total number of inactive runs found to release: {n}'.format(n=str(len(runs))))
+        proceed = input('These runs will not be recoverable, proceed with release? (y/n) ')
+        if not proceed:
+            return
+        if proceed != 'y':
+            return
+        for run in runs:
+            self.c5t.release_deployment_run(dr_id=run['id'])
 
 
 class TeamCli(Cons3rtCli):
@@ -671,3 +772,27 @@ def validate_names(args):
     if len(names) < 1:
         return
     return names
+
+
+def validate_runs(args):
+    """Provided a set of args, validates and returns a list of IDs as ints
+
+    :param args: argparser args
+    :return: (list) of int IDs or None
+    :raises: Cons3rtCliError
+    """
+    run_ids = []
+    potential_run_ids = []
+    if args.run:
+        potential_run_ids.append(args.run)
+    if args.runs:
+        potential_run_ids += args.runs.split(',')
+    if len(potential_run_ids) < 1:
+        return
+    for potential_run_id in potential_run_ids:
+        try:
+            valid_id = int(potential_run_id)
+        except ValueError:
+            raise Cons3rtCliError('--run or --runs provided contains an invalid int: {i}'.format(i=potential_run_id))
+        run_ids.append(valid_id)
+    return run_ids

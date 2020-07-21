@@ -13,7 +13,7 @@ from .cloud import Cloud
 from .cons3rtclient import Cons3rtClient
 from .deployment import Deployment
 from .pycons3rtlibs import RestUser
-from .cons3rtconfig import cons3rtapi_config_file
+from .cons3rtconfig import cons3rtapi_config_file, manual_config
 from .exceptions import Cons3rtClientError, Cons3rtApiError, DeploymentError, InvalidCloudError, \
     InvalidOperatingSystemTemplate
 from .ostemplates import OperatingSystemTemplate, OperatingSystemType
@@ -4156,14 +4156,15 @@ class Cons3rtApi(object):
         log.info('Found {n} active deployment runs in team ID: {i}'.format(i=str(team_id), n=str(len(drs))))
         return drs
 
-    def list_active_runs_in_project(self, project_id):
-        """Returns a list of active deployment runs in the provided project ID
+    def list_runs_in_project(self, project_id, search_type='SEARCH_ALL'):
+        """Returns a list of deployment runs in the provided project ID, using the provided search type
 
-        :param project_id: (int) ID of the team
+        :param project_id: (int) ID of the project
+        :param search_type: (str) defines to search for, all, inactive, or active DRs
         :return: (list) of deployment runs
         :raises: Cons3rtApiError
         """
-        log = logging.getLogger(self.cls_logger + '.list_active_runs_in_project')
+        log = logging.getLogger(self.cls_logger + '.list_runs_in_project')
 
         # Ensure the team_id is an int
         if not isinstance(project_id, int):
@@ -4181,15 +4182,16 @@ class Cons3rtApi(object):
             raise Cons3rtApiError(msg) from exc
 
         # Get a list of DR IDs
-        log.info('Retrieving the list of DRs in each virtualization realm...')
+        log.info('Retrieving the list of DRs in each virtualization realm with search type: {t}'.format(t=search_type))
         drs = []
         for vr in vrs:
             try:
-                vr_drs = self.list_active_deployment_runs_in_virtualization_realm(vr_id=vr['id'])
+                vr_drs = self.list_deployment_runs_in_virtualization_realm(vr_id=vr['id'], search_type=search_type)
             except Cons3rtApiError as exc:
-                msg = 'Problem listing active DRs from VR ID: {i}'.format(i=str(vr['id']))
+                msg = 'Problem listing DRs from VR ID [{i}] with search type: {t}'.format(
+                    i=str(vr['id']), t=search_type)
                 raise Cons3rtApiError(msg) from exc
-            log.info('Found {n} active DRs in VR ID: {i}'.format(n=str(len(vr_drs)), i=str(vr['id'])))
+            log.info('Found {n} DRs in VR ID: {i}'.format(n=str(len(vr_drs)), i=str(vr['id'])))
             for vr_dr in vr_drs:
                 if 'project' not in vr_dr:
                     log.warning('Found DR with no project data: {d}'.format(d=str(vr_dr)))
@@ -4204,6 +4206,33 @@ class Cons3rtApi(object):
                     log.info('Found DR ID {i} not in project ID: {p}'.format(p=str(project_id), i=str(vr_dr['id'])))
         log.info('Found {n} deployment runs in project ID: {i}'.format(i=str(project_id), n=str(len(drs))))
         return drs
+
+    def list_active_runs_in_project(self, project_id):
+        """Returns a list of active deployment runs in the provided project ID
+
+        :param project_id: (int) ID of the team
+        :return: (list) of deployment runs
+        :raises: Cons3rtApiError
+        """
+        return self.list_runs_in_project(project_id=project_id, search_type='SEARCH_ACTIVE')
+
+    def list_inactive_runs_in_project(self, project_id):
+        """Returns a list of inactive deployment runs in the provided project ID
+
+        :param project_id: (int) ID of the team
+        :return: (list) of deployment runs
+        :raises: Cons3rtApiError
+        """
+        return self.list_runs_in_project(project_id=project_id, search_type='SEARCH_INACTIVE')
+
+    def list_all_runs_in_project(self, project_id):
+        """Returns a list of all deployment runs in the provided project ID
+
+        :param project_id: (int) ID of the team
+        :return: (list) of deployment runs
+        :raises: Cons3rtApiError
+        """
+        return self.list_runs_in_project(project_id=project_id, search_type='SEARCH_ALL')
 
     def list_host_details_in_team(self, team_id):
         """Lists details for every deployment run host deployed in the provided team ID

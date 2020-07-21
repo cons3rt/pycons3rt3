@@ -81,6 +81,10 @@ def main():
     parser.add_argument('--share', help='Share templates', action='store_true')
     parser.add_argument('--unlock', help='Remove run locks before taking action', action='store_true')
     parser.add_argument('--provider_id', help='Resource provider ID', required=False)
+    parser.add_argument('--run', help='Run ID relative to the command provided', required=False)
+    parser.add_argument('--runs', help='Run ID(s) relative to the command provided', required=False)
+    parser.add_argument('--inactive', help='Process only inactive runs', required=False, action='store_true')
+    parser.add_argument('--active', help='Process only active runs', required=False, action='store_true')
     args = parser.parse_args()
 
     # Get the command
