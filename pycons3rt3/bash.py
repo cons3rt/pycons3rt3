@@ -1465,16 +1465,19 @@ def system_reboot(wait_time_sec=20):
     raise SystemRebootTimeoutError(msg)
 
 
-def create_user_basic(username):
+def create_user_basic(username, uid=None):
     """Creates a user with default settings
 
     :param username: (str) username
+    :param uid: (int) desired UID for the new user
     :return: None
     :raises: CommandError
     """
     log = logging.getLogger(mod_logger + '.create_user_basic')
     log.info('Attempting to create user with username: {u}'.format(u=username))
     command = ['useradd', username]
+    if uid:
+        command += ['-u', str(uid)]
     try:
         result = run_command(command, timeout_sec=10.0)
     except CommandError as exc:
@@ -1503,6 +1506,46 @@ def remove_user_password(username):
     if result['code'] != 0:
         raise CommandError('passwd exited with code: {c}'.format(c=str(result['code'])))
     log.info('Password removed for user: {u}'.format(u=username))
+
+
+def set_group_id(group_name, new_id):
+    """Sets the group name to the provided new group ID
+
+    :param group_name: (str) group name
+    :param new_id: (int) new ID for the group
+    :return: None
+    :raises CommandError
+    """
+    log = logging.getLogger(mod_logger + '.set_group_id')
+    command = ['groupmod', '-g', str(new_id), group_name]
+    try:
+        result = run_command(command, timeout_sec=10.0)
+    except CommandError as exc:
+        raise CommandError('Problem setting ID for group [{g}]: {i}'.format(g=group_name, i=str(new_id))) from exc
+    if result['code'] != 0:
+        raise CommandError('groupmod exited with code: {c}\n{o}'.format(
+            c=str(result['code']), o=result['output']))
+    log.info('Set ID for group [{g}]: {i}'.format(g=group_name, i=str(new_id)))
+
+
+def set_user_id(username, new_id):
+    """Sets the username to the provided new user ID
+
+    :param username: (str) user name
+    :param new_id: (int) new ID for the user
+    :return: None
+    :raises CommandError
+    """
+    log = logging.getLogger(mod_logger + '.set_user_id')
+    command = ['usermod', '-u', str(new_id), username]
+    try:
+        result = run_command(command, timeout_sec=10.0)
+    except CommandError as exc:
+        raise CommandError('Problem setting ID for user [{u}]: {i}'.format(u=username, i=str(new_id))) from exc
+    if result['code'] != 0:
+        raise CommandError('usermod exited with code: {c}\n{o}'.format(
+            c=str(result['code']), o=result['output']))
+    log.info('Set ID for user [{u}]: {i}'.format(u=username, i=str(new_id)))
 
 
 def main():
