@@ -2155,11 +2155,8 @@ class Cons3rtApi(object):
         except Cons3rtClientError as exc:
             msg = 'Unable to launch deployment run ID: {i}'.format(i=str(deployment_id))
             raise Cons3rtApiError(msg) from exc
-        if 'deploymentRunId' not in dr_info.keys():
-            msg = 'deploymentRunId not found in response: {d}'.format(d=str(dr_info))
-            raise Cons3rtApiError(msg)
         try:
-            dr_id = int(dr_info['deploymentRunId'])
+            dr_id = int(dr_info)
         except ValueError as exc:
             msg = 'deploymentRunId was not an int: {d}'.format(d=str(dr_info['deploymentRunId']))
             raise Cons3rtApiError(msg) from exc
