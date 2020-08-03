@@ -1281,16 +1281,16 @@ class Cons3rtClient:
             msg = 'There was a problem converting data to JSON: {d}'.format(d=str(run_options))
             raise Cons3rtClientError(msg) from exc
 
-        response = self.http_client.http_put(
+        response = self.http_client.http_post(
             rest_user=self.user,
-            target='deployments/{i}/execute'.format(i=deployment_id),
+            target='deployments/{i}/launch'.format(i=deployment_id),
             content_data=json_content)
         try:
-            dr_id = self.http_client.parse_response(response=response)
+            dr_info = self.http_client.parse_response(response=response)
         except Cons3rtClientError as exc:
             msg = 'The HTTP response contains a bad status code'
             raise Cons3rtClientError(msg) from exc
-        return dr_id
+        return dr_info
 
     def delete_deployment_run(self, dr_id):
         response = self.http_client.http_delete(rest_user=self.user, target='drs/' + str(dr_id))

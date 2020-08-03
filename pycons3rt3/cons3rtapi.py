@@ -2151,10 +2151,17 @@ class Cons3rtApi(object):
 
         # Attempt to run the deployment
         try:
-            dr_id = self.cons3rt_client.run_deployment(deployment_id=deployment_id, run_options=run_options)
+            dr_info = self.cons3rt_client.run_deployment(deployment_id=deployment_id, run_options=run_options)
         except Cons3rtClientError as exc:
-            msg = 'Unable to launch deployment run ID: {i}'.format(
-                i=str(deployment_id))
+            msg = 'Unable to launch deployment run ID: {i}'.format(i=str(deployment_id))
+            raise Cons3rtApiError(msg) from exc
+        if 'deploymentRunId' not in dr_info.keys():
+            msg = 'deploymentRunId not found in response: {d}'.format(d=str(dr_info))
+            raise Cons3rtApiError(msg)
+        try:
+            dr_id = int(dr_info['deploymentRunId'])
+        except ValueError as exc:
+            msg = 'deploymentRunId was not an int: {d}'.format(d=str(dr_info['deploymentRunId']))
             raise Cons3rtApiError(msg) from exc
         log.info('Successfully launched deployment ID {d} as deployment run ID: {i}'.format(
             i=str(dr_id), d=str(deployment_id)))
