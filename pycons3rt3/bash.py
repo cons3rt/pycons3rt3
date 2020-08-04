@@ -47,14 +47,15 @@ def enqueue_output(out, queue):
     out.close()
 
 
-def run_command(command, timeout_sec=3600.0, output=True, bufsize=-1):
+def run_command(command, timeout_sec=3600.0, output=True, bufsize=-1, print_output=True):
     """Runs a command using the subprocess module
 
     :param command: List containing the command and all args
-    :param timeout_sec (float) seconds to wait before killing
+    :param timeout_sec: (float) seconds to wait before killing
         the command.
-    :param output (bool) True collects output, False ignores output
-    :param bufsize (int) See python3 subprocess docs
+    :param output: (bool) True collects output, False ignores output
+    :param bufsize: (int) See python3 subprocess docs
+    :param print_output: (bool) Set True to print command output, False to not print
     :return: Dict containing the command output and return code
     :raises CommandError
     """
@@ -91,7 +92,8 @@ def run_command(command, timeout_sec=3600.0, output=True, bufsize=-1):
                     line_str = line.decode('utf-8')
                     line_str = str(line_str).rstrip()
                     output_collector += line_str + '\n'
-                    print(">>> " + line_str)
+                    if print_output:
+                        print(">>> " + line_str)
         log.debug('Waiting for process completion...')
         subproc.wait()
         log.debug('Collecting the exit code...')
@@ -400,7 +402,7 @@ def source(script):
     log.debug('Attempting to source script: {f}'.format(f=script))
     command = ['bash', '-c', '. {s}; env;'.format(s=script)]
     try:
-        result = run_command(command, timeout_sec=10.0, output=True)
+        result = run_command(command, timeout_sec=10.0, output=True, print_output=False)
     except CommandError as exc:
         raise CommandError('Problem sourcing script: {s}'.format(s=script)) from exc
     env = {}
@@ -420,7 +422,6 @@ def source(script):
             continue
         log.debug('Added environment variable {p}={v}'.format(p=entry[0], v=entry[1]))
     os.environ.update(env)
-    log.info('Environment variables updates from script: {s}'.format(s=script))
     return env
 
 
