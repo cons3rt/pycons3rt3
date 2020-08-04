@@ -400,12 +400,12 @@ def source(script):
     log.debug('Attempting to source script: {f}'.format(f=script))
     command = ['bash', '-c', '. {s}; env;'.format(s=script)]
     try:
-        result = run_command(command, timeout_sec=10.0, output=False)
+        result = run_command(command, timeout_sec=10.0, output=True)
     except CommandError as exc:
         raise CommandError('Problem sourcing script: {s}'.format(s=script)) from exc
     env = {}
     if result['output'] == '':
-        log.warning('No environment variable found to update in script: {s}'.format(s=script))
+        log.debug('No environment variable found to update in script: {s}'.format(s=script))
         return
     env_vars = result['output'].split('\n')
     for env_var in env_vars:
