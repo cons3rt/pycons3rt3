@@ -397,10 +397,10 @@ def source(script):
         raise CommandError('script argument must be a string')
     if not os.path.isfile(script):
         raise CommandError('File not found: {f}'.format(f=script))
-    log.info('Attempting to source script: {f}'.format(f=script))
+    log.debug('Attempting to source script: {f}'.format(f=script))
     command = ['bash', '-c', '. {s}; env;'.format(s=script)]
     try:
-        result = run_command(command, timeout_sec=10.0)
+        result = run_command(command, timeout_sec=10.0, output=False)
     except CommandError as exc:
         raise CommandError('Problem sourcing script: {s}'.format(s=script)) from exc
     env = {}
