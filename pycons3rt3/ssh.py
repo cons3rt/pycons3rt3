@@ -204,12 +204,15 @@ def add_host_to_known_hosts(host, known_hosts_file=None):
     log = logging.getLogger(mod_logger + '.add_host_to_known_hosts')
     command = ['ssh-keyscan', '-t', 'rsa', host]
     try:
-        result = run_command(command, timeout_sec=30.0)
+        result = run_command(command, timeout_sec=30.0, output=True, print_output=False)
     except CommandError as exc:
         raise SshConfigError('Problem scanning host for SSH key: {h}'.format(h=host)) from exc
     if result['code'] != 0:
         raise SshConfigError('ssh-keyscan returned code [{c}] scanning host: {h}'.format(c=str(result['code']), h=host))
     host_key = result['output']
+    if 'getaddrinfo' in host_key:
+        msg = 'Host key not returned in output:\n{o}'.format(o=host_key)
+        raise SshConfigError(msg)
     try:
         added_keys = add_host_key_to_known_hosts(key_contents=host_key, known_hosts_file=known_hosts_file)
     except CommandError as exc:
