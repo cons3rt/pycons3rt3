@@ -137,6 +137,37 @@ def git_clone(url, clone_dir, branch='master', username=None, password=None, max
         time.sleep(retry_sec)
 
 
+def git_pull(git_repo_dir):
+    """Pulls the latest got on the current branch
+
+    :param git_repo_dir: (str) path to the git repo directory
+    :return: None
+    :raises:
+    """
+    log = logging.getLogger(mod_logger + '.git_pull')
+    if not os.path.isdir(git_repo_dir):
+        raise PyGitError('Git repo directory not found: {d}'.format(d=git_repo_dir))
+    try:
+        git_cmd = get_git_cmd()
+    except PyGitError as exc:
+        raise PyGitError('git command not found, cannot list branches') from exc
+    current_dir = os.getcwd()
+    os.chdir(git_repo_dir)
+    git_pull_command = [git_cmd, 'pull', '--rebase']
+    log.info('Running command [{c}] in git repo: {r}'.format(c=' '.join(git_pull_command), r=git_repo_dir))
+    err_msg = None
+    try:
+        result = run_command(command=git_pull_command)
+    except CommandError as exc:
+        err_msg = 'There was a problem running git\n{e}'.format(e=str(exc))
+    else:
+        if result['code'] != 0:
+            err_msg = 'git returned a non-zero code [{c}] and output:\n{o}'.format(c=result['code'], o=result['output'])
+    os.chdir(current_dir)
+    if err_msg:
+        raise PyGitError(err_msg)
+
+
 def list_branches(git_repo_dir):
     """Returns a list of branches in a git repo
 
