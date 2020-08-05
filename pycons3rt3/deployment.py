@@ -789,7 +789,8 @@ class Deployment(object):
         external_ip = None
         for cons3rt_network in cons3rt_network_info:
             if cons3rt_network['network_name'] == network_name:
-                external_ip = cons3rt_network['external_ip']
+                if 'external_ip' in cons3rt_network.keys():
+                    external_ip = cons3rt_network['external_ip']
         if not external_ip:
             log.warning('Unable to find an external IP for network: {n}'.format(n=network_name))
             return
