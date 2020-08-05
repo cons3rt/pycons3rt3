@@ -154,7 +154,7 @@ def list_branches(git_repo_dir):
     os.chdir(git_repo_dir)
     command = [git_cmd, 'branch', '-a']
     try:
-        result = run_command(command, timeout_sec=10.0)
+        result = run_command(command, timeout_sec=10.0, output=True, print_output=False)
     except CommandError as exc:
         os.chdir(current_dir)
         raise PyGitError('Problem list git branches') from exc
