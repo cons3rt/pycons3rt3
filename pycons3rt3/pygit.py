@@ -86,7 +86,6 @@ def git_clone(url, clone_dir, branch='master', username=None, password=None, max
 
     # Find the git command
     if git_cmd is None:
-        log.info('Git executable not provided, attempting to determine (this will only work on *NIX platforms...')
         try:
             git_cmd = get_git_cmd()
         except PyGitError as exc:
