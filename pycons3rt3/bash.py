@@ -224,7 +224,7 @@ def ip_addr():
 
     command = ['ip', 'addr']
     try:
-        ip_addr_result = run_command(command, timeout_sec=20)
+        ip_addr_result = run_command(command, timeout_sec=20, output=True, print_output=False)
     except CommandError as exc:
         raise CommandError('There was a problem running command: {c}'.format(c=' '.join(command))) from exc
 
@@ -262,7 +262,7 @@ def get_ip_addresses():
 
     command = ['/sbin/ifconfig']
     try:
-        result = run_command(command)
+        result = run_command(command, output=True, print_output=False)
     except CommandError as exc:
         raise CommandError('There was a problem running ifconfig') from exc
     ifconfig = result['output'].strip()
