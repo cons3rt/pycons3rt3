@@ -19,6 +19,10 @@ class Cons3rtApiError(Exception):
     """There was a problem executing a CON3RT API call"""
 
 
+class Cons3rtReportsError(Exception):
+    """Problem generating CONS3RT reports"""
+
+
 class HttpError(Exception):
     """There was a problem with an HTTP request"""
 

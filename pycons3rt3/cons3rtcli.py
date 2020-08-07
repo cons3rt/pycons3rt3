@@ -3,7 +3,8 @@
 import traceback
 
 from .cons3rtapi import Cons3rtApi
-from .exceptions import Cons3rtApiError
+from .exceptions import Cons3rtApiError, Cons3rtReportsError
+from .reports import generate_team_report
 
 
 class Cons3rtCliError(Exception):
@@ -55,6 +56,7 @@ class Cons3rtCli(object):
     @staticmethod
     def err(msg):
         print('ERROR: {m}'.format(m=msg))
+        traceback.print_exc()
 
     @staticmethod
     def print_drs(dr_list):
@@ -703,12 +705,15 @@ class TeamCli(Cons3rtCli):
 
     def __init__(self, args, subcommands=None):
         Cons3rtCli.__init__(self, args=args, subcommands=subcommands)
+        self.valid_subcommands = [
+            'report'
+        ]
 
     def process_args(self):
-        if self.subcommands:
-            self.process_subcommands()
         if not self.validate_args():
             return False
+        if self.subcommands:
+            self.process_subcommands()
         if self.args.list:
             try:
                 self.list_teams()
@@ -717,7 +722,44 @@ class TeamCli(Cons3rtCli):
         return True
 
     def process_subcommands(self):
-        print('Subcommands: ' + str(self.subcommands))
+        if not self.subcommands:
+            return True
+        if len(self.subcommands) < 1:
+            return True
+        if self.subcommands[0] not in self.valid_subcommands:
+            self.err('Unrecognized command: {c}'.format(c=self.subcommands[0]))
+            return False
+        if self.subcommands[0] == 'list':
+            try:
+                self.list_teams()
+            except Cons3rtCliError:
+                return False
+        elif self.subcommands[0] == 'report':
+            try:
+                self.generate_reports()
+            except Cons3rtCliError:
+                return False
+        return True
+
+    def generate_reports(self):
+        if not self.ids:
+            msg = '--id or --ids arg required to specify the team ID(s) to generate reports for'
+            self.err(msg)
+            raise Cons3rtCliError(msg)
+        for team_id in self.ids:
+            self.generate_report(team_id=team_id)
+
+    def generate_report(self, team_id):
+
+        load = False
+        if self.args.load:
+            load = True
+        try:
+            generate_team_report(team_id=team_id, load=load)
+        except Cons3rtReportsError as exc:
+            msg = 'Problem generating report for team ID: {i}\n{e}'.format(i=str(team_id), e=str(exc))
+            self.err(msg)
+            raise Cons3rtCliError(msg) from exc
 
     def list_teams(self):
         teams = []
