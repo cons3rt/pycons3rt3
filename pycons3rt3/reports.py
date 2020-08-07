@@ -119,6 +119,12 @@ def generate_cons3rt_data(team_id):
                     )
             else:
                 log.warning('installations data not found in run host ID: {i}'.format(i=str(drh_details['id'])))
+            system_role_str = ''
+            if 'systemRole' in drh_details.keys():
+                system_role_str = drh_details['systemRole']
+            template_name = ''
+            if 'physicalMachineOrTemplateName' in drh_details.keys():
+                template_name = drh_details['physicalMachineOrTemplateName']
             drh_data.append(
                 {
                     'team_id': team_id,
@@ -133,7 +139,9 @@ def generate_cons3rt_data(team_id):
                     'dep_props': dep_props_str,
                     'host_id': drh_details['id'],
                     'hostname': drh_details['hostname'],
+                    'system_role': system_role_str,
                     'host_status': drh_details['fapStatus'],
+                    'template_name': template_name,
                     'cpus': drh_details['numCpus'],
                     'ram_mb': drh_details['ram'],
                     'storage_gb': storage_gb,
@@ -158,7 +166,9 @@ def generate_cons3rt_header():
            'DeploymentProperties,' \
            'HostId,' \
            'Hostname,' \
+           'SystemRole,' \
            'HostStatus,' \
+           'OsTemplate,' \
            'Cpus,' \
            'RamMb,' \
            'StorageGb,' \
@@ -179,7 +189,9 @@ def generate_cons3rt_row(cons3rt_vm):
            cons3rt_vm['dep_props'] + ',' + \
            str(cons3rt_vm['host_id']) + ',' + \
            cons3rt_vm['hostname'] + ',' + \
+           cons3rt_vm['system_role'] + ',' + \
            str(cons3rt_vm['host_status']) + ',' + \
+           cons3rt_vm['template_name'] + ',' + \
            str(cons3rt_vm['cpus']) + ',' + \
            str(cons3rt_vm['ram_mb']) + ',' + \
            str(cons3rt_vm['storage_gb']) + ',' + \
