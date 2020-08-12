@@ -2280,7 +2280,7 @@ class EC2Util(object):
             raise EC2UtilError('VPC not created with name: {n}'.format(n=vpc_name))
 
         if 'VpcId' not in response['Vpc'].keys():
-            raise EC2UtilError('VpcId data not found in{ {d}'.format(d=str(response['Vpc'])))
+            raise EC2UtilError('VpcId data not found in: {d}'.format(d=str(response['Vpc'])))
         vpc_id = response['Vpc']['VpcId']
         log.info('Created new VPC with ID: {i}'.format(i=vpc_id))
 
@@ -2303,6 +2303,27 @@ class EC2Util(object):
         log.info('Successfully created VPC name {n} with ID: {n}'.format(n=vpc_name, i=vpc_id))
         return vpc_id
 
+    def add_vpc_cidr(self, vpc_id, cidr, amazon_ipv6_cidr=False):
+        """Adds the provided CIDR block to the VPC
+
+        :param vpc_id: (str) ID of the VPC
+        :param cidr: (str) CIDR block to add
+        :param amazon_ipv6_cidr: (bool)
+        :return: None
+        :raises: EC2UtilError
+        """
+        log = logging.getLogger(self.cls_logger + '.add_vpc_cidr')
+        log.info('Adding CIDR [{c}] to VPC ID: {i}'.format(c=cidr, i=vpc_id))
+        try:
+            self.client.associate_vpc_cidr_block(
+                AmazonProvidedIpv6CidrBlock=amazon_ipv6_cidr,
+                CidrBlock=cidr,
+                VpcId=vpc_id
+            )
+        except ClientError as exc:
+            msg = 'There was a problem adding CIDR [{c}] to VPC ID: {i}'.format(c=cidr, i=vpc_id)
+            raise EC2UtilError(msg) from exc
+
     def create_usable_vpc(self, vpc_name, cidr_block):
         """Creates a VPC with a subnet that routes to an Internet Gateway, and default Network ACL and routes
 
@@ -2317,7 +2338,7 @@ class EC2Util(object):
             vpc_id = self.create_vpc(vpc_name=vpc_name, cidr_block=cidr_block)
         except EC2UtilError as exc:
             raise EC2UtilError('Problem creating a VPC') from exc
-        log.info('Created VPC ID: {i]'.format(i=vpc_id))
+        log.info('Created VPC ID: {i}'.format(i=vpc_id))
 
         # Create an Internet Gateway
         try:
@@ -2343,6 +2364,201 @@ class EC2Util(object):
         except ClientError as exc:
             raise EC2UtilError('Problem attaching Internet gateway {i} to VPC {v}'.format(i=ig_id, v=vpc_id)) from exc
         log.info('Successfully attach Internet gateway {i} to VPC: {v}'.format(i=ig_id, v=vpc_id))
+        return vpc_id
+
+    def create_subnet(self, name, vpc_id, cidr, availability_zone=None):
+        """Creates a subnet
+
+        :param name: (str) subnet name
+        :param vpc_id: (str) VPC ID
+        :param cidr: (str) subnet CIDR block
+        :param availability_zone: (str) availability zone
+        :return: (str) subnet ID
+        :raises: EC2UtilError
+        """
+        log = logging.getLogger(self.cls_logger + '.create_subnet')
+        log.info('Creating subnet in with name [{n}] in VPC ID [{v}] with CIDR: {c}'.format(
+            n=name, v=vpc_id, c=cidr))
+        try:
+            log.info('Requesting subnet in availability zone: {z}'.format(z=availability_zone))
+            if availability_zone:
+                response = self.client.create_subnet(CidrBlock=cidr, VpcId=vpc_id, DryRun=False,
+                                                     AvailabilityZone=availability_zone)
+            else:
+                response = self.client.create_subnet(CidrBlock=cidr, VpcId=vpc_id, DryRun=False)
+        except ClientError as exc:
+            msg = 'There was a problem creating subnet with name [{n}] and  CIDR [{c}] in VPC ID: {i}'.format(
+                n=name, c=cidr, i=vpc_id)
+            raise EC2UtilError(msg) from exc
+
+        # Get the new VPC ID
+        if 'Subnet' not in response.keys():
+            raise EC2UtilError('Subnet not created with name: {n}'.format(n=name))
+
+        if 'SubnetId' not in response['Subnet'].keys():
+            raise EC2UtilError('SubnetId data not found in: {d}'.format(d=str(response['Subnet'])))
+        subnet_id = response['Subnet']['SubnetId']
+
+        # Apply the name tag
+        try:
+            self.client.create_tags(
+                DryRun=False,
+                Resources=[
+                    subnet_id
+                ],
+                Tags=[
+                    {
+                        'Key': 'Name',
+                        'Value': name
+                    }
+                ]
+            )
+        except ClientError as exc:
+            raise EC2UtilError('Problem adding tags to set the name of subnet ID: {i}'.format(i=subnet_id)) from exc
+        log.info('Created new subnet with ID: {i}'.format(i=subnet_id))
+        return subnet_id
+
+    def create_route_table(self, name, vpc_id):
+        """Creates a subnet
+
+        :param name: (str) route table name
+        :param vpc_id: (str) VPC ID
+        :return: (str) route table ID
+        :raises: EC2UtilError
+        """
+        log = logging.getLogger(self.cls_logger + '.create_route_table')
+        log.info('Creating route table with name [{n}] in VPC ID: {v}'.format(n=name, v=vpc_id))
+        try:
+            response = self.client.create_route_table(VpcId=vpc_id, DryRun=False)
+        except ClientError as exc:
+            msg = 'There was a problem creating route table [{n}] in VPC ID: {i}'.format(n=name, i=vpc_id)
+            raise EC2UtilError(msg) from exc
+
+        # Get the new VPC ID
+        if 'RouteTable' not in response.keys():
+            raise EC2UtilError('Route Table not created with name: {n}'.format(n=name))
+
+        if 'RouteTableId' not in response['RouteTable'].keys():
+            raise EC2UtilError('RouteTableId data not found in: {d}'.format(d=str(response['RouteTable'])))
+        route_table_id = response['RouteTable']['RouteTableId']
+
+        # Apply the name tag
+        try:
+            self.client.create_tags(
+                DryRun=False,
+                Resources=[
+                    route_table_id
+                ],
+                Tags=[
+                    {
+                        'Key': 'Name',
+                        'Value': name
+                    }
+                ]
+            )
+        except ClientError as exc:
+            msg = 'Problem adding tags to set the name of route table ID: {i}'.format(i=route_table_id)
+            raise EC2UtilError(msg) from exc
+        log.info('Created new route table with ID: {i}'.format(i=route_table_id))
+        return route_table_id
+
+    def associate_route_table(self, route_table_id, subnet_id):
+        """Associates the route table to the subnet
+
+        :param route_table_id: (str) ID of the route table
+        :param subnet_id: (str) ID of the subnet
+        :return: (str) ID of the association
+        :raises: EC2UtilError
+        """
+        log = logging.getLogger(self.cls_logger + '.associate_route_table')
+        log.info('Associating route table [{r}] with subnet ID: {s}'.format(r=route_table_id, s=subnet_id))
+        try:
+            response = self.client.associate_route_table(RouteTableId=route_table_id, SubnetId=subnet_id, DryRun=False)
+        except ClientError as exc:
+            msg = 'Problem associating route table [{r}] with subnet ID: {s}'.format(r=route_table_id, s=subnet_id)
+            raise EC2UtilError(msg) from exc
+
+        # Get the new VPC ID
+        if 'AssociationId' not in response.keys():
+            raise EC2UtilError('AssociationId not found in response: {d}'.format(d=str(response)))
+        association_id = response['AssociationId']
+        log.info('Associated route table [{r}] to subnet [{s}] with association ID: {a}'.format(
+            r=route_table_id, s=subnet_id, a=association_id))
+        return association_id
+
+    def create_network_acl(self, name, vpc_id):
+        """Creates a subnet
+
+        :param name: (str) route table name
+        :param vpc_id: (str) VPC ID
+        :return: (str) route table ID
+        :raises: EC2UtilError
+        """
+        log = logging.getLogger(self.cls_logger + '.create_network_acl')
+        log.info('Creating network ACL with name [{n}] in VPC ID: {v}'.format(n=name, v=vpc_id))
+        try:
+            response = self.client.create_network_acl(VpcId=vpc_id, DryRun=False)
+        except ClientError as exc:
+            msg = 'There was a problem creating network ACL [{n}] in VPC ID: {i}'.format(n=name, i=vpc_id)
+            raise EC2UtilError(msg) from exc
+
+        # Get the new VPC ID
+        if 'NetworkAcl' not in response.keys():
+            raise EC2UtilError('Network ACL not created with name: {n}'.format(n=name))
+
+        if 'NetworkAclId' not in response['NetworkAcl'].keys():
+            raise EC2UtilError('NetworkAclId data not found in: {d}'.format(d=str(response['NetworkAcl'])))
+        network_acl_id = response['NetworkAcl']['NetworkAclId']
+
+        # Apply the name tag
+        try:
+            self.client.create_tags(
+                DryRun=False,
+                Resources=[
+                    network_acl_id
+                ],
+                Tags=[
+                    {
+                        'Key': 'Name',
+                        'Value': name
+                    }
+                ]
+            )
+        except ClientError as exc:
+            msg = 'Problem adding tags to set the name of network ACL ID: {i}'.format(i=network_acl_id)
+            raise EC2UtilError(msg) from exc
+        log.info('Created new network ACL with ID: {i}'.format(i=network_acl_id))
+        return network_acl_id
+
+    def associate_network_acl(self, network_acl_id, subnet_id):
+        """Associates the network ACL to the subnet
+
+        :param network_acl_id: (str) ID of the network ACL
+        :param subnet_id: (str) ID of the subnet
+        :return: (str) ID of the association
+        :raises: EC2UtilError
+        """
+        log = logging.getLogger(self.cls_logger + '.associate_network_acl')
+
+        # Get the current/default subnet association
+        # TODO
+
+        log.info('Associating network ACL [{n}] with subnet ID: {s}'.format(n=network_acl_id, s=subnet_id))
+        try:
+            response = self.client.replace_network_acl_association(
+                AssociationId='TBD', NetworkAclId=network_acl_id, DryRun=False
+            )
+        except ClientError as exc:
+            msg = 'Problem associating network ACL [{n}] with subnet ID: {s}'.format(n=network_acl_id, s=subnet_id)
+            raise EC2UtilError(msg) from exc
+
+        # Get the new VPC ID
+        if 'NewAssociationId' not in response.keys():
+            raise EC2UtilError('NewAssociationId not found in response: {d}'.format(d=str(response)))
+        new_association_id = response['NewAssociationId']
+        log.info('Associated network ACL [{n}] to subnet [{s}] with association ID: {a}'.format(
+            n=network_acl_id, s=subnet_id, a=new_association_id))
+        return new_association_id
 
 
 class IpPermission(object):
