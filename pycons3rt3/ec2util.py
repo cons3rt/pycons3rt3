@@ -88,7 +88,7 @@ class EC2Util(object):
                 return False
             try:
                 if resource_id.startswith('i-'):
-                    self.client.describe_instances(InstanceIds=[resource_id], IncludeAllInstances=True)
+                    self.client.describe_instances(InstanceIds=[resource_id])
                 elif resource_id.startswith('subnet-'):
                     self.client.describe_subnets(SubnetIds=[resource_id])
                 elif resource_id.startswith('sg-'):
