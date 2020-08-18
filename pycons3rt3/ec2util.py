@@ -65,6 +65,111 @@ class EC2Util(object):
         else:
             self.vpc_id = None
 
+    def ensure_exists(self, resource_id, timeout_sec=300):
+        """Ensure the provided resource ID exists
+
+        :param resource_id: (str) ID of the resource
+        :param timeout_sec: (int) seconds to wait before returning False
+        :return: (bool) True when found, False if does not exist in the provided timeout
+        :raises: None
+        """
+        log = logging.getLogger(self.cls_logger + '.ensure_exists')
+        check_interval_sec = 2
+        num_checks = timeout_sec // check_interval_sec
+        start_time = time.time()
+        log.info('Waiting a maximum of {t} seconds for resource ID [{i}] become available'.format(
+            t=str(timeout_sec), i=resource_id))
+        for _ in range(0, num_checks*2):
+            time.sleep(check_interval_sec)
+            elapsed_time = round(time.time() - start_time, 1)
+            if elapsed_time > timeout_sec:
+                log.warning('Resource ID {i} has not passed instance status checks after {t} seconds'.format(
+                    i=resource_id, t=str(timeout_sec)))
+                return False
+            try:
+                if resource_id.startswith('i-'):
+                    self.client.describe_instances(InstanceIds=[resource_id], IncludeAllInstances=True)
+                elif resource_id.startswith('subnet-'):
+                    self.client.describe_subnets(SubnetIds=[resource_id])
+                elif resource_id.startswith('sg-'):
+                    self.client.describe_security_groups(GroupIds=[resource_id])
+                elif resource_id.startswith('rtb-'):
+                    self.client.describe_route_tables(RouteTableIds=[resource_id])
+                elif resource_id.startswith('acl-'):
+                    self.client.describe_network_acls(NetworkAclIds=[resource_id])
+                elif resource_id.startswith('vpc-'):
+                    self.client.describe_vpcs(VpcIds=[resource_id])
+                elif resource_id.startswith('igw-'):
+                    self.client.describe_vpcs(InternetGatewayIds=[resource_id])
+                else:
+                    log.warning('Resource type not supported for this method: {r}'.format(r=resource_id))
+                    return False
+            except ClientError as exc:
+                log.info('Resource ID not found: {i}\n{e}'.format(i=resource_id, e=str(exc)))
+                continue
+            else:
+                log.info('Found resource ID: {i}'.format(i=resource_id))
+                return True
+        return False
+
+    def create_tag(self, resource_id, tag_key, tag_value):
+        """Adds/updates the tag key with the specified value on the resource ID
+
+        :param resource_id: (str) ID of the resource to tag
+        :param tag_key: (str) tag key
+        :param tag_value: (str) tag value
+        :return: (bool) True if successful, False otherwise
+        """
+        log = logging.getLogger(self.cls_logger + '.create_tag')
+        log.info('Adding tag [{k}={v}] resource ID: {i}'.format(k=tag_key, v=tag_value, i=resource_id))
+        try:
+            self.client.create_tags(
+                DryRun=False,
+                Resources=[resource_id],
+                Tags=[
+                    {
+                        'Key': tag_key,
+                        'Value': tag_value
+                    }
+                ]
+            )
+        except ClientError as exc:
+            msg = 'Problem adding tag [{k}={v}] resource ID: {i}\n{e}'.format(
+                k=tag_key, v=tag_value, i=resource_id, e=str(exc))
+            log.error(msg)
+            return False
+        return True
+
+    def create_name_tag(self, resource_id, resource_name):
+        """Creates the name tag on the specified resource ID
+
+        :param resource_id: (str) ID of the resource to tag
+        :param resource_name: (str) desired name tag for the resource
+        :return: True if successful, False otherwise
+        """
+        return self.create_tag(
+            resource_id=resource_id,
+            tag_key='Name',
+            tag_value=resource_name
+        )
+
+    def create_cons3rt_enabled_tag(self, resource_id, enabled=True):
+        """Creates the name tag on the specified resource ID
+
+        :param resource_id: (str) ID of the resource to tag
+        :param enabled: (bool) Set True to enable this resource for CONS3RT, false otherwise
+        :return: True if successful, False otherwise
+        """
+        if enabled:
+            enabled_str = 'true'
+        else:
+            enabled_str = 'false'
+        return self.create_tag(
+            resource_id=resource_id,
+            tag_key='cons3rtenabled',
+            tag_value=enabled_str
+        )
+
     def get_vpc_id(self):
         """Gets the VPC ID for this EC2 instance
 
@@ -1529,12 +1634,21 @@ class EC2Util(object):
                 VpcId=vpc_id
             )
         except ClientError as exc:
-            msg = 'Unable to create Security Group <{n}> in VPC: {v}'.format(n=name, v=vpc_id)
-            log.error(msg)
-            raise AWSAPIError(msg) from exc
-        else:
-            log.info('Successfully created Security Group <{n}> in VPC: {v}'.format(n=name, v=vpc_id))
-        return response['GroupId']
+            msg = 'Unable to create Security Group with name [{n}] in VPC: {v}'.format(n=name, v=vpc_id)
+            raise EC2UtilError(msg) from exc
+        log.info('Successfully created Security Group <{n}> in VPC: {v}'.format(n=name, v=vpc_id))
+        if 'GroupId' not in response.keys():
+            raise EC2UtilError('GroupId not found in response: {r}'.format(r=str(response)))
+        security_group_id = response['GroupId']
+
+        # Ensure the security group ID exists
+        if not self.ensure_exists(resource_id=security_group_id):
+            raise EC2UtilError('Problem finding security group ID after timeout: {i}'.format(i=security_group_id))
+
+        # Set the name tag
+        if not self.create_name_tag(resource_id=security_group_id, resource_name=name):
+            raise EC2UtilError('Problem setting name tag for security group ID: {i}'.format(i=security_group_id))
+        return security_group_id
 
     def list_security_groups_in_vpc(self, vpc_id=None):
         """Lists security groups in the VPC.  If vpc_id is not provided, use self.vpc_id
@@ -2144,7 +2258,7 @@ class EC2Util(object):
         start_time = time.time()
         log.info('Waiting a maximum of {t} seconds for instance ID [{i}] to reach a running state'.format(
             t=str(timeout_sec), i=instance_id))
-        for _ in range(0, num_checks):
+        for _ in range(0, num_checks*2):
             log.info('Waiting {t} seconds to check state of instance ID: {i}'.format(
                 t=str(check_interval_sec), i=instance_id))
             time.sleep(check_interval_sec)
@@ -2169,7 +2283,7 @@ class EC2Util(object):
             if 'Instances' not in reservation.keys():
                 log.warning('Instances not found in reservation: {r}'.format(r=str(reservation)))
                 continue
-            if len(response['Instances']) != 1:
+            if len(reservation['Instances']) != 1:
                 log.warning('Expected 1 instance, found in reservation: {n}'.format(
                     n=str(len(reservation['Instances']))))
                 continue
@@ -2180,11 +2294,15 @@ class EC2Util(object):
             if 'State' not in instance.keys():
                 log.warning('State not found in instance data: {i}'.format(i=str(instance)))
                 continue
-            if instance['State'] == 'running':
+            if 'Name' not in instance['State'].keys():
+                log.warning('Name not found in instance state data: {i}'.format(i=str(instance['State'])))
+                continue
+            if instance['State']['Name'] == 'running':
                 log.info('Instance ID [{i}] state is running, exiting...'.format(i=instance_id))
                 return True
             else:
-                log.info('Instance ID [{i}] is in state: {s}'.format(i=instance_id, s=instance['State']))
+                log.info('Instance ID [{i}] is in state: {s}'.format(i=instance_id, s=instance['State']['Name']))
+        return False
 
     def wait_for_instance_status_checks(self, instance_id, timeout_sec=900):
         """Waits until the instance ID is in a running state
@@ -2200,7 +2318,7 @@ class EC2Util(object):
         start_time = time.time()
         log.info('Waiting a maximum of {t} seconds for instance ID [{i}] to pass its instance status checks'.format(
             t=str(timeout_sec), i=instance_id))
-        for _ in range(0, num_checks):
+        for _ in range(0, num_checks*2):
             log.info('Waiting {t} seconds to check status of instance ID: {i}'.format(
                 t=str(check_interval_sec), i=instance_id))
             time.sleep(check_interval_sec)
@@ -2268,6 +2386,7 @@ class EC2Util(object):
                 continue
             log.info('Both instance and system statii are [ok], exiting...')
             return True
+        return False
 
     def wait_for_instance_availability(self, instance_id):
         """Waits for instance to be running and passed all status checks
@@ -2458,22 +2577,13 @@ class EC2Util(object):
         vpc_id = response['Vpc']['VpcId']
         log.info('Created new VPC with ID: {i}'.format(i=vpc_id))
 
+        # Ensure the VPC created exists
+        if not self.ensure_exists(resource_id=vpc_id):
+            raise EC2UtilError('Created VPC ID not found after timeout: {i}'.format(i=vpc_id))
+
         # Apply the name tag
-        try:
-            self.client.create_tags(
-                DryRun=False,
-                Resources=[
-                    vpc_id
-                ],
-                Tags=[
-                    {
-                        'Key': 'Name',
-                        'Value': vpc_name
-                    }
-                ]
-            )
-        except ClientError as exc:
-            raise EC2UtilError('Problem adding tags to set the name of VPC ID: {i}'.format(i=vpc_id)) from exc
+        if not self.create_name_tag(resource_id=vpc_id, resource_name=vpc_name):
+            raise EC2UtilError('Problem setting name tag for VPC ID: {i}'.format(i=vpc_id))
         log.info('Successfully created VPC name {n} with ID: {n}'.format(n=vpc_name, i=vpc_id))
         return vpc_id
 
@@ -2529,6 +2639,15 @@ class EC2Util(object):
         ig_id = internet_gateway['InternetGateway']['InternetGatewayId']
         log.info('Created Internet gateway: {i}'.format(i=ig_id))
 
+        # Ensure the internet gateway exists
+        if not self.ensure_exists(resource_id=ig_id):
+            raise EC2UtilError('Created Internet Gateway ID [{i}] not available after a timeout'.format(i=ig_id))
+
+        # Add the name tag
+        if not self.create_name_tag(resource_id=ig_id, resource_name=vpc_name + '-ig'):
+            raise EC2UtilError('Problem creating name tag for Internet gateway: {i}'.format(i=ig_id))
+
+        # Attach the Internet gateway
         try:
             self.client.attach_internet_gateway(
                 DryRun=False,
@@ -2573,22 +2692,13 @@ class EC2Util(object):
             raise EC2UtilError('SubnetId data not found in: {d}'.format(d=str(response['Subnet'])))
         subnet_id = response['Subnet']['SubnetId']
 
+        # Ensure the subnet ID exists
+        if not self.ensure_exists(resource_id=subnet_id):
+            raise EC2UtilError('Problem finding subnet ID after successful creation: {i}'.format(i=subnet_id))
+
         # Apply the name tag
-        try:
-            self.client.create_tags(
-                DryRun=False,
-                Resources=[
-                    subnet_id
-                ],
-                Tags=[
-                    {
-                        'Key': 'Name',
-                        'Value': name
-                    }
-                ]
-            )
-        except ClientError as exc:
-            raise EC2UtilError('Problem adding tags to set the name of subnet ID: {i}'.format(i=subnet_id)) from exc
+        if not self.create_name_tag(resource_id=subnet_id, resource_name=name):
+            raise EC2UtilError('Problem adding name tag name of subnet ID: {i}'.format(i=subnet_id))
         log.info('Created new subnet with ID: {i}'.format(i=subnet_id))
         return subnet_id
 
@@ -2639,23 +2749,13 @@ class EC2Util(object):
             raise EC2UtilError('RouteTableId data not found in: {d}'.format(d=str(response['RouteTable'])))
         route_table_id = response['RouteTable']['RouteTableId']
 
+        # Ensure the route table ID created exists
+        if not self.ensure_exists(resource_id=route_table_id):
+            raise EC2UtilError('Created route table ID not found after timeout: {i}'.format(i=route_table_id))
+
         # Apply the name tag
-        try:
-            self.client.create_tags(
-                DryRun=False,
-                Resources=[
-                    route_table_id
-                ],
-                Tags=[
-                    {
-                        'Key': 'Name',
-                        'Value': name
-                    }
-                ]
-            )
-        except ClientError as exc:
-            msg = 'Problem adding tags to set the name of route table ID: {i}'.format(i=route_table_id)
-            raise EC2UtilError(msg) from exc
+        if not self.create_name_tag(resource_id=route_table_id, resource_name=name):
+            raise EC2UtilError('Problem adding name tag name of route table ID: {i}'.format(i=route_table_id))
         log.info('Created new route table with ID: {i}'.format(i=route_table_id))
         return route_table_id
 
@@ -2707,23 +2807,14 @@ class EC2Util(object):
             raise EC2UtilError('NetworkAclId data not found in: {d}'.format(d=str(response['NetworkAcl'])))
         network_acl_id = response['NetworkAcl']['NetworkAclId']
 
+        # Ensure the network ACL ID exists
+        if not self.ensure_exists(resource_id=network_acl_id):
+            raise EC2UtilError('Problem finding network ACL ID after successful creation: {i}'.format(i=network_acl_id))
+
         # Apply the name tag
-        try:
-            self.client.create_tags(
-                DryRun=False,
-                Resources=[
-                    network_acl_id
-                ],
-                Tags=[
-                    {
-                        'Key': 'Name',
-                        'Value': name
-                    }
-                ]
-            )
-        except ClientError as exc:
-            msg = 'Problem adding tags to set the name of network ACL ID: {i}'.format(i=network_acl_id)
-            raise EC2UtilError(msg) from exc
+        if not self.create_name_tag(resource_id=network_acl_id, resource_name=name):
+            raise EC2UtilError('Problem adding name tag name of network ACL ID: {i}'.format(i=network_acl_id))
+
         log.info('Created new network ACL with ID: {i}'.format(i=network_acl_id))
         return network_acl_id
 
@@ -2815,6 +2906,106 @@ class EC2Util(object):
             n=network_acl_id, s=subnet_id, a=new_association_id))
         return new_association_id
 
+    def create_network_acl_rule_ipv4_all(self, network_acl_id, cidr, rule_num, rule_action='allow', egress=False):
+        """Creates a rule
+
+        :param network_acl_id: (str) ID of the network ACL
+        :param cidr: (str) IPv4 CIDR block
+        :param rule_num: (int) ordered rule number
+        :param rule_action: (str) allow or deny
+        :param egress: (bool) Set True to specify an egress rule, False for ingress
+        :return:
+        """
+        log = logging.getLogger(self.cls_logger + '.create_network_acl_rule_ipv4_all')
+        log.info('Creating rule IPv4 rule to {a} all protocols to cidr [{c}] and egress is [{e}]'.format(
+            a=rule_action, c=cidr, e=str(egress)))
+        try:
+            self.client.create_network_acl_entry(
+                CidrBlock=cidr,
+                DryRun=False,
+                Egress=egress,
+                NetworkAclId=network_acl_id,
+                Protocol='-1',
+                RuleAction=rule_action,
+                RuleNumber=rule_num
+            )
+        except ClientError as exc:
+            msg = 'Problem creating '
+            raise EC2UtilError(msg) from exc
+
+    def create_network_acl_rule_ipv6_all(self, network_acl_id, cidr_ipv6, rule_num, rule_action='allow', egress=False):
+        """Creates a rule
+
+        :param network_acl_id: (str) ID of the network ACL
+        :param cidr_ipv6: (str) IPv6 CIDR block
+        :param rule_num: (int) ordered rule number
+        :param rule_action: (str) allow or deny
+        :param egress: (bool) Set True to specify an egress rule, False for ingress
+        :return:
+        """
+        log = logging.getLogger(self.cls_logger + '.create_network_acl_rule_ipv6_all')
+        log.info('Creating rule IPv6 rule to {a} all protocols to cidr [{c}] and egress is [{e}]'.format(
+            a=rule_action, c=cidr_ipv6, e=str(egress)))
+        try:
+            self.client.create_network_acl_entry(
+                Ipv6CidrBlock=cidr_ipv6,
+                DryRun=False,
+                Egress=egress,
+                NetworkAclId=network_acl_id,
+                Protocol='-1',
+                RuleAction=rule_action,
+                RuleNumber=rule_num
+            )
+        except ClientError as exc:
+            msg = 'Problem creating '
+            raise EC2UtilError(msg) from exc
+
+    def create_network_acl_rule(self, network_acl_id, rule_num, cidr=None, cidr_ipv6=None, rule_action='allow',
+                                protocol='-1', from_port=None, to_port=None, egress=False):
+        """Creates a rule in the network ACL
+
+        :param network_acl_id: (str) ID of the network ACL
+        :param cidr: (str) IPv4 CIDR block
+        :param cidr_ipv6: (str) IPv6 CIDR block
+        :param rule_num: (int) ordered rule number
+        :param rule_action: (str) allow or deny
+        :param protocol: (str) protocol
+                A value of "-1" means all protocols. If you specify "-1" or a protocol number other than "6" (TCP),
+                "17" (UDP), or "1" (ICMP), traffic on all ports is allowed, regardless of any ports or ICMP types
+                or codes that you specify. If you specify protocol "58" (ICMPv6) and specify an IPv4 CIDR block,
+                traffic for all ICMP types and codes allowed, regardless of any that you specify. If you specify
+                protocol "58" (ICMPv6) and specify an IPv6 CIDR block, you must specify an ICMP type and code.
+        :param from_port: (int) starting port of the rule
+        :param to_port: (int) ending port of the rule
+        :param egress: (bool) Set True to specify an egress rule, False for ingress
+        :return: None
+        :raises: EC2UtilError
+        """
+        if rule_action not in ['allow', 'deny']:
+            raise EC2UtilError('Invalid rule_action, must be allow or deny, found: {a}'.format(a=rule_action))
+        try:
+            rule_num = int(rule_num)
+        except ValueError:
+            raise EC2UtilError('rule_num must be a valid int')
+        if cidr:
+            if protocol == '-1':
+                self.create_network_acl_rule_ipv4_all(
+                    network_acl_id=network_acl_id,
+                    cidr=cidr,
+                    rule_num=rule_num,
+                    rule_action=rule_action,
+                    egress=egress
+                )
+        elif cidr_ipv6:
+            if protocol == '-1':
+                self.create_network_acl_rule_ipv6_all(
+                    network_acl_id=network_acl_id,
+                    cidr_ipv6=cidr_ipv6,
+                    rule_num=rule_num,
+                    rule_action=rule_action,
+                    egress=egress
+                )
+
     def set_instance_source_dest_check(self, instance_id, source_dest_check):
         """Sets the instance source/destination check, must be False for NAT instances
 
@@ -2855,7 +3046,7 @@ class EC2Util(object):
         """
         log = logging.getLogger(self.cls_logger + '.launch_nat_instance_for_cons3rt')
 
-        # Ensure the user-data skeleron script exists
+        # Ensure the user-data skeleton script exists
         if not os.path.isfile(nat_user_data_script_path):
             msg = 'NAT user-data script not found: {f}'.format(f=nat_user_data_script_path)
             raise EC2UtilError(msg)
@@ -2898,7 +3089,7 @@ class EC2Util(object):
         # iptables -t nat -I POSTROUTING -d 172.16.10.250 -j SNAT --to-source ${ipAddress}
         ra_dnat_rules = 'iptables -t nat -I PREROUTING -d $ipAddress -p TCP --dport {p} -j DNAT --to-destination ' \
                         '{i}:{p}'.format(i=remote_access_internal_ip, p=remote_access_port)
-        ra_dnat_rules += '\n'
+        ra_dnat_rules += '\n\t'
         ra_dnat_rules += 'iptables -t nat -I POSTROUTING -d {i} -j SNAT --to-source $ipAddress'.format(
             i=remote_access_internal_ip)
         ra_dnat_rules += '\n'
@@ -2938,22 +3129,13 @@ class EC2Util(object):
         instance_id = instance_info['InstanceId']
         log.info('Launched NAT instance ID: {i}'.format(i=instance_id))
 
+        # Ensure the instance ID exists
+        if not self.ensure_exists(resource_id=instance_id):
+            raise EC2UtilError('Problem finding instance ID after successful creation: {i}'.format(i=instance_id))
+
         # Apply the name tag
-        try:
-            self.client.create_tags(
-                DryRun=False,
-                Resources=[
-                    instance_id
-                ],
-                Tags=[
-                    {
-                        'Key': 'Name',
-                        'Value': name
-                    }
-                ]
-            )
-        except ClientError as exc:
-            raise EC2UtilError('Problem adding tags to set the name of instance ID: {i}'.format(i=instance_id)) from exc
+        if not self.create_name_tag(resource_id=instance_id, resource_name=name):
+            raise EC2UtilError('Problem adding name tag name of instance ID: {i}'.format(i=instance_id))
 
         # Wait for instance availability
         if not self.wait_for_instance_availability(instance_id=instance_id):
@@ -2970,14 +3152,16 @@ class EC2Util(object):
         log.info('Set NAT instance ID [{i}] source/destination check to disabled'.format(i=instance_id))
         return instance_id
 
-    def allocate_network_for_cons3rt(self, name, vpc_id, cidr, availability_zone, routable=False, key_name=None,
-                                     nat_subnet_id=None, remote_access_internal_ip=None, remote_access_port=9443,
-                                     is_nat_subnet=False):
+    def allocate_network_for_cons3rt(self, name, vpc_id, cidr, vpc_cidr_blocks, availability_zone,
+                                     routable=False, key_name=None, nat_subnet_id=None, remote_access_internal_ip=None,
+                                     remote_access_port=9443, is_nat_subnet=False, is_cons3rt_net=False,
+                                     cons3rt_site_ip=None, ig_id=None):
         """Allocates a network and related resources for registration in CONS3RT
 
         :param name: (str) Name tag for the subnet and other resources
         :param vpc_id: (str) ID of the VPC to create resources in
         :param cidr: (str) CIDR block for the new subnet
+        :param vpc_cidr_blocks: (list) of str VPC CIDR blocks
         :param availability_zone: (str) availability zone
         :param routable: (bool) Set True to make the network routable, creates a NAT SG and a NAT instance
         :param key_name: (str) Name of the key pair to use for the NAT instance
@@ -2985,6 +3169,9 @@ class EC2Util(object):
         :param remote_access_internal_ip: (str) internal IP of remote access on the cons3rt-net
         :param remote_access_port: (int) TCP port for remote access
         :param is_nat_subnet: (bool) Set True only when allocating a subnet for NAT instances
+        :param is_cons3rt_net: (bool) Set True only when allocating a cons3rt-net
+        :param cons3rt_site_ip: (str) IP address of the CONS3RT site (required for cons3rt-net)
+        :param ig_id: (str) ID of the Internet gateway (required for NAT subnet e.g. common-net)
         :return: (Cons3rtNetwork) containing information about the network and its resources
         :raises: EC2UtilError
         """
@@ -2993,7 +3180,16 @@ class EC2Util(object):
 
         # NAT subnet is never considered "routable" -- doesn't need a NAT box
         if is_nat_subnet:
+            if not ig_id:
+                raise EC2UtilError('ig_id for the Internet Gateway must be specified for a NAT subnet')
             routable = False
+            is_cons3rt_net = False
+
+        # Ensure the cons3rt-net is set up to be routable
+        if is_cons3rt_net:
+            if not cons3rt_site_ip:
+                raise EC2UtilError('cons3rt_site_ip must be specified for a cons3rt-net network')
+            routable = True
 
         # Ensure additional routable params are provided when needed
         if routable:
@@ -3015,15 +3211,42 @@ class EC2Util(object):
         try:
             subnet_id = self.create_subnet(name=name, cidr=cidr, vpc_id=vpc_id, availability_zone=availability_zone)
             self.set_subnet_auto_assign_public_ip(subnet_id=subnet_id, auto_assign=is_nat_subnet)
+
+            # Apply the cons3rtenabled tag except for NAT subnets
+            if not is_nat_subnet:
+                if not self.create_cons3rt_enabled_tag(resource_id=subnet_id, enabled=True):
+                    raise EC2UtilError('Problem setting cons3rtenabled true on subnet: {i}'.format(i=subnet_id))
+
             route_table_id = self.create_route_table(name=name + '-rt', vpc_id=vpc_id)
             self.associate_route_table(route_table_id=route_table_id, subnet_id=subnet_id)
             network_acl_id = self.create_network_acl(name=name + '-acl', vpc_id=vpc_id)
             self.associate_network_acl(network_acl_id=network_acl_id, subnet_id=subnet_id)
-            security_group_id = self.create_security_group(name=name + '-sg', vpc_id=vpc_id)
+            self.create_network_acl_rule(network_acl_id=network_acl_id, rule_num=100, cidr='0.0.0.0/0',
+                                         rule_action='allow', protocol='-1', egress=False)
+            self.create_network_acl_rule(network_acl_id=network_acl_id, rule_num=100, cidr='0.0.0.0/0',
+                                         rule_action='allow', protocol='-1', egress=True)
+            security_group_id = self.create_security_group(name=name + '-sg', vpc_id=vpc_id,
+                                                           description='Internal CONS3RT SUT SG')
+            if not self.ensure_exists(resource_id=security_group_id):
+                raise EC2UtilError('Resource not found: {r}'.format(r=security_group_id))
         except EC2UtilError as exc:
             msg = 'Problem creating network resources for subnet with name [{n}] in VPC ID: {v}'.format(
                 n=name, v=vpc_id)
             raise EC2UtilError(msg) from exc
+
+        # VPC Security group rules and routes
+        security_group_ingress_rules = []
+        route_table_routes = []
+        for vpc_cidr in vpc_cidr_blocks:
+            security_group_ingress_rules.append(
+                IpPermission(IpProtocol='-1', CidrIp=vpc_cidr, Description='Allow all from the VPC CIDR')
+            )
+            route_table_routes.append(
+                IpRoute(cidr=vpc_cidr, target='local')
+            )
+        security_group_egress_rules = [
+            IpPermission(IpProtocol='-1', CidrIp='0.0.0.0/0', Description='Allow all out')
+        ]
 
         # Create additional resources for routable networks
         if not routable:
@@ -3032,7 +3255,79 @@ class EC2Util(object):
         else:
             log.info('Allocating a routable network, creating additional resources...')
             try:
-                nat_security_group_id = self.create_security_group(name=name + '-nat-sg', vpc_id=vpc_id)
+                nat_security_group_id = self.create_security_group(name=name + '-nat-sg', vpc_id=vpc_id,
+                                                                   description='CONS3RT NAT security group')
+
+                # Specify the ingress rules for the NAT security group
+                nat_sg_ingress_rules = [
+                    IpPermission(IpProtocol='-1', CidrIp=cidr,
+                                 Description='Allow from the internal subnet')
+                ]
+                nat_sg_egress_rules = [
+                    IpPermission(IpProtocol='-1', CidrIp='0.0.0.0/0', Description='Allow all out')
+                ]
+
+                # Configure cons3rt-net specific ingress and egress rules
+                if is_cons3rt_net:
+                    # Additional ingress rules for the cons3rt-net internal security group
+                    security_group_ingress_rules.append(
+                        IpPermission(IpProtocol='tcp', FromPort=remote_access_port, ToPort=remote_access_port,
+                                     CidrIp=remote_access_internal_ip, Description='Remote access from the NAT')
+                    )
+
+                    # Additional ingress rules for the cons3rt-net NAT security group
+                    cons3rt_site_cidr = cons3rt_site_ip + '/32'
+                    nat_sg_ingress_rules.append(
+                        IpPermission(IpProtocol='tcp', FromPort=remote_access_port, ToPort=remote_access_port,
+                                     CidrIp=cons3rt_site_cidr, Description='Remote access from CONS3RT site')
+                    )
+                    nat_sg_ingress_rules.append(
+                        IpPermission(IpProtocol='tcp', FromPort=remote_access_port, ToPort=remote_access_port,
+                                     CidrIp='140.24.0.0/16', Description='Remote access from CONS3RT site through DREN')
+                    )
+                    """ TODO add UserIdGroupPairs
+                    nat_sg_ingress_rules.append(
+                        IpPermission(IpProtocol='-1', PrefixListId=nat_security_group_id,
+                                     Description='All traffic from itself')
+                    )
+                    """
+
+                    # Replace egress rules for the cons3rt-net NAT security group
+                    nat_sg_egress_rules = [
+                        IpPermission(IpProtocol='tcp', FromPort=53, ToPort=53, CidrIp='0.0.0.0/0',
+                                     Description='Allow DNS TCP traffic out'),
+                        IpPermission(IpProtocol='udp', FromPort=53, ToPort=53, CidrIp='0.0.0.0/0',
+                                     Description='Allow DNS UDP traffic out'),
+                        IpPermission(IpProtocol='tcp', FromPort=443, ToPort=443, CidrIp='0.0.0.0/0',
+                                     Description='Allow https traffic out'),
+                        IpPermission(IpProtocol='tcp', FromPort=4443, ToPort=4443, CidrIp=cons3rt_site_cidr,
+                                     Description='Allow messaging traffic to CONS3RT site'),
+                        IpPermission(IpProtocol='tcp', FromPort=6443, ToPort=6443, CidrIp=cons3rt_site_cidr,
+                                     Description='Allow docker registry traffic to CONS3RT site'),
+                        IpPermission(IpProtocol='tcp', FromPort=7443, ToPort=7443, CidrIp=cons3rt_site_cidr,
+                                     Description='Allow cons3rt webdav traffic to CONS3RT site'),
+                        IpPermission(IpProtocol='tcp', FromPort=8443, ToPort=8443, CidrIp=cons3rt_site_cidr,
+                                     Description='Allow blobstore traffic to CONS3RT site'),
+                        IpPermission(IpProtocol='tcp', FromPort=remote_access_port, ToPort=remote_access_port,
+                                     CidrIp=remote_access_internal_ip + '/32',
+                                     Description='Allow remote access to the RA box')
+                    ]
+                    """ TODO add UserIdGroupPairs
+                    nat_sg_egress_rules.append(
+                        IpPermission(IpProtocol='-1', PrefixListId=nat_security_group_id,
+                                     Description='All traffic to itself'),
+                    """
+
+                # Configure NAT security group rules
+                self.configure_security_group_ingress(
+                    security_group_id=nat_security_group_id,
+                    desired_ingress_rules=nat_sg_ingress_rules
+                )
+                self.configure_security_group_egress(
+                    security_group_id=nat_security_group_id,
+                    desired_egress_rules=nat_sg_egress_rules
+                )
+
                 log.info('Launching a NAT instance for network: {n}'.format(n=name))
                 nat_instance_id = self.launch_nat_instance_for_cons3rt(
                     name=name + '-nat',
@@ -3044,11 +3339,38 @@ class EC2Util(object):
                     remote_access_internal_ip=remote_access_internal_ip,
                     remote_access_port=remote_access_port
                 )
+
+                # Append the NAT instance route for routable networks
+                route_table_routes.append(
+                    IpRoute(cidr='0.0.0.0/0', target=nat_instance_id)
+                )
             except EC2UtilError as exc:
                 msg = 'Problem creating additional external routing network resources for subnet with name [{n}] ' \
                       'in VPC ID: {v}'.format(n=name, v=vpc_id)
                 raise EC2UtilError(msg) from exc
             log.info('NAT instance created successfully for network: {n}'.format(n=name))
+
+        # For a NAT subnet, route Internet traffic to the Internet gateway
+        if is_nat_subnet:
+            route_table_routes.append(
+                IpRoute(cidr='0.0.0.0/0', target=ig_id)
+            )
+
+        # Configure the route table rules
+        self.configure_routes(
+            route_table_id=route_table_id,
+            desired_routes=route_table_routes
+        )
+
+        # Configure the internal security group rules
+        self.configure_security_group_ingress(
+            security_group_id=security_group_id,
+            desired_ingress_rules=security_group_ingress_rules
+        )
+        self.configure_security_group_egress(
+            security_group_id=security_group_id,
+            desired_egress_rules=security_group_egress_rules
+        )
 
         # Return a Cons3rtNetwork object containing the allocated network info
         return Cons3rtNetwork(
