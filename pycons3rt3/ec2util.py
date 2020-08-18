@@ -14,9 +14,9 @@ import boto3
 from botocore.client import ClientError
 import requests
 
-from .bash import get_ip_addresses
+from .bash import get_ip_addresses, validate_ip_address
 from .logify import Logify
-from .osutil import get_os
+from .osutil import get_os, get_pycons3rt_scripts_dir
 from .aws_metadata import is_aws, get_instance_id, get_vpc_id_from_mac_address
 from .exceptions import AWSAPIError, AwsTransitGatewayError, EC2UtilError
 
@@ -25,6 +25,20 @@ __author__ = 'Joe Yennaco'
 
 # Set up logger name for this module
 mod_logger = Logify.get_name() + '.ec2util'
+
+
+# NAT AMI IDs used for cons3rt NAT VMs
+nat_vm_ami = {
+    'us-gov-west-1': 'ami-b62917d7',
+    'us-gov-east-1': 'ami-5623cd27',
+    'us-east-1': 'ami-01ef31f9f39c5aaed',
+    'us-east-2': 'ami-06064740484d375de',
+    'us-west-2': 'ami-0fcc6101b7f2370b9'
+}
+
+nat_user_data_script_path = os.path.join(get_pycons3rt_scripts_dir(), 'linux-nat-config.sh')
+
+nat_default_size = 't3.micro'
 
 
 class EC2Util(object):
@@ -2116,6 +2130,166 @@ class EC2Util(object):
         }
         return output
 
+    def wait_for_instance_running(self, instance_id, timeout_sec=900):
+        """Waits until the instance ID is in a running state
+
+        :param instance_id: (str) ID of the instance
+        :param timeout_sec: (int) Time in seconds before returning False
+        :return: True when available, False if not available by the provided timeout
+        :raises: EC2UtilError
+        """
+        log = logging.getLogger(self.cls_logger + '.wait_for_instance_running')
+        check_interval_sec = 10
+        num_checks = timeout_sec // check_interval_sec
+        start_time = time.time()
+        log.info('Waiting a maximum of {t} seconds for instance ID [{i}] to reach a running state'.format(
+            t=str(timeout_sec), i=instance_id))
+        for _ in range(0, num_checks):
+            log.info('Waiting {t} seconds to check state of instance ID: {i}'.format(
+                t=str(check_interval_sec), i=instance_id))
+            time.sleep(check_interval_sec)
+            elapsed_time = round(time.time() - start_time, 1)
+            if elapsed_time > timeout_sec:
+                log.warning('Instance ID {i} not running after {t} seconds'.format(
+                    i=instance_id, t=str(timeout_sec)))
+                return False
+            try:
+                response = self.client.describe_instances(DryRun=False, InstanceIds=[instance_id])
+            except ClientError as exc:
+                log.warning('Problem describing instance ID: {i}\n{e}'.format(i=instance_id, e=str(exc)))
+                continue
+            if 'Reservations' not in response.keys():
+                log.warning('Reservations not found in response: {r}'.format(r=str(response)))
+                continue
+            if len(response['Reservations']) != 1:
+                log.warning('Expected 1 reservation, found in response: {n}'.format(
+                    n=str(len(response['Reservations']))))
+                continue
+            reservation = response['Reservations'][0]
+            if 'Instances' not in reservation.keys():
+                log.warning('Instances not found in reservation: {r}'.format(r=str(reservation)))
+                continue
+            if len(response['Instances']) != 1:
+                log.warning('Expected 1 instance, found in reservation: {n}'.format(
+                    n=str(len(reservation['Instances']))))
+                continue
+            instance = reservation['Instances'][0]
+            if 'InstanceId' not in instance.keys():
+                log.warning('InstanceId not found in instance data: {i}'.format(i=str(instance)))
+                continue
+            if 'State' not in instance.keys():
+                log.warning('State not found in instance data: {i}'.format(i=str(instance)))
+                continue
+            if instance['State'] == 'running':
+                log.info('Instance ID [{i}] state is running, exiting...'.format(i=instance_id))
+                return True
+            else:
+                log.info('Instance ID [{i}] is in state: {s}'.format(i=instance_id, s=instance['State']))
+
+    def wait_for_instance_status_checks(self, instance_id, timeout_sec=900):
+        """Waits until the instance ID is in a running state
+
+        :param instance_id: (str) ID of the instance
+        :param timeout_sec: (int) Time in seconds before returning False
+        :return: True when available, False if not available by the provided timeout
+        :raises: EC2UtilError
+        """
+        log = logging.getLogger(self.cls_logger + '.wait_for_instance_status_checks')
+        check_interval_sec = 10
+        num_checks = timeout_sec // check_interval_sec
+        start_time = time.time()
+        log.info('Waiting a maximum of {t} seconds for instance ID [{i}] to pass its instance status checks'.format(
+            t=str(timeout_sec), i=instance_id))
+        for _ in range(0, num_checks):
+            log.info('Waiting {t} seconds to check status of instance ID: {i}'.format(
+                t=str(check_interval_sec), i=instance_id))
+            time.sleep(check_interval_sec)
+            elapsed_time = round(time.time() - start_time, 1)
+            if elapsed_time > timeout_sec:
+                log.warning('Instance ID {i} has not passed instance status checks after {t} seconds'.format(
+                    i=instance_id, t=str(timeout_sec)))
+                return False
+            try:
+                response = self.client.describe_instance_status(
+                    DryRun=False, InstanceIds=[instance_id], IncludeAllInstances=True)
+            except ClientError as exc:
+                log.warning('Problem describing status for instance ID: {i}\n{e}'.format(i=instance_id, e=str(exc)))
+                continue
+            if 'InstanceStatuses' not in response.keys():
+                log.warning('InstanceStatuses not found in response: {r}'.format(r=str(response)))
+                continue
+            if len(response['InstanceStatuses']) != 1:
+                log.warning('Expected 1 instance status, found in response: {n}'.format(
+                    n=str(len(response['InstanceStatuses']))))
+                continue
+            instance_status = response['InstanceStatuses'][0]
+            if 'InstanceId' not in instance_status.keys():
+                log.warning('InstanceId not found in instance status: {i}'.format(i=str(instance_status)))
+                continue
+            if instance_status['InstanceId'] != instance_id:
+                log.warning('Found instance ID [{i}] does not match the requested instance ID: {r}'.format(
+                    i=instance_status['InstanceId'], r=instance_id))
+                continue
+            if 'InstanceState' not in instance_status.keys():
+                log.warning('InstanceState not found in instance status: {i}'.format(i=str(instance_status)))
+                continue
+            if 'Name' not in instance_status['InstanceState'].keys():
+                log.warning('Name not found in instance state data: {i}'.format(
+                    i=str(instance_status['InstanceState'])))
+                continue
+            if instance_status['InstanceState']['Name'] != 'running':
+                log.info('Found instance state [{s}] is not running, re-checking...'.format(
+                    s=instance_status['InstanceState']['Name']))
+                continue
+            if 'InstanceStatus' not in instance_status.keys():
+                log.warning('InstanceStatus not found in instance status data: {i}'.format(
+                    i=str(instance_status)))
+                continue
+            if 'SystemStatus' not in instance_status.keys():
+                log.warning('SystemStatus not found in instance status data: {i}'.format(
+                    i=str(instance_status)))
+                continue
+            if 'Status' not in instance_status['InstanceStatus'].keys():
+                log.warning('Status not found in instance status data: {i}'.format(
+                    i=str(instance_status['InstanceStatus'])))
+                continue
+            if 'Status' not in instance_status['SystemStatus'].keys():
+                log.warning('Status not found in system status data: {i}'.format(
+                    i=str(instance_status['SystemStatus'])))
+                continue
+            current_instance_status = instance_status['InstanceStatus']['Status']
+            current_system_status = instance_status['SystemStatus']['Status']
+            log.info('Found current instance status for instance ID [{i}]: {s}'.format(
+                i=instance_id, s=current_instance_status))
+            log.info('Found current system status for instance ID [{i}]: {s}'.format(
+                i=instance_id, s=current_system_status))
+            if current_instance_status != 'ok' or current_system_status != 'ok':
+                log.info('Instance and system statii are both not [ok], rechecking...')
+                continue
+            log.info('Both instance and system statii are [ok], exiting...')
+            return True
+
+    def wait_for_instance_availability(self, instance_id):
+        """Waits for instance to be running and passed all status checks
+
+        :param instance_id: (str) ID of the instance
+        :return: (bool) True when instance is available, False if timeouts are exceeded before availability is
+                        reached
+        :raises: None
+        """
+        log = logging.getLogger(self.cls_logger + '.wait_for_instance_availability')
+        try:
+            if not self.wait_for_instance_running(instance_id=instance_id):
+                return False
+            if not self.wait_for_instance_status_checks(instance_id=instance_id):
+                return False
+        except EC2UtilError as exc:
+            log.error('Instance ID {i} did not become available in the provided timeouts\n{e}'.format(
+                i=instance_id, e=str(exc)))
+            traceback.print_exc()
+            return False
+        return True
+
     def get_ec2_instances(self):
         """Describes the EC2 instances
 
@@ -2418,6 +2592,29 @@ class EC2Util(object):
         log.info('Created new subnet with ID: {i}'.format(i=subnet_id))
         return subnet_id
 
+    def set_subnet_auto_assign_public_ip(self, subnet_id, auto_assign):
+        """Sets the auto-assign public attribute of the provided subnet ID to the provided value
+
+        :param subnet_id: (str) ID of the subnet
+        :param auto_assign: (bool) True to enable auto-assign public IP, false otherwise
+        :return: None
+        :raises: EC2UtilError
+        """
+        log = logging.getLogger(self.cls_logger + '.set_subnet_auto_assign_public_ip')
+        log.info('Setting auto-assign public IP attribute of subnet ID [{s}] to {v}'.format(
+            s=subnet_id, v=str(auto_assign)))
+        try:
+            self.client.modify_subnet_attribute(
+                MapPublicIpOnLaunch={
+                    'Value': auto_assign,
+                },
+                SubnetId=subnet_id,
+            )
+        except ClientError as exc:
+            msg = 'Problem setting the auto-assign public IP attribute for subnet ID [{s}] to: {v}'.format(
+                s=subnet_id, v=str(auto_assign))
+            raise EC2UtilError(msg) from exc
+
     def create_route_table(self, name, vpc_id):
         """Creates a subnet
 
@@ -2530,6 +2727,58 @@ class EC2Util(object):
         log.info('Created new network ACL with ID: {i}'.format(i=network_acl_id))
         return network_acl_id
 
+    def get_network_acl_for_subnet(self, subnet_id):
+        """Returns the associated network ACL ID for the specified subnet ID
+
+        :param subnet_id: (str) ID of the subnet
+        :return: (tuple) Network ACL ID, association ID
+        """
+        log = logging.getLogger(self.cls_logger + '.get_network_acl_for_subnet')
+        log.info('Attempting to determine the associated network ACL for subnet ID: {s}'.format(s=subnet_id))
+        try:
+            response = self.client.describe_network_acls(
+                Filters=[
+                    {
+                        'Name': 'association.subnet-id',
+                        'Values': [
+                            subnet_id,
+                        ]
+                    },
+                ],
+                DryRun=False
+            )
+        except ClientError as exc:
+            msg = 'Problem determining the network ACL associated to subnet ID: {s}'.format(s=subnet_id)
+            raise EC2UtilError(msg) from exc
+        if 'NetworkAcls' not in response.keys():
+            msg = 'NetworkAcls not in response: {r}'.format(r=str(response))
+            raise EC2UtilError(msg)
+        if len(response['NetworkAcls']) != 1:
+            msg = 'Expected 1 network ACL in response, found: {n}\n{r}'.format(
+                n=str(len(response['NetworkAcls'])), r=str(response))
+            raise EC2UtilError(msg)
+        network_acl = response['NetworkAcls'][0]
+        if 'Associations' not in network_acl.keys():
+            msg = 'Associations not found in data: {d}'.format(d=str(network_acl))
+            raise EC2UtilError(msg)
+        network_acl_id = None
+        association_id = None
+        for association in network_acl['Associations']:
+            if association['SubnetId'] == subnet_id:
+                network_acl_id = association['NetworkAclId']
+                association_id = association['NetworkAclAssociationId']
+                break
+        if not association_id:
+            msg = 'Association ID not found for subnet [{s}] in data: {d}'.format(s=subnet_id, d=str(network_acl))
+            raise EC2UtilError(msg)
+        if not network_acl_id:
+            msg = 'Network ACL ID not found in associations for subnet [{s}] in data: {d}'.format(
+                s=subnet_id, d=str(network_acl))
+            raise EC2UtilError(msg)
+        log.info('Found subnet [{s}] associated to network ACL {n} with association ID: {i}'.format(
+            s=subnet_id, n=network_acl_id, i=association_id))
+        return network_acl_id, association_id
+
     def associate_network_acl(self, network_acl_id, subnet_id):
         """Associates the network ACL to the subnet
 
@@ -2541,12 +2790,18 @@ class EC2Util(object):
         log = logging.getLogger(self.cls_logger + '.associate_network_acl')
 
         # Get the current/default subnet association
-        # TODO
+        log.info('Getting the current network ACL association for subnet ID: {s}'.format(s=subnet_id))
+        try:
+            current_network_acl_id, association_id = self.get_network_acl_for_subnet(subnet_id=subnet_id)
+        except EC2UtilError as exc:
+            msg = 'Problem getting the network ACL ID from subnet ID: {i}'.format(i=subnet_id)
+            raise EC2UtilError(msg) from exc
 
-        log.info('Associating network ACL [{n}] with subnet ID: {s}'.format(n=network_acl_id, s=subnet_id))
+        log.info('Replacing current network ACL [{c}] under association ID [{a}] with network ACL [{n}] in '
+                 'subnet ID: {s}'.format(c=current_network_acl_id, a=association_id, n=network_acl_id, s=subnet_id))
         try:
             response = self.client.replace_network_acl_association(
-                AssociationId='TBD', NetworkAclId=network_acl_id, DryRun=False
+                AssociationId=association_id, NetworkAclId=network_acl_id, DryRun=False
             )
         except ClientError as exc:
             msg = 'Problem associating network ACL [{n}] with subnet ID: {s}'.format(n=network_acl_id, s=subnet_id)
@@ -2559,6 +2814,271 @@ class EC2Util(object):
         log.info('Associated network ACL [{n}] to subnet [{s}] with association ID: {a}'.format(
             n=network_acl_id, s=subnet_id, a=new_association_id))
         return new_association_id
+
+    def set_instance_source_dest_check(self, instance_id, source_dest_check):
+        """Sets the instance source/destination check, must be False for NAT instances
+
+        :param instance_id: (str) ID of the instance
+        :param source_dest_check: (bool) Set True to enable source/dest check, False to disable (for NAT)
+        :return: None
+        :raises: EC2UtilError
+        """
+        log = logging.getLogger(self.cls_logger + '.set_instance_source_dest_check')
+        log.info('Setting the source/destination check for instance ID [{i}] to: {v}'.format(
+            i=instance_id, v=str(source_dest_check)))
+        try:
+            self.client.modify_instance_attribute(
+                SourceDestCheck={
+                    'Value': source_dest_check,
+                },
+                InstanceId=instance_id
+            )
+        except ClientError as exc:
+            msg = 'Problem setting the source/destination check for instance ID [{i}] to: {v}'.format(
+                i=instance_id, v=str(source_dest_check))
+            raise EC2UtilError(msg) from exc
+
+    def launch_nat_instance_for_cons3rt(self, name, nat_subnet_id, key_name, nat_security_group_id, subnet_cidr, region,
+                                        remote_access_internal_ip, remote_access_port=9443):
+        """Launches a NAT instance to attach to a CONS3RT network
+
+        :param name: (str) name of the instance
+        :param nat_subnet_id: (str) ID of the subnet to launch into
+        :param key_name: (str) Name of the AWS keypair to use when launching
+        :param nat_security_group_id: (str) ID of the NAT security group
+        :param subnet_cidr: (str) CIDR block for the internal subnet the NAT instance will be NAT'ing for
+        :param region: (str) region launching in to
+        :param remote_access_internal_ip: (str) internal VPC IP address of the remote access box
+        :param remote_access_port: (int) TCP port number for remote access
+        :return: (str) NAT instance ID
+        :raises: EC2UtilError
+        """
+        log = logging.getLogger(self.cls_logger + '.launch_nat_instance_for_cons3rt')
+
+        # Ensure the user-data skeleron script exists
+        if not os.path.isfile(nat_user_data_script_path):
+            msg = 'NAT user-data script not found: {f}'.format(f=nat_user_data_script_path)
+            raise EC2UtilError(msg)
+
+        # Ensure the RA server is a valid IP
+        if not validate_ip_address(remote_access_internal_ip):
+            msg = 'Provided remote access IP is not valid: {r}'.format(r=remote_access_internal_ip)
+            raise EC2UtilError(msg)
+
+        # Ensure the RA port is valid
+        try:
+            int(remote_access_port)
+        except ValueError:
+            msg = 'Remote access port must be an int, found: {p}'.format(p=str(remote_access_port))
+            raise EC2UtilError(msg)
+        remote_access_port = str(remote_access_port)
+
+        # Determine the AMI ID
+        try:
+            ami_id = nat_vm_ami[region]
+        except KeyError:
+            msg = 'AMI ID for region [{r}] not found in NAT AMI data: {d}'.format(r=region, d=str(nat_vm_ami))
+            raise EC2UtilError(msg)
+
+        # Read in the user-data script
+        with open(nat_user_data_script_path, 'r') as f:
+            user_data_script_contents = f.read()
+
+        # Replace the guac server IP, port, and virt tech
+        user_data_script_contents = user_data_script_contents.replace(
+            'CODE_REPLACE_ME_GUAC_SERVER_IP', remote_access_internal_ip)
+        user_data_script_contents = user_data_script_contents.replace(
+            'CODE_REPLACE_ME_GUAC_SERVER_PORT', remote_access_port)
+        user_data_script_contents = user_data_script_contents.replace(
+            'CODE_REPLACE_ME_VIRT_TECH', 'amazon')
+
+        # Replace the DNAT rules
+        # Example:
+        # iptables -t nat -I PREROUTING -d ${ipAddress} -p TCP --dport 9443 -j DNAT --to-destination 172.16.10.250:9443
+        # iptables -t nat -I POSTROUTING -d 172.16.10.250 -j SNAT --to-source ${ipAddress}
+        ra_dnat_rules = 'iptables -t nat -I PREROUTING -d $ipAddress -p TCP --dport {p} -j DNAT --to-destination ' \
+                        '{i}:{p}'.format(i=remote_access_internal_ip, p=remote_access_port)
+        ra_dnat_rules += '\n'
+        ra_dnat_rules += 'iptables -t nat -I POSTROUTING -d {i} -j SNAT --to-source $ipAddress'.format(
+            i=remote_access_internal_ip)
+        ra_dnat_rules += '\n'
+
+        log.info('Replacing DNAT rules with: {r}'.format(r=ra_dnat_rules))
+        user_data_script_contents = user_data_script_contents.replace(
+            'CODE_ADD_IPTABLES_DNAT_RULES_HERE', ra_dnat_rules)
+
+        # Replace the SNAT rule
+        # Example:
+        # iptables -t nat -A POSTROUTING -s 172.16.10.0/24 -j SNAT --to-source ${ipAddress}
+        snat_rule = 'iptables -t nat -A POSTROUTING -s {s} -j SNAT --to-source $ipAddress'.format(s=subnet_cidr)
+        user_data_script_contents = user_data_script_contents.replace(
+            'CODE_ADD_IPTABLES_SNAT_RULES_HERE', snat_rule)
+
+        # Write the updated user-data script
+        user_data_script_path = os.path.join(get_pycons3rt_scripts_dir(), 'temp_user_data_script.sh')
+        with open(user_data_script_path, 'w') as f:
+            f.write(user_data_script_contents)
+
+        # Launch the NAT VM
+        log.info('Attempting to launch the NAT VM...')
+        try:
+            instance_info = self.launch_instance(
+                ami_id=ami_id,
+                key_name=key_name,
+                subnet_id=nat_subnet_id,
+                security_group_id=nat_security_group_id,
+                user_data_script_path=user_data_script_path,
+                instance_type=nat_default_size,
+                root_volume_location='/dev/xvda',
+                root_volume_size_gb=8
+            )
+        except EC2UtilError as exc:
+            msg = 'Problem launching the NAT EC2 instance with name: {n}'.format(n=name)
+            raise EC2UtilError(msg) from exc
+        instance_id = instance_info['InstanceId']
+        log.info('Launched NAT instance ID: {i}'.format(i=instance_id))
+
+        # Apply the name tag
+        try:
+            self.client.create_tags(
+                DryRun=False,
+                Resources=[
+                    instance_id
+                ],
+                Tags=[
+                    {
+                        'Key': 'Name',
+                        'Value': name
+                    }
+                ]
+            )
+        except ClientError as exc:
+            raise EC2UtilError('Problem adding tags to set the name of instance ID: {i}'.format(i=instance_id)) from exc
+
+        # Wait for instance availability
+        if not self.wait_for_instance_availability(instance_id=instance_id):
+            msg = 'NAT instance did not become available'
+            raise EC2UtilError(msg)
+        log.info('NAT instance ID [{i}] is available and passed all checks'.format(i=instance_id))
+
+        # Set the source/dest checks to disabled/False
+        try:
+            self.set_instance_source_dest_check(instance_id=instance_id, source_dest_check=False)
+        except EC2UtilError as exc:
+            msg = 'Problem setting NAT instance ID [{i}] source/destination check to disabled'.format(i=instance_id)
+            raise EC2UtilError(msg) from exc
+        log.info('Set NAT instance ID [{i}] source/destination check to disabled'.format(i=instance_id))
+        return instance_id
+
+    def allocate_network_for_cons3rt(self, name, vpc_id, cidr, availability_zone, routable=False, key_name=None,
+                                     nat_subnet_id=None, remote_access_internal_ip=None, remote_access_port=9443,
+                                     is_nat_subnet=False):
+        """Allocates a network and related resources for registration in CONS3RT
+
+        :param name: (str) Name tag for the subnet and other resources
+        :param vpc_id: (str) ID of the VPC to create resources in
+        :param cidr: (str) CIDR block for the new subnet
+        :param availability_zone: (str) availability zone
+        :param routable: (bool) Set True to make the network routable, creates a NAT SG and a NAT instance
+        :param key_name: (str) Name of the key pair to use for the NAT instance
+        :param nat_subnet_id: (str) ID of the subnet where NATs deploy into
+        :param remote_access_internal_ip: (str) internal IP of remote access on the cons3rt-net
+        :param remote_access_port: (int) TCP port for remote access
+        :param is_nat_subnet: (bool) Set True only when allocating a subnet for NAT instances
+        :return: (Cons3rtNetwork) containing information about the network and its resources
+        :raises: EC2UtilError
+        """
+        log = logging.getLogger(self.cls_logger + '.allocate_network_for_cons3rt')
+        region = availability_zone[:len(availability_zone)-1]
+
+        # NAT subnet is never considered "routable" -- doesn't need a NAT box
+        if is_nat_subnet:
+            routable = False
+
+        # Ensure additional routable params are provided when needed
+        if routable:
+            if not key_name:
+                raise EC2UtilError('key_name must be specified for a routable network')
+            if not nat_subnet_id:
+                raise EC2UtilError('nat_subnet_id must be specified for a routable network')
+            if not remote_access_internal_ip:
+                raise EC2UtilError('remote_access_internal_ip must be specified for a routable network')
+            if not remote_access_port:
+                raise EC2UtilError('remote_access_port must be specified for a routable network')
+            try:
+                int(remote_access_port)
+            except ValueError:
+                raise EC2UtilError('remote_access_port must be an integer TCP port number')
+
+        log.info('Attempting to allocate a CONS3RT network with resources named [{n}], in VPC ID [{v}], with CIDR '
+                 '[{c}], in availability zone [{z}]'.format(n=name, v=vpc_id, c=cidr, z=availability_zone))
+        try:
+            subnet_id = self.create_subnet(name=name, cidr=cidr, vpc_id=vpc_id, availability_zone=availability_zone)
+            self.set_subnet_auto_assign_public_ip(subnet_id=subnet_id, auto_assign=is_nat_subnet)
+            route_table_id = self.create_route_table(name=name + '-rt', vpc_id=vpc_id)
+            self.associate_route_table(route_table_id=route_table_id, subnet_id=subnet_id)
+            network_acl_id = self.create_network_acl(name=name + '-acl', vpc_id=vpc_id)
+            self.associate_network_acl(network_acl_id=network_acl_id, subnet_id=subnet_id)
+            security_group_id = self.create_security_group(name=name + '-sg', vpc_id=vpc_id)
+        except EC2UtilError as exc:
+            msg = 'Problem creating network resources for subnet with name [{n}] in VPC ID: {v}'.format(
+                n=name, v=vpc_id)
+            raise EC2UtilError(msg) from exc
+
+        # Create additional resources for routable networks
+        if not routable:
+            nat_security_group_id = None
+            nat_instance_id = None
+        else:
+            log.info('Allocating a routable network, creating additional resources...')
+            try:
+                nat_security_group_id = self.create_security_group(name=name + '-nat-sg', vpc_id=vpc_id)
+                log.info('Launching a NAT instance for network: {n}'.format(n=name))
+                nat_instance_id = self.launch_nat_instance_for_cons3rt(
+                    name=name + '-nat',
+                    nat_subnet_id=nat_subnet_id,
+                    key_name=key_name,
+                    nat_security_group_id=nat_security_group_id,
+                    subnet_cidr=cidr,
+                    region=region,
+                    remote_access_internal_ip=remote_access_internal_ip,
+                    remote_access_port=remote_access_port
+                )
+            except EC2UtilError as exc:
+                msg = 'Problem creating additional external routing network resources for subnet with name [{n}] ' \
+                      'in VPC ID: {v}'.format(n=name, v=vpc_id)
+                raise EC2UtilError(msg) from exc
+            log.info('NAT instance created successfully for network: {n}'.format(n=name))
+
+        # Return a Cons3rtNetwork object containing the allocated network info
+        return Cons3rtNetwork(
+            name=name,
+            vpc_id=vpc_id,
+            cidr=cidr,
+            availability_zone=availability_zone,
+            subnet_id=subnet_id,
+            route_table_id=route_table_id,
+            security_group_id=security_group_id,
+            routable=routable,
+            nat_security_group_id=nat_security_group_id,
+            nat_instance_id=nat_instance_id
+        )
+
+
+class Cons3rtNetwork(object):
+
+    def __init__(self, name, vpc_id, cidr, availability_zone, subnet_id, route_table_id, security_group_id,
+                 routable=False, nat_security_group_id=None, nat_instance_id=None):
+        self.name = name
+        self.vpc_id = vpc_id
+        self.cidr = cidr
+        self.availability_zone = availability_zone
+        self.subnet_id = subnet_id
+        self.route_table_id = route_table_id
+        self.security_group_id = security_group_id
+        self.routable = routable
+        self.nat_security_group_id = nat_security_group_id
+        self.nat_instance_id = nat_instance_id
 
 
 class IpPermission(object):
@@ -2819,10 +3339,11 @@ class TransitGateway(object):
         self.update_associations()
         self.update_propagations()
         state_msg = 'Updated state [{s}] for transit gateway [{t}], with {n} VPC attachments, {r} route tables, ' \
-                    '{c} associations, and {p} propagations'.format(
-            s=self.state, t=self.id, n=str(len(self.vpc_attachments)), r=str(len(self.route_tables)),
-            c=str(len(self.associations)), p=str(len(self.propagations))
-        )
+                    '{c} associations, and {p} propagations'.format(s=self.state, t=self.id,
+                                                                    n=str(len(self.vpc_attachments)),
+                                                                    r=str(len(self.route_tables)),
+                                                                    c=str(len(self.associations)),
+                                                                    p=str(len(self.propagations)))
         log.info(state_msg)
 
     def update_vpc_attachments(self):
@@ -3471,7 +3992,7 @@ class TransitGateway(object):
         if 'AdditionalRoutesAvailable' in response.keys():
             if response['AdditionalRoutesAvailable']:
                 log.warning('Additional routes are available but not provided in response')
-        parsed_routes =  parse_transit_gateway_routes(
+        parsed_routes = parse_transit_gateway_routes(
             route_table_id=route_table_id,
             transit_gateway_routes=response['Routes']
         )
@@ -4034,5 +4555,6 @@ def get_aws_service_ips(regions=None, include_elastic_ips=False, ipv6=False):
     for candidate_ip_range in candidate_ip_ranges:
         if candidate_ip_range in region_ips:
             region_filtered_ip_ranges.append(candidate_ip_range)
-    log.info('Found {n} matching IP ranges in regions: {r}'.format(n=str(len(region_filtered_ip_ranges)), r=','.join(regions)))
+    log.info('Found {n} matching IP ranges in regions: {r}'.format(
+        n=str(len(region_filtered_ip_ranges)), r=','.join(regions)))
     return region_filtered_ip_ranges

@@ -114,6 +114,15 @@ def get_pycons3rt_log_dir():
     return os.path.join(get_pycons3rt_home_dir(), 'log')
 
 
+def get_pycons3rt_scripts_dir():
+    """Returns the pycons3rt log directory
+
+    :return: (str) Full path to pycons3rt log directory
+    :raises: OSError
+    """
+    return os.path.join(get_pycons3rt_home_dir(), 'scripts')
+
+
 def get_pycons3rt_conf_dir():
     """Returns the pycons3rt conf directory
 
