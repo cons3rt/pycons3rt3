@@ -7,6 +7,7 @@ configurations.
 """
 import logging
 import os
+import socket
 import time
 import traceback
 
@@ -25,6 +26,15 @@ __author__ = 'Joe Yennaco'
 
 # Set up logger name for this module
 mod_logger = Logify.get_name() + '.ec2util'
+
+# Global list of all AWS regions divided into useful lists
+foreign_regions = ['af-south-1', 'ap-east-1', 'ap-northeast-1', 'ap-northeast-2', 'ap-northeast-3', 'ap-south-1',
+                   'ap-southeast-1', 'ap-southeast-2', 'ca-central-1', 'eu-central-1', 'eu-north-1', 'eu-south-1',
+                   'eu-west-1', 'eu-west-2', 'eu-west-3', 'me-south-1', 'sa-east-1']
+us_regions = ['us-east-1', 'us-east-2', 'us-west-1', 'us-west-2']
+gov_regions = ['us-gov-east-1', 'us-gov-west-1']
+global_regions = foreign_regions + us_regions
+all_regions = global_regions + gov_regions
 
 
 # NAT AMI IDs used for cons3rt NAT VMs
@@ -64,6 +74,7 @@ class EC2Util(object):
             self.vpc_id = get_vpc_id_from_mac_address()
         else:
             self.vpc_id = None
+        self.region = self.client.meta.region_name
 
     def ensure_exists(self, resource_id, timeout_sec=300):
         """Ensure the provided resource ID exists
@@ -205,6 +216,40 @@ class EC2Util(object):
             return
         log.info('Found VPC ID: {v}'.format(v=vpc_id))
         return vpc_id
+
+    def list_available_regions(self):
+        """Returns a list of available regions for this client
+
+        :return: (list) available regions
+        :raises: EC2UtilError
+        """
+        log = logging.getLogger(self.cls_logger + '.list_available_regions')
+        log.info('Getting a list of available regions...')
+        try:
+            response = self.client.describe_regions()
+        except ClientError as exc:
+            msg = 'Problem describing all regions available to this client'
+            raise EC2UtilError(msg) from exc
+        if 'Regions' not in response:
+            raise EC2UtilError('Regions not found in response: {r}'.format(r=str(response)))
+        return response['Regions']
+
+    def get_rhui3_servers(self, all_available=False):
+        """Returns a list of RHUI servers for my region
+
+        :return: (list) of RHUI3 server IP addresses
+        """
+        log = logging.getLogger(self.cls_logger + '.get_rhui3_servers')
+        rhui_regions = []
+        if all_available:
+            log.info('Getting RHUI3 servers for all available regions...')
+            region_list = self.list_available_regions()
+            for region in region_list:
+                rhui_regions.append(region['RegionName'])
+        else:
+            log.info('Getting RHUI3 servers for just my current region: {r}'.format(r=self.region))
+            rhui_regions = [self.region]
+        return get_aws_rhui3_ips(regions=rhui_regions)
 
     def list_subnets_with_token(self, next_token=None, vpc_id=None):
         """Listing subnets in the VPC with continuation token if provided
@@ -4696,6 +4741,26 @@ def get_aws_service_permissions(regions, ipv6=False):
     return permissions_list
 
 
+def get_rhui3_server_permissions(regions):
+    """Returns a list of IpPermissions objects for a list of regions
+
+    :param regions: (list) of (str) regions to include in the permissions set (e.g. ['us-gov-west-1', 'us-gov-east-1'])
+    :return: (list) of IpPermissions objects
+    """
+    log = logging.getLogger(mod_logger + '.get_rhui3_server_permissions')
+    if not isinstance(regions, list):
+        log.warning('list expected, found: {t}'.format(t=regions.__class__.__name__))
+        return []
+    permissions_list = []
+    rhui3_server_ips = get_aws_rhui3_ips(regions=regions)
+    for rhui3_server_ip in rhui3_server_ips:
+        permissions_list.append(
+            IpPermission(IpProtocol='tcp', FromPort=443, ToPort=443, CidrIp=rhui3_server_ip,
+                         Description='RedHat_RHUI3_Server')
+        )
+    return permissions_list
+
+
 def parse_ip_routes(ip_routes):
     """Parse a list of Routes as defined in the boto3 documentation and returns
     a list of IpRoutes objects
@@ -4880,3 +4945,44 @@ def get_aws_service_ips(regions=None, include_elastic_ips=False, ipv6=False):
     log.info('Found {n} matching IP ranges in regions: {r}'.format(
         n=str(len(region_filtered_ip_ranges)), r=','.join(regions)))
     return region_filtered_ip_ranges
+
+
+def get_aws_rhui3_ips(regions=None):
+    """Returns the list of Red Hat RHUI3 IP addresses
+
+    Note: GovCloud uses the US-based servers
+
+    :param regions: (list) region IDs to include in the results (e.g. [us-gov-west-1, us-gov-east-1])
+    :return: (list) of IP addresses
+    """
+    log = logging.getLogger(mod_logger + '.get_aws_rhui3_ips')
+
+    if not regions:
+        regions = global_regions
+    else:
+        for region in regions:
+            if region in gov_regions:
+                log.info('GovCloud region specified, returning only US-based RHUI3 servers...')
+                regions = us_regions
+                break
+
+    log.info('Returning RHUI3 IP addresses in regions: {r}'.format(r=','.join(regions)))
+
+    # Build the list of IPs
+    rhui3_ips = []
+    for region in regions:
+        try:
+            _, _, rhui3_region_ips = socket.gethostbyname_ex('rhui3.{r}.aws.ce.redhat.com'.format(r=region))
+        except (socket.gaierror, socket.error, socket.herror) as exc:
+            log.error('Problem retrieving RHUI3 IP address for region: {r}'.format(r=region))
+            continue
+        if len(rhui3_region_ips) < 1:
+            log.error('No RHUI3 IP addresses returned for region: {r}'.format(r=region))
+            continue
+        for rhui3_region_ip in rhui3_region_ips:
+            if validate_ip_address(rhui3_region_ip):
+                log.info('Found RHUI3 IP address for region {r}: {i}'.format(r=region, i=rhui3_region_ip))
+                rhui3_ips.append(rhui3_region_ip)
+            else:
+                log.error('Invalid RHUI3 IP address returned for region {r}: {i}'.format(r=region, i=rhui3_region_ip))
+    return rhui3_ips
