@@ -4755,7 +4755,7 @@ def get_rhui3_server_permissions(regions):
     rhui3_server_ips = get_aws_rhui3_ips(regions=regions)
     for rhui3_server_ip in rhui3_server_ips:
         permissions_list.append(
-            IpPermission(IpProtocol='tcp', FromPort=443, ToPort=443, CidrIp=rhui3_server_ip,
+            IpPermission(IpProtocol='tcp', FromPort=443, ToPort=443, CidrIp=rhui3_server_ip + '/32',
                          Description='RedHat_RHUI3_Server')
         )
     return permissions_list
