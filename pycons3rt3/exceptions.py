@@ -125,12 +125,12 @@ AWS API exceptions
 """
 
 
+class AWSAPIError(Exception):
+    """Simple exception type for AWS API errors"""
+
+
 class AWSMetaDataError(Exception):
     """There was a problem encountered with the AWS meta data service"""
-
-
-class S3UtilError(Exception):
-    """There was a problem with an AWS S3 operation"""
 
 
 class EC2UtilError(Exception):
@@ -141,5 +141,9 @@ class ImageUtilError(Exception):
     """There was a problem with an AWS AMI operation"""
 
 
-class AWSAPIError(Exception):
-    """Simple exception type for AWS API errors"""
+class RDSUtilError(Exception):
+    """There was a problem with an AWS RDS operation"""
+
+
+class S3UtilError(Exception):
+    """There was a problem with an AWS S3 operation"""

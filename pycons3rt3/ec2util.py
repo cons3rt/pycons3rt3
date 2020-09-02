@@ -11,7 +11,6 @@ import socket
 import time
 import traceback
 
-import boto3
 from botocore.client import ClientError
 import requests
 
@@ -19,6 +18,7 @@ from .bash import get_ip_addresses, validate_ip_address
 from .logify import Logify
 from .osutil import get_os, get_pycons3rt_scripts_dir
 from .aws_metadata import is_aws, get_instance_id, get_vpc_id_from_mac_address
+from .awsutil import get_boto3_client, global_regions, gov_regions, us_regions
 from .exceptions import AWSAPIError, AwsTransitGatewayError, EC2UtilError
 
 __author__ = 'Joe Yennaco'
@@ -26,15 +26,6 @@ __author__ = 'Joe Yennaco'
 
 # Set up logger name for this module
 mod_logger = Logify.get_name() + '.ec2util'
-
-# Global list of all AWS regions divided into useful lists
-foreign_regions = ['af-south-1', 'ap-east-1', 'ap-northeast-1', 'ap-northeast-2', 'ap-northeast-3', 'ap-south-1',
-                   'ap-southeast-1', 'ap-southeast-2', 'ca-central-1', 'eu-central-1', 'eu-north-1', 'eu-south-1',
-                   'eu-west-1', 'eu-west-2', 'eu-west-3', 'me-south-1', 'sa-east-1']
-us_regions = ['us-east-1', 'us-east-2', 'us-west-1', 'us-west-2']
-gov_regions = ['us-gov-east-1', 'us-gov-west-1']
-global_regions = foreign_regions + us_regions
-all_regions = global_regions + gov_regions
 
 
 # NAT AMI IDs used for cons3rt NAT VMs
@@ -4625,22 +4616,8 @@ def get_ec2_client(region_name=None, aws_access_key_id=None, aws_secret_access_k
     :return: boto3.client object
     :raises: AWSAPIError
     """
-    log = logging.getLogger(mod_logger + '.get_ec2_client')
-    # Connect to EC2 API
-    try:
-        client = boto3.client(
-            'ec2',
-            region_name=region_name,
-            aws_access_key_id=aws_access_key_id,
-            aws_secret_access_key=aws_secret_access_key,
-            aws_session_token=aws_session_token
-        )
-    except ClientError as exc:
-        msg = 'There was a problem connecting to EC2, please check AWS CLI and boto configuration, ensure ' \
-              'credentials and region are set appropriately.'
-        log.error(msg)
-        raise AWSAPIError(msg) from exc
-    return client
+    return get_boto3_client(service='ec2', region_name=region_name, aws_access_key_id=aws_access_key_id,
+                            aws_secret_access_key=aws_secret_access_key, aws_session_token=aws_session_token)
 
 
 def parse_ip_permissions(ip_permissions):
@@ -4974,7 +4951,7 @@ def get_aws_rhui3_ips(regions=None):
         try:
             _, _, rhui3_region_ips = socket.gethostbyname_ex('rhui3.{r}.aws.ce.redhat.com'.format(r=region))
         except (socket.gaierror, socket.error, socket.herror) as exc:
-            log.error('Problem retrieving RHUI3 IP address for region: {r}'.format(r=region))
+            log.error('Problem retrieving RHUI3 IP address for region: {r}\n{e}'.format(r=region, e=str(exc)))
             continue
         if len(rhui3_region_ips) < 1:
             log.error('No RHUI3 IP addresses returned for region: {r}'.format(r=region))
