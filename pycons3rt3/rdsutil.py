@@ -93,15 +93,15 @@ class RdsUtil(object):
             msg = 'Problem creating DB subnet group for DB ID: {i}'.format(i=db_instance_id)
             raise RDSUtilError(msg) from exc
 
-        # Retrieve the VPC CIDR blocks
-        ec2 = EC2Util()
-        try:
-            vpc_cidr_blocks = ec2.retrieve_vpc_cidr_blocks()
-        except EC2UtilError as exc:
-            msg = 'Problem retrieving VPC CIDR blocks for VPC ID: {i}'.format(i=vpc_id)
-            raise RDSUtilError(msg) from exc
-
+        # If a security group ID was not provided, create one
         if not security_group_id:
+            ec2 = EC2Util()
+            # Retrieve the VPC CIDR blocks
+            try:
+                vpc_cidr_blocks = ec2.retrieve_vpc_cidr_blocks(vpc_id=vpc_id)
+            except EC2UtilError as exc:
+                msg = 'Problem retrieving VPC CIDR blocks for VPC ID: {i}'.format(i=vpc_id)
+                raise RDSUtilError(msg) from exc
             # Create a VPC security group
             sg_name = '{i}-sg'.format(i=db_instance_id)
             try:
