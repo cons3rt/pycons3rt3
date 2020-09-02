@@ -394,6 +394,32 @@ class RdsUtil(object):
                 return subnet_group
         log.info('Subnet group with name [{n}] not found'.format(n=group_name))
 
+    def delete_rds_instance(self, db_instance_id):
+        """Deletes the specified instance ID
+
+        By default this will take a final snapshot before deletion, and erase the automated backups
+
+        :param db_instance_id: (str) identifier of the DB
+        :return: (dict) data about the deleted instance
+        :raises: RdsUtilError
+        """
+        log = logging.getLogger(self.cls_logger + '.delete_rds_instance')
+        log.info('Deleting DB instance with ID: {i}'.format(i=db_instance_id))
+        try:
+            response = self.client.delete_db_instance(
+                DBInstanceIdentifier=db_instance_id,
+                SkipFinalSnapshot=False,
+                FinalDBSnapshotIdentifier=db_instance_id + 'final_snapshot',
+                DeleteAutomatedBackups=True
+            )
+        except ClientError as exc:
+            msg = 'Problem deleting RDS database with ID: {i}'.format(i=db_instance_id)
+            raise RDSUtilError(msg) from exc
+        if 'DBInstance' not in response.keys():
+            msg = 'DBInstance data not found in response: {r}'.format(r=str(response))
+            raise RDSUtilError(msg)
+        return response['DBInstance']
+
 
 def get_rds_client(region_name=None, aws_access_key_id=None, aws_secret_access_key=None, aws_session_token=None):
     """Gets an EC2 client
