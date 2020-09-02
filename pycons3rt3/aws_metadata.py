@@ -35,8 +35,8 @@ def is_aws():
     log.info('Querying AWS meta data URL: {u}'.format(u=metadata_url))
 
     # Re-try logic for checking the AWS meta data URL
-    retry_time_sec = 10
-    max_num_tries = 10
+    retry_time_sec = 5
+    max_num_tries = 3
     attempt_num = 1
 
     while True:
