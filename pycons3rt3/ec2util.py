@@ -1694,12 +1694,12 @@ class EC2Util(object):
         :raises: AWSAPIError, EC2UtilError
         """
         log = logging.getLogger(self.cls_logger + '.list_security_groups_in_vpc')
-        if vpc_id is None and self.vpc_id is not None:
-            vpc_id = self.vpc_id
-        else:
-            msg = 'Unable to determine VPC ID to use to create the Security Group'
-            log.error(msg)
-            raise EC2UtilError(msg)
+        if not vpc_id:
+            if self.vpc_id:
+                vpc_id = self.vpc_id
+            else:
+                msg = 'vpc_id arg not provided, and self.vpc_id not determined'
+                raise EC2UtilError(msg)
 
         # Create a filter on the VPC ID
         filters = [
