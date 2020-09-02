@@ -1690,8 +1690,8 @@ class EC2Util(object):
         """Lists security groups in the VPC.  If vpc_id is not provided, use self.vpc_id
 
         :param vpc_id: (str) VPC ID to list security groups for
-        :return: (list) Security Group info
-        :raises: AWSAPIError, EC2UtilError
+        :return: (list) Security Group data
+        :raises: EC2UtilError
         """
         log = logging.getLogger(self.cls_logger + '.list_security_groups_in_vpc')
         if not vpc_id:
@@ -1712,12 +1712,14 @@ class EC2Util(object):
         # Get a list of security groups in the VPC
         log.info('Querying for a list of security groups in VPC ID: {v}'.format(v=vpc_id))
         try:
-            security_groups = self.client.describe_security_groups(DryRun=False, Filters=filters)
+            response = self.client.describe_security_groups(DryRun=False, Filters=filters)
         except ClientError as exc:
-            msg = 'Unable to query AWS for a list of security groups in VPC ID: {v}'.format(
-                v=vpc_id)
-            raise AWSAPIError(msg) from exc
-        return security_groups
+            msg = 'Problem describing security groups in VPC ID: {v}'.format(v=vpc_id)
+            raise EC2UtilError(msg) from exc
+        if 'SecurityGroups' not in response.keys():
+            msg = 'SecurityGroups not found in response: {r}'.format(r=str(response))
+            raise EC2UtilError(msg) from exc
+        return response['SecurityGroups']
 
     def add_single_security_group_egress_rule(self, security_group_id, add_rule):
         """Adds a single security group rule
