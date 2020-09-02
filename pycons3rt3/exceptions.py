@@ -141,7 +141,7 @@ class ImageUtilError(Exception):
     """There was a problem with an AWS AMI operation"""
 
 
-class RDSUtilError(Exception):
+class RdsUtilError(Exception):
     """There was a problem with an AWS RDS operation"""
 
 

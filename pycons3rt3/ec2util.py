@@ -45,7 +45,7 @@ nat_default_size = 't3.micro'
 class EC2Util(object):
     """Utility for interacting with the AWS API
     """
-    def __init__(self, region_name=None, aws_access_key_id=None, aws_secret_access_key=None):
+    def __init__(self, region_name=None, aws_access_key_id=None, aws_secret_access_key=None, skip_is_aws=False):
         self.cls_logger = mod_logger + '.EC2Util'
         try:
             self.client = get_ec2_client(region_name=region_name, aws_access_key_id=aws_access_key_id,
@@ -53,19 +53,17 @@ class EC2Util(object):
         except ClientError as exc:
             msg = 'Unable to create an EC2 client'
             raise EC2UtilError(msg) from exc
-        if get_os() != 'Darwin':
-            self.is_aws = is_aws()
-        else:
-            self.is_aws = False
-        if self.is_aws:
-            self.instance_id = get_instance_id()
-        else:
-            self.instance_id = None
-        if self.instance_id and self.is_aws:
-            self.vpc_id = get_vpc_id_from_mac_address()
-        else:
-            self.vpc_id = None
         self.region = self.client.meta.region_name
+        self.is_aws = False
+        self.instance_id = None
+        self.vpc_id = None
+        if not skip_is_aws:
+            if get_os() != 'Darwin':
+                self.is_aws = is_aws()
+            if self.is_aws:
+                self.instance_id = get_instance_id()
+            if self.instance_id and self.is_aws:
+                self.vpc_id = get_vpc_id_from_mac_address()
 
     def ensure_exists(self, resource_id, timeout_sec=300):
         """Ensure the provided resource ID exists
