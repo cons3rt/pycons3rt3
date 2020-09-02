@@ -32,7 +32,7 @@ def is_aws():
     :return: bool True if this system is running on AWS
     """
     log = logging.getLogger(mod_logger + '.is_aws')
-    log.info('Querying AWS meta data URL: {u}'.format(u=metadata_url))
+    log.info('Querying AWS meta data URL to determine if this system is on AWS: {u}'.format(u=metadata_url))
 
     # Re-try logic for checking the AWS meta data URL
     retry_time_sec = 5
@@ -41,14 +41,14 @@ def is_aws():
 
     while True:
         if attempt_num > max_num_tries:
-            log.info('Unable to query the AWS meta data URL, this system is NOT running on AWS\n{e}')
+            log.info('Unable to query the AWS meta data URL, this system appears to be not running on AWS\n{e}')
             return False
 
         # Query the AWS meta data URL
         try:
             response = requests.get(metadata_url)
         except(IOError, OSError) as ex:
-            log.warning('Failed to query the AWS meta data URL\n{e}'.format(e=str(ex)))
+            log.info('Unable to query the AWS meta data URL\n{e}'.format(e=str(ex)))
             attempt_num += 1
             time.sleep(retry_time_sec)
             continue
@@ -58,7 +58,7 @@ def is_aws():
             log.info('AWS metadata service returned code 200, this system is running on AWS')
             return True
         else:
-            log.warning('AWS metadata service returned code: {c}'.format(c=str(response.status_code)))
+            log.warning('AWS metadata service returned error code: {c}'.format(c=str(response.status_code)))
             attempt_num += 1
             time.sleep(retry_time_sec)
             continue

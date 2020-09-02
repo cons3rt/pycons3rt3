@@ -1718,7 +1718,7 @@ class EC2Util(object):
             raise EC2UtilError(msg) from exc
         if 'SecurityGroups' not in response.keys():
             msg = 'SecurityGroups not found in response: {r}'.format(r=str(response))
-            raise EC2UtilError(msg) from exc
+            raise EC2UtilError(msg)
         return response['SecurityGroups']
 
     def add_single_security_group_egress_rule(self, security_group_id, add_rule):
