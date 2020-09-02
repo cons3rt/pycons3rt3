@@ -72,6 +72,7 @@ class RdsUtil(object):
         ports = None
         if db_engine == 'postgres':
             port = 5432
+            license_model = 'postgresql-license'
         else:
             msg = 'DB engine [{d}] is not supported at this time'.format(d=db_engine)
             raise RDSUtilError(msg)
