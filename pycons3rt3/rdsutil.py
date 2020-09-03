@@ -314,6 +314,19 @@ class RdsUtil(object):
         log.info('RDS DB instance in VPC ID [{v}] with DB identifier [{i}] not found'.format(
             v=vpc_id, i=db_instance_id))
 
+    def wait_for_rds_instance_available(self, db_instance_id):
+        """Waits until the RDS instance is available
+
+        :param db_instance_id: (str) RDS DB instance identifier
+        :return: (dict)
+        """
+        log = logging.getLogger(self.cls_logger + '.wait_for_rds_instance_available')
+        while True:
+            try:
+                rds_info = self.get_rds_instance_by_id(db_instance_id=db_instance_id)
+            except (ClientError, RdsUtilError) as exc:
+                pass
+
     def create_db_subnet_group(self, subnet_ids, group_name, group_description='DB subnet group'):
         """Creates a subnet group using the provided parameters
 
