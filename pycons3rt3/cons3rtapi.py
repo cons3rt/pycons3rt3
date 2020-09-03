@@ -13,7 +13,7 @@ from .cloud import Cloud
 from .cons3rtclient import Cons3rtClient
 from .deployment import Deployment
 from .pycons3rtlibs import RestUser
-from .cons3rtconfig import cons3rtapi_config_file, manual_config
+from .cons3rtconfig import cons3rtapi_config_file
 from .exceptions import Cons3rtClientError, Cons3rtApiError, DeploymentError, InvalidCloudError, \
     InvalidOperatingSystemTemplate
 from .ostemplates import OperatingSystemTemplate, OperatingSystemType
@@ -2301,6 +2301,8 @@ class Cons3rtApi(object):
                 i=str(vr_id)))
 
         self.release_active_runs_in_virtualization_realm(vr_id=vr_id, unlock=unlock)
+        log.info('Waiting 120 seconds to proceed to deletion of inactive runs...')
+        time.sleep(120)
 
         # Once a minute for 5 minutes, delete inactive runs (as runs release)
         attempt_num = 1
