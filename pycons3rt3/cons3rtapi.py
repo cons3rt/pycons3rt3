@@ -3914,6 +3914,25 @@ class Cons3rtApi(object):
             n=str(snapshot_disk_count), g=str(snapshot_disk_capacity_gb)))
         return all_results
 
+    def power_off_multiple_runs(self, drs):
+        """Attempts to power off all hosts in the provided DR list
+
+        :param drs: (list) deployment runs dicts of DR data
+        :return: (list) of dict data on request results
+        :raises Cons3rtApiError
+        """
+        log = logging.getLogger(self.cls_logger + '.power_off_multiple_runs')
+        log.info('Powering off multiple runs...')
+        try:
+            all_results = self.perform_host_action_for_run_list(
+                drs=drs,
+                action='POWER_OFF'
+            )
+        except Cons3rtApiError as exc:
+            raise Cons3rtApiError('Problem powering off runs from list: {r}'.format(
+                r=str(drs))) from exc
+        return all_results
+
     def perform_host_action_for_run_list(self, drs, action):
         """Attempts to perform the provided action for all hosts in the provided DR list
 
