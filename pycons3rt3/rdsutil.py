@@ -120,7 +120,7 @@ class RdsUtil(object):
         try:
             subnet_group = self.create_db_subnet_group(
                 subnet_ids=subnet_ids,
-                group_name=db_name,
+                group_name=db_instance_id,
                 group_description='Subnet group for {n} ID: {i}'.format(n=db_name, i=db_instance_id)
             )
         except RdsUtilError as exc:
