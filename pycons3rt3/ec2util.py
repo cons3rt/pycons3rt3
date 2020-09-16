@@ -1684,6 +1684,26 @@ class EC2Util(object):
             raise EC2UtilError('Problem setting name tag for security group ID: {i}'.format(i=security_group_id))
         return security_group_id
 
+    def list_security_groups(self):
+        """Lists security groups in the account/region
+
+        :return: (list) Security Group data
+        :raises: EC2UtilError
+        """
+        log = logging.getLogger(self.cls_logger + '.list_security_groups')
+
+        # Get a list of security groups in the VPC
+        log.info('Querying for a list of security groups in this account/region')
+        try:
+            response = self.client.describe_security_groups(DryRun=False)
+        except ClientError as exc:
+            msg = 'Problem describing security groups'
+            raise EC2UtilError(msg) from exc
+        if 'SecurityGroups' not in response.keys():
+            msg = 'SecurityGroups not found in response: {r}'.format(r=str(response))
+            raise EC2UtilError(msg)
+        return response['SecurityGroups']
+
     def list_security_groups_in_vpc(self, vpc_id=None):
         """Lists security groups in the VPC.  If vpc_id is not provided, use self.vpc_id
 
