@@ -216,6 +216,14 @@ class Cons3rtApi(object):
             log.warning('Unable to determine the target from provided asset_type: {t}'.format(t=asset_type))
         return target
 
+    def get_dependent_assets(self, asset_id):
+        """ TODO create this method
+
+        :param asset_id:
+        :return:
+        """
+        pass
+
     def create_cloud(self, cloud_ato_consent=False, **kwargs):
         """Creates a new cloud
 
@@ -815,7 +823,7 @@ class Cons3rtApi(object):
         else:
             team_name = team_details['name']
 
-        # Get the owned projects, return empy list if not provided
+        # Get the owned projects, return empty list if not provided
         owned_projects = []
         if 'ownedProjects' not in team_details:
             log.info('No owned projects found in team [{n}] with ID: {i}'.format(n=team_name, i=str(team_id)))
@@ -1032,7 +1040,7 @@ class Cons3rtApi(object):
             msg = 'Problem listing runs for deployment ID: {i}'.format(i=str(deployment_id))
             raise Cons3rtClientError(msg) from exc
 
-        # Check for a DR with an acitve status
+        # Check for a DR with an active status
         active_statii = ['SUBMITTED', 'PROVISIONING_HOSTS', 'HOSTS_PROVISIONED', 'RESERVED', 'TESTING', 'TESTED']
 
         for dr in drs:
@@ -1066,7 +1074,7 @@ class Cons3rtApi(object):
             msg = 'Problem listing runs for deployment ID: {i}'.format(i=str(deployment_id))
             raise Cons3rtClientError(msg) from exc
 
-        # Check for a DR with an acitve status
+        # Check for a DR with an active status
         active_statii = ['SUBMITTED', 'PROVISIONING_HOSTS', 'HOSTS_PROVISIONED', 'RESERVED', 'TESTING', 'TESTED']
 
         inactive_drs = []
@@ -2613,7 +2621,7 @@ class Cons3rtApi(object):
                     t=template_registration_id.__class__.__name__)
                 raise Cons3rtApiError(msg) from exc
 
-        # Retrieve details on the template regitstration
+        # Retrieve details on the template registration
         log.info('Retrieving details on registration ID {r} in VR ID: {i}'.format(
             r=str(template_registration_id), i=str(vr_id)))
         try:
@@ -2741,7 +2749,7 @@ class Cons3rtApi(object):
         :param max_ram_mb: (int) Maximum amount of RAM for the template in MB
         :param root_disk_size_mb: (int) Size of the root disk in MB
         :param additional_disks: (list) of additional disks (dict), must have capacityInMegabytes (int)
-        :param linux_package_manager: (str) package manager for linux disrtibutions
+        :param linux_package_manager: (str) package manager for linux distros
         :param power_on_delay_override: (int) seconds to delay power on
         :param powershell_version: (str) powershell version for Windows
         :param linux_service_management: (str) service management system for linux
@@ -2921,7 +2929,7 @@ class Cons3rtApi(object):
                 template_registration_id=template_registration_id
             )
         except Cons3rtApiError as exc:
-            msg = 'Problem creating template subscription in VR ID {i} for template registratino ID: {r}'.format(
+            msg = 'Problem creating template subscription in VR ID {i} for template registration ID: {r}'.format(
                 r=str(template_registration_id), i=str(vr_id))
             raise Cons3rtApiError(msg) from exc
         return is_success
@@ -3055,7 +3063,7 @@ class Cons3rtApi(object):
         else:
             if template_name:
                 if not isinstance(template_name, str):
-                    msg = 'template_name arg must be a atring, found: {t}'.format(
+                    msg = 'template_name arg must be a string, found: {t}'.format(
                         t=template_name.__class__.__name__)
                     raise Cons3rtApiError(msg)
 
@@ -3100,7 +3108,7 @@ class Cons3rtApi(object):
         return result
 
     def delete_all_template_registrations(self, vr_id):
-        """Delates all template registrations from the virtualization realm
+        """Deletes all template registrations from the virtualization realm
 
         :param vr_id: (int) ID of the virtualization realm
         :return: bool
@@ -4089,7 +4097,7 @@ class Cons3rtApi(object):
 
     def list_project_virtualization_realms_for_team(self, team_id):
         """Given a team ID, returns a list of the virtualization realms that the team's projects
-        are allowed to deplpy into
+        are allowed to deploy into
 
         Note: This is a different list then the team's managed virtualization realms
 

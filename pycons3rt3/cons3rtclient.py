@@ -381,16 +381,16 @@ class Cons3rtClient:
         return vr_id
 
     def get_cloud_id(self, cloud_name):
-        retval = None
+        result = None
 
         response = self.http_client.http_get(rest_user=self.user, target='clouds')
         content = self.http_client.parse_response(response=response)
         clouds = json.loads(content)
         for cloud in clouds:
             if cloud['name'] == cloud_name:
-                retval = cloud['id']
+                result = cloud['id']
 
-        return retval
+        return result
 
     def list_projects(self, max_results=40, page_num=0):
         """Queries CONS3RT for a list of projects for the current user
@@ -591,7 +591,7 @@ class Cons3rtClient:
         return drh_details
 
     def get_virtualization_realm_id(self, cloud_id, vr_name):
-        retval = None
+        result = None
 
         response = self.http_client.http_get(
             rest_user=self.user,
@@ -600,8 +600,8 @@ class Cons3rtClient:
         vrs = json.loads(content)
         for vr in vrs:
             if vr['name'] == vr_name:
-                retval = vr['id']
-        return retval
+                result = vr['id']
+        return result
 
     def list_virtualization_realms_for_cloud(self, cloud_id, max_results=40, page_num=0):
         """Queries CONS3RT for a list of Virtualization Realms for a specified Cloud ID
@@ -1301,6 +1301,14 @@ class Cons3rtClient:
         response = self.http_client.http_put(
             rest_user=self.user,
             target='drs/{i}/setlock?lock={k}'.format(i=str(dr_id), k=str(lock).lower()))
+        result = self.http_client.parse_response(response=response)
+        return result
+
+    def get_dependent_assets(self, asset_id):
+        response = self.http_client.http_get(
+            rest_user=self.user,
+            target='assets/{i}/dependent'.format(i=str(asset_id))
+        )
         result = self.http_client.parse_response(response=response)
         return result
 
