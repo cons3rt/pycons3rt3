@@ -13,7 +13,7 @@ from .cloud import Cloud
 from .cons3rtclient import Cons3rtClient
 from .deployment import Deployment
 from .pycons3rtlibs import RestUser
-from .cons3rtconfig import cons3rtapi_config_file
+from .cons3rtconfig import cons3rtapi_config_file, get_pycons3rt_conf_dir
 from .exceptions import Cons3rtClientError, Cons3rtApiError, DeploymentError, InvalidCloudError, \
     InvalidOperatingSystemTemplate
 from .ostemplates import OperatingSystemTemplate, OperatingSystemType
@@ -87,8 +87,10 @@ class Cons3rtApi(object):
         else:
             # Ensure the cert_file_path points to an actual file
             if not os.path.isfile(cert_file_path):
-                raise Cons3rtApiError('config.json provided a cert, but the cert file was not found: {f}'.format(
-                    f=cert_file_path))
+                cert_file_path = os.path.join(get_pycons3rt_conf_dir(), cert_file_path)
+                if not os.path.isfile(cert_file_path):
+                    raise Cons3rtApiError('config.json provided a cert, but the cert file was not found: {f}'.format(
+                        f=cert_file_path))
             log.info('Found certificate file: {f}'.format(f=cert_file_path))
 
         # Check for root CA certificate bundle path
