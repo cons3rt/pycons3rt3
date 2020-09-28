@@ -253,6 +253,42 @@ def ip_addr():
     return ip_addr_output
 
 
+def get_mac_addresses():
+    """Uses the ip addr command to enumerate mac addresses by device
+
+    :return: (dict) Containing device: ip_address
+    """
+    log = logging.getLogger(mod_logger + '.get_mac_addresses')
+    log.debug('Running the ip addr command...')
+    mac_addresses = {}
+
+    command = ['ip', 'addr']
+    try:
+        ip_addr_result = run_command(command, timeout_sec=20, output=True, print_output=False)
+    except CommandError as exc:
+        raise CommandError('There was a problem running command: {c}'.format(c=' '.join(command))) from exc
+
+    ip_addr_lines = ip_addr_result['output'].split('\n')
+    mac_address = None
+    device = None
+    for line in ip_addr_lines:
+        line = line.strip()
+        if line.startswith('link/ether'):
+            parts = line.split()
+            mac_address = parts[1]
+        elif line.startswith('inet'):
+            if not mac_address:
+                continue
+            parts = line.split()
+            device = parts[-1]
+        if device and mac_address:
+            mac_addresses[device] = mac_address
+            log.info('Found device [{d}] with mac address: [{m}]'.format(d=device, m=mac_address))
+            device = None
+            mac_address = None
+    return mac_addresses
+
+
 def get_ip_addresses():
     """Gets the ip addresses from ifconfig
 
