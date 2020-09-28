@@ -30,11 +30,12 @@ class Logify(object):
     # Set up the global pycons3rt logger
     log_dir = get_pycons3rt_log_dir()
     conf_dir = get_pycons3rt_conf_dir()
+    log_files = True
     try:
         initialize_pycons3rt_dirs()
     except OSError as ex:
-        msg = 'Unable to create pycons3rt directories\n{e}'.format(e=str(ex))
-        raise OSError(msg)
+        print('WARNING: Unable to create pycons3rt directories\n{e}'.format(e=str(ex)))
+        log_files = False
     config_file = os.path.join(conf_dir, 'pycons3rt-logging.conf')
     log_file_info = os.path.join(log_dir, 'pycons3rt-info.log')
     log_file_debug = os.path.join(log_dir, 'pycons3rt-debug.log')
@@ -49,19 +50,20 @@ class Logify(object):
         _stream = logging.StreamHandler()
         _stream.setLevel(logging.INFO)
         _stream.setFormatter(_formatter)
-        _file_info = logging.FileHandler(filename=log_file_info, mode='a')
-        _file_info.setLevel(logging.INFO)
-        _file_info.setFormatter(_formatter)
-        _file_debug = logging.FileHandler(filename=log_file_debug, mode='a')
-        _file_debug.setLevel(logging.DEBUG)
-        _file_debug.setFormatter(_formatter_threads)
-        _file_warn = logging.FileHandler(filename=log_file_warn, mode='a')
-        _file_warn.setLevel(logging.WARN)
-        _file_warn.setFormatter(_formatter_threads)
         _logger.addHandler(_stream)
-        _logger.addHandler(_file_info)
-        _logger.addHandler(_file_debug)
-        _logger.addHandler(_file_warn)
+        if log_files:
+            _file_info = logging.FileHandler(filename=log_file_info, mode='a')
+            _file_info.setLevel(logging.INFO)
+            _file_info.setFormatter(_formatter)
+            _file_debug = logging.FileHandler(filename=log_file_debug, mode='a')
+            _file_debug.setLevel(logging.DEBUG)
+            _file_debug.setFormatter(_formatter_threads)
+            _file_warn = logging.FileHandler(filename=log_file_warn, mode='a')
+            _file_warn.setLevel(logging.WARN)
+            _file_warn.setFormatter(_formatter_threads)
+            _logger.addHandler(_file_info)
+            _logger.addHandler(_file_debug)
+            _logger.addHandler(_file_warn)
     else:
         _logger = logging.getLogger('pycons3rt3')
 
