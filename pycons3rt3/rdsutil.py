@@ -115,6 +115,17 @@ class RdsUtil(object):
             msg = 'DB engine [{d}] is not supported at this time'.format(d=db_engine)
             raise RdsUtilError(msg)
 
+        # Ensure storage is an int
+        try:
+            storage_gb = int(storage_gb)
+        except ValueError:
+            msg = 'storage_gb must be an int, found: {t}'.format(t=storage_gb.__class__.__name__)
+            raise RdsUtilError(msg)
+
+        # Ensure DBName is a str
+        if not db_name:
+            db_name = 'None'
+
         # Ensure the DB ID doesn't exist already, return it if found
         db = self.get_rds_instance_by_id(db_instance_id=db_instance_id)
         if db:
