@@ -122,10 +122,6 @@ class RdsUtil(object):
             msg = 'storage_gb must be an int, found: {t}'.format(t=storage_gb.__class__.__name__)
             raise RdsUtilError(msg)
 
-        # Ensure DBName is a str
-        if not db_name:
-            db_name = 'None'
-
         # Ensure the DB ID doesn't exist already, return it if found
         db = self.get_rds_instance_by_id(db_instance_id=db_instance_id)
         if db:
@@ -189,35 +185,66 @@ class RdsUtil(object):
                 msg = 'Problem configuring security group rule for: {i}'.format(i=security_group_id)
                 raise RdsUtilError(msg) from exc
 
+        db_subnet_group_name = subnet_group['DBSubnetGroupName']
+        security_group_id_list = [security_group_id]
+
         log.info('Existing DB with ID [{i}] not found, attempting to create...'.format(i=db_instance_id))
         try:
-            response = self.client.create_db_instance(
-                DBName=db_name,
-                DBInstanceIdentifier=db_instance_id,
-                AllocatedStorage=storage_gb,
-                DBInstanceClass=db_instance_type,
-                Engine=db_engine,
-                MasterUsername=master_username,
-                MasterUserPassword=master_password,
-                VpcSecurityGroupIds=[security_group_id],
-                AvailabilityZone=availability_zone,
-                DBSubnetGroupName=subnet_group['DBSubnetGroupName'],
-                BackupRetentionPeriod=backup_days,
-                Port=port,
-                MultiAZ=False,
-                EngineVersion=db_version,
-                AutoMinorVersionUpgrade=True,
-                LicenseModel=license_model,
-                PubliclyAccessible=False,
-                StorageType=storage_type,
-                StorageEncrypted=True,
-                KmsKeyId=kms_key_alias,
-                CopyTagsToSnapshot=True,
-                MonitoringInterval=0,
-                EnableIAMDatabaseAuthentication=False,
-                EnablePerformanceInsights=False,
-                DeletionProtection=False,
-            )
+            if db_name:
+                response = self.create_rds_instance_with_db_name(
+                    DBName=db_name,
+                    DBInstanceIdentifier=db_instance_id,
+                    AllocatedStorage=storage_gb,
+                    DBInstanceClass=db_instance_type,
+                    Engine=db_engine,
+                    MasterUsername=master_username,
+                    MasterUserPassword=master_password,
+                    VpcSecurityGroupIds=security_group_id_list,
+                    AvailabilityZone=availability_zone,
+                    DBSubnetGroupName=db_subnet_group_name,
+                    BackupRetentionPeriod=backup_days,
+                    Port=port,
+                    MultiAZ=False,
+                    EngineVersion=db_version,
+                    AutoMinorVersionUpgrade=True,
+                    LicenseModel=license_model,
+                    PubliclyAccessible=False,
+                    StorageType=storage_type,
+                    StorageEncrypted=True,
+                    KmsKeyId=kms_key_alias,
+                    CopyTagsToSnapshot=True,
+                    MonitoringInterval=0,
+                    EnableIAMDatabaseAuthentication=False,
+                    EnablePerformanceInsights=False,
+                    DeletionProtection=False,
+                )
+            else:
+                response = self.create_rds_instance_without_db_name(
+                    DBInstanceIdentifier=db_instance_id,
+                    AllocatedStorage=storage_gb,
+                    DBInstanceClass=db_instance_type,
+                    Engine=db_engine,
+                    MasterUsername=master_username,
+                    MasterUserPassword=master_password,
+                    VpcSecurityGroupIds=security_group_id_list,
+                    AvailabilityZone=availability_zone,
+                    DBSubnetGroupName=db_subnet_group_name,
+                    BackupRetentionPeriod=backup_days,
+                    Port=port,
+                    MultiAZ=False,
+                    EngineVersion=db_version,
+                    AutoMinorVersionUpgrade=True,
+                    LicenseModel=license_model,
+                    PubliclyAccessible=False,
+                    StorageType=storage_type,
+                    StorageEncrypted=True,
+                    KmsKeyId=kms_key_alias,
+                    CopyTagsToSnapshot=True,
+                    MonitoringInterval=0,
+                    EnableIAMDatabaseAuthentication=False,
+                    EnablePerformanceInsights=False,
+                    DeletionProtection=False,
+                )
         except ClientError as exc:
             msg = 'There was a problem launching the RDS instance\n{e}'.format(e=str(exc))
             raise RdsUtilError(msg) from exc
@@ -226,6 +253,73 @@ class RdsUtil(object):
             raise RdsUtilError(msg)
         log.info('Created RDS database ID: {i}'.format(i=response['DBInstance']['DBInstanceIdentifier']))
         return response['DBInstance']
+
+    def create_rds_instance_with_db_name(self, **kwargs):
+        """Creates an RDS instance that requires a DB name (e.g. postgres)
+
+        :param kwargs: (dict) args
+        :return: EC2 client response
+        """
+        return self.client.create_db_instance(
+            DBName=kwargs['DBName'],
+            DBInstanceIdentifier=kwargs['DBInstanceIdentifier'],
+            AllocatedStorage=kwargs['AllocatedStorage'],
+            DBInstanceClass=kwargs['DBInstanceClass'],
+            Engine=kwargs['Engine'],
+            MasterUsername=kwargs['MasterUsername'],
+            MasterUserPassword=kwargs['MasterUserPassword'],
+            VpcSecurityGroupIds=kwargs['VpcSecurityGroupIds'],
+            AvailabilityZone=kwargs['AvailabilityZone'],
+            DBSubnetGroupName=kwargs['DBSubnetGroupName'],
+            BackupRetentionPeriod=kwargs['BackupRetentionPeriod'],
+            Port=kwargs['Port'],
+            MultiAZ=kwargs['MultiAZ'],
+            EngineVersion=kwargs['EngineVersion'],
+            AutoMinorVersionUpgrade=kwargs['AutoMinorVersionUpgrade'],
+            LicenseModel=kwargs['LicenseModel'],
+            PubliclyAccessible=kwargs['PubliclyAccessible'],
+            StorageType=kwargs['StorageType'],
+            StorageEncrypted=kwargs['StorageEncrypted'],
+            KmsKeyId=kwargs['KmsKeyId'],
+            CopyTagsToSnapshot=kwargs['CopyTagsToSnapshot'],
+            MonitoringInterval=kwargs['MonitoringInterval'],
+            EnableIAMDatabaseAuthentication=kwargs['EnableIAMDatabaseAuthentication'],
+            EnablePerformanceInsights=kwargs['EnablePerformanceInsights'],
+            DeletionProtection=kwargs['DeletionProtection'],
+        )
+
+    def create_rds_instance_without_db_name(self, **kwargs):
+        """Creates an RDS instance without a DB name (e.g. SQL server)
+
+        :param kwargs: (dict) args
+        :return: EC2 client response
+        """
+        return self.client.create_db_instance(
+            DBInstanceIdentifier=kwargs['DBInstanceIdentifier'],
+            AllocatedStorage=kwargs['AllocatedStorage'],
+            DBInstanceClass=kwargs['DBInstanceClass'],
+            Engine=kwargs['Engine'],
+            MasterUsername=kwargs['MasterUsername'],
+            MasterUserPassword=kwargs['MasterUserPassword'],
+            VpcSecurityGroupIds=kwargs['VpcSecurityGroupIds'],
+            AvailabilityZone=kwargs['AvailabilityZone'],
+            DBSubnetGroupName=kwargs['DBSubnetGroupName'],
+            BackupRetentionPeriod=kwargs['BackupRetentionPeriod'],
+            Port=kwargs['Port'],
+            MultiAZ=kwargs['MultiAZ'],
+            EngineVersion=kwargs['EngineVersion'],
+            AutoMinorVersionUpgrade=kwargs['AutoMinorVersionUpgrade'],
+            LicenseModel=kwargs['LicenseModel'],
+            PubliclyAccessible=kwargs['PubliclyAccessible'],
+            StorageType=kwargs['StorageType'],
+            StorageEncrypted=kwargs['StorageEncrypted'],
+            KmsKeyId=kwargs['KmsKeyId'],
+            CopyTagsToSnapshot=kwargs['CopyTagsToSnapshot'],
+            MonitoringInterval=kwargs['MonitoringInterval'],
+            EnableIAMDatabaseAuthentication=kwargs['EnableIAMDatabaseAuthentication'],
+            EnablePerformanceInsights=kwargs['EnablePerformanceInsights'],
+            DeletionProtection=kwargs['DeletionProtection'],
+        )
 
     def list_rds_instances_with_marker(self, marker=None, max_records=100):
         """Lists RDS instances using the provided marker
