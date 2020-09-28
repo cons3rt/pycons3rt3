@@ -1,7 +1,6 @@
 boto3
 botocore
 cryptography
-netifaces
 jinja2
 progressbar2
 pyyaml

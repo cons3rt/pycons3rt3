@@ -9,9 +9,9 @@ meta data service.
 import logging
 import time
 
-import netifaces
 import requests
 
+from .bash import get_mac_addresses
 from .logify import Logify
 from .exceptions import AWSMetaDataError
 
@@ -231,10 +231,8 @@ def get_primary_mac_address():
     :raises: AWSMetaDataError
     """
     log = logging.getLogger(mod_logger + '.get_primary_mac_address')
-    log.debug('Attempting to determine the MAC address for eth0...')
-    try:
-        mac_address = netifaces.ifaddresses('eth0')[netifaces.AF_LINK][0]['addr']
-    except Exception as exc:
-        msg = 'Unable to determine the eth0 mac address for this system'
-        raise AWSMetaDataError(msg) from exc
-    return mac_address
+    mac_addresses = get_mac_addresses()
+    if ['eth0'] not in mac_addresses.keys():
+        msg = 'Problem getting the mac address for eth0'
+        raise AWSMetaDataError(msg)
+    return mac_addresses['eth0']
