@@ -35,6 +35,7 @@ dist = setup(
     version=pycons3rt_version,
     description='A python3 library for CONS3RT assets and API calls',
     long_description=open('README.md').read(),
+    long_description_content_type='text/markdown',
     author='Joe Yennaco',
     author_email='joe.yennaco@jackpinetech.com',
     url='https://github.com/cons3rt/pycons3rt3',
