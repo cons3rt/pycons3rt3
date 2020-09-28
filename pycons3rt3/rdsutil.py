@@ -53,7 +53,8 @@ optional_props = {
 
 # Supported DB engines
 supported_db_engines = [
-    'postgres'
+    'postgres',
+    'sqlserver-ee'
 ]
 
 
