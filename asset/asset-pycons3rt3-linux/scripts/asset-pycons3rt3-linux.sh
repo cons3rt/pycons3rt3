@@ -20,7 +20,11 @@ branch="master"
 destinationDir="/root"
 
 # List of prereq packages to install before pip
-prereqPackages="gcc"
+prereqPackages="gcc git"
+
+# python3 and pip3 executables
+python3Exe=
+pip3Exe=
 
 ####################### END GLOBAL VARIABLES #######################
 
@@ -96,15 +100,30 @@ function main() {
     read_deployment_properties
     install_prerequisites
     if [ $? -ne 0 ]; then logErr "There was a problem installing prerequisites"; return 1; fi
-
     which git
     if [ $? -ne 0 ]; then logErr "git not found"; return 2; fi
 
-    which python3
-    if [ $? -ne 0 ]; then logErr "python3 not found"; return 3; fi
+    # Determine python3 and pip
+    python3Exe=$(which python3)
+    if [ $? -ne 0 ]; then
+        logInfo "python3 not found, checking for installed version..."
+        python3Exe="/usr/local/python3/bin/python3.8"
+    fi
+    pip3Exe=$(which pip3)
+    if [ $? -ne 0 ]; then
+        logInfo "pip3 not found, checking for installed version..."
+        pip3Exe="/usr/local/python3/bin/pip3.8"
+    fi
 
-    which pip3
-    if [ $? -ne 0 ]; then logErr "pip3 not found"; return 4; fi
+    # Ensure python and pip exist
+    if [ ! -f ${python3Exe} ]; then
+        logErr "python3 executable not found: ${python3Exe}"
+        return 3
+    fi
+    if [ ! -f ${pip3Exe} ]; then
+        logErr "pip executable not found: ${pip3Exe}"
+        return 4
+    fi
 
     if [ -z "${PYCONS3RT3_BRANCH}" ]; then
         logInfo "PYCONS3RT3_BRANCH custom property not found, using default branch: ${branch}"
@@ -127,11 +146,11 @@ function main() {
     cd ${destinationDir}/pycons3rt3/
 
     logInfo "Installing prerequisites..."
-    pip3 install -r ./cfg/requirements.txt >> ${logFile} 2>&1
+    ${pip3Exe} install -r ./cfg/requirements.txt >> ${logFile} 2>&1
     if [ $? -ne 0 ]; then logErr "Problem installing pip requirements"; return 6; fi
 
     logInfo "Installing pycons3rt3..."
-    python3 setup.py install >> ${logFile} 2>&1
+    ${python3Exe} setup.py install >> ${logFile} 2>&1
     if [ $? -ne 0 ]; then logErr "Problem installing pycons3rt3"; return 7; fi
 
     # Exit successfully
