@@ -25,63 +25,165 @@ mod_logger = Logify.get_name() + '.cons3rtapi'
 
 class Cons3rtApi(object):
 
-    def __init__(self, url=None, base_dir=None, user=None, config_file=None, project=None):
+    def __init__(self, rest_user=None, config_file=None, url=None, username=None, project=None, api_token=None,
+                 cert_path=None, root_ca_bundle_path=None):
         self.cls_logger = mod_logger + '.Cons3rtApi'
-        self.user = user
+        self.rest_user = rest_user
+        self.config_file = config_file
         self.url_base = url
-        self.base_dir = base_dir
+        self.username = username
         self.project = project
+        self.api_token = api_token
+        self.cert_path = cert_path
+        self.root_ca_bundle_path = root_ca_bundle_path
         self.retries = ''
         self.timeout = ''
         self.queries = ''
         self.virtrealm = ''
-        if not config_file:
-            self.config_file = cons3rtapi_config_file
-        else:
-            self.config_file = config_file
-        self.config_data = {}
-        self.user_list = []
-        if self.user is None:
-            self.load_config()
-        self.cons3rt_client = Cons3rtClient(base=self.url_base, user=self.user)
+        self.rest_user_list = []
+        self.load_config()
+        self.cons3rt_client = Cons3rtClient(base=self.url_base, user=self.rest_user)
 
     def load_config(self):
-        """Loads the default config file
+        """Load config data from args, environment vars, or config files
 
         :return: None
         :raises: Cons3rtApiError
         """
-        log = logging.getLogger(self.cls_logger + '.load_config')
+        # First use a RestUser object if provided directly
+        if self.rest_user:
+            if isinstance(self.rest_user, RestUser):
+                self.rest_user_list.append(self.rest_user)
+                return
+
+        # 2nd, if a config file was specified, use that
+        if self.config_file:
+            if self.load_config_file():
+                return
+
+        # 3rd, use args provided to create a RestUser
+        if self.load_config_args():
+            return
+
+        # 4th, use environment variables if set
+        if self.load_config_env_vars():
+            return
+
+        # Lastly, check the default config file location
+        self.config_file = cons3rtapi_config_file
+        if self.load_config_file():
+            return
+
+        raise Cons3rtApiError('Unable to load configuration data')
+
+    def load_config_args(self):
+        """Attempts to load configuration from provided args
+
+        :return: True if successful, False otherwise
+        :raises: Cons3rtApiError
+        """
+        log = logging.getLogger(self.cls_logger + '.load_config_args')
+
+        # Load the root CA bundle config
+        self.load_config_root_ca_bundle()
+
+        # Check for username-based args
+        if all([self.url_base, self.username, self.project, self.api_token]):
+            log.info('Loading config: URL: [{u}], username: [{n}], project: [{p}]'.format(
+                u=self.url_base, n=self.username, p=self.project))
+            self.rest_user_list.append(RestUser(
+                token=self.api_token,
+                project=self.project,
+                username=self.username,
+                cert_bundle=self.root_ca_bundle_path
+            ))
+            self.rest_user = self.rest_user_list[0]
+            return True
+        elif all([self.url_base, self.cert_path, self.project, self.api_token]):
+            log.info('Loading config: URL: [{u}], client cert: [{c}], project: [{p}]'.format(
+                u=self.url_base, c=self.cert_path, p=self.project))
+            self.rest_user_list.append(RestUser(
+                token=self.api_token,
+                project=self.project,
+                cert_file_path=self.cert_path,
+                cert_bundle=self.root_ca_bundle_path
+            ))
+            self.rest_user = self.rest_user_list[0]
+            return True
+        return False
+
+    def load_config_env_vars(self):
+        """Attempts to load configuration from environment variables:
+
+        CONS3RT_USER
+        CONS3RT_PROJECT
+        CONS3RT_ENDPOINT
+        CONS3RT_API_TOKEN
+        CONS3RT_CLIENT_CERT
+        CONS3RT_ROOT_CA_BUNDLE
+
+        :return: True if successful, False otherwise
+        :raises: Cons3rtApiError
+        """
+        log = logging.getLogger(self.cls_logger + '.load_config_env_vars')
+
+        # Check for environment vars, and convert to args when found
+        if 'CONS3RT_ROOT_CA_BUNDLE' in os.environ.keys():
+            self.root_ca_bundle_path = os.environ['CONS3RT_ROOT_CA_BUNDLE']
+            log.info('Found environment variable CONS3RT_ROOT_CA_BUNDLE: {v}'.format(v=self.root_ca_bundle_path))
+        if 'CONS3RT_USER' in os.environ.keys():
+            self.username = os.environ['CONS3RT_USER']
+            log.info('Found environment variable CONS3RT_USER: {v}'.format(v=self.username))
+        if 'CONS3RT_PROJECT' in os.environ.keys():
+            self.project = os.environ['CONS3RT_PROJECT']
+            log.info('Found environment variable CONS3RT_PROJECT: {v}'.format(v=self.project))
+        if 'CONS3RT_ENDPOINT' in os.environ.keys():
+            self.url_base = os.environ['CONS3RT_ENDPOINT']
+            log.info('Found environment variable CONS3RT_ENDPOINT: {v}'.format(v=self.url_base))
+        if 'CONS3RT_API_TOKEN' in os.environ.keys():
+            self.api_token = os.environ['CONS3RT_API_TOKEN']
+            log.info('Found environment variable CONS3RT_API_TOKEN: {v}'.format(v=self.api_token))
+        if 'CONS3RT_CLIENT_CERT' in os.environ.keys():
+            self.cert_path = os.environ['CONS3RT_CLIENT_CERT']
+            log.info('Found environment variable CONS3RT_CLIENT_CERT: {v}'.format(v=self.cert_path))
+        return self.load_config_args()
+
+    def load_config_file(self):
+        """Loads either the specified config file or the default config file
+
+        :return: True if successful, False otherwise
+        :raises: Cons3rtApiError
+        """
+        log = logging.getLogger(self.cls_logger + '.load_config_file')
 
         # Ensure the file_path file exists
         if not os.path.isfile(self.config_file):
-            raise Cons3rtApiError('Cons3rtApi config file is required but not found: {f}'.format(f=self.config_file))
+            raise Cons3rtApiError('Config file not found: {f}'.format(f=self.config_file))
 
         # Load the config file
         try:
             with open(self.config_file, 'r') as f:
-                self.config_data = json.load(f)
+                config_data = json.load(f)
         except(OSError, IOError) as exc:
-            raise Cons3rtApiError('Unable to read the Cons3rtApi config file: {f}'.format(f=self.config_file)) from exc
-        else:
-            log.debug('Loading config data from file: {f}'.format(f=self.config_file))
+            raise Cons3rtApiError('Unable to read config file: {f}'.format(f=self.config_file)) from exc
+        log.info('Loading config from file: {f}'.format(f=self.config_file))
 
         # Attempt to load the URL
         try:
-            self.url_base = self.config_data['api_url']
+            self.url_base = config_data['api_url']
         except KeyError:
-            raise Cons3rtApiError('api_url is required but not defined in the config file')
+            raise Cons3rtApiError('api_url not defined in the config file')
         log.info('Using CONS3RT API URL: {u}'.format(u=self.url_base))
 
         # Attempt to find a username in the config data
         try:
-            username = self.config_data['name']
+            username = config_data['name']
         except KeyError:
             username = None
 
         # Attempt to find a cert_file_path in the config data
         try:
-            cert_file_path = self.config_data['cert']
+            cert_file_path = config_data['cert']
         except KeyError:
             cert_file_path = None
         else:
@@ -91,37 +193,25 @@ class Cons3rtApi(object):
                 if not os.path.isfile(cert_file_path):
                     raise Cons3rtApiError('config.json provided a cert, but the cert file was not found: {f}'.format(
                         f=cert_file_path))
-            log.info('Found certificate file: {f}'.format(f=cert_file_path))
+            log.info('Found client certificate: {f}'.format(f=cert_file_path))
 
         # Check for root CA certificate bundle path
-        if 'root_ca_bundle' in self.config_data.keys():
-            root_ca_bundle_path = self.config_data['root_ca_bundle']
-
-            if root_ca_bundle_path.lower() == 'false':
-                log.warning('WARNING: Found root_ca_bundle set to False, will not verify SSL connections')
-                root_ca_bundle_path = False
-            else:
-                # Ensure the root_ca_bundle points to an actual file
-                if not os.path.isfile(root_ca_bundle_path):
-                    msg = 'config.json provided a root_ca_bundle, but the cert file was not found: {f}'.format(
-                        f=root_ca_bundle_path)
-                    raise Cons3rtApiError(msg)
-                log.info('Found root CA certificate file: {f}'.format(f=root_ca_bundle_path))
+        if 'root_ca_bundle' in config_data.keys():
+            self.root_ca_bundle_path = config_data['root_ca_bundle']
         else:
-            log.info('Using the built-in root certificates for server-side SSL verification')
-            root_ca_bundle_path = True
+            self.root_ca_bundle_path = True
+        self.load_config_root_ca_bundle()
 
-            # Ensure that either a username or cert_file_path was found
+        # Ensure that either a username or cert_file_path was found
         if username is None and cert_file_path is None:
-            raise Cons3rtApiError('The config.json file must contain values for either name or cert')
+            raise Cons3rtApiError('The config file must contain values for either: name or cert')
 
         # Ensure at least one token is found
         try:
-            project_token_list = self.config_data['projects']
+            project_token_list = config_data['projects']
         except KeyError:
-            raise Cons3rtApiError(
-                'Element [projects] is required but not found in the config data, at least 1 project token must '
-                'be configured')
+            msg = '[projects] not found in the config file, at least 1 project must be provided'
+            raise Cons3rtApiError(msg)
 
         # Attempt to create a ReST user for each project in the list
         for project in project_token_list:
@@ -132,36 +222,69 @@ class Cons3rtApi(object):
                 log.warning('Found an invalid project token, skipping: {p}'.format(p=str(project)))
                 continue
 
-            # Create a ReST User for the project/token pair
-            log.debug('Found rest token for project {p}'.format(p=project))
-
             # Create a cert-based auth or username-based auth user depending on the config
             if cert_file_path:
-                self.user_list.append(RestUser(
+                self.rest_user_list.append(RestUser(
                     token=token,
                     project=project_name,
                     cert_file_path=cert_file_path,
-                    cert_bundle=root_ca_bundle_path
+                    cert_bundle=self.root_ca_bundle_path
                 ))
             elif username:
-                self.user_list.append(RestUser(
+                self.rest_user_list.append(RestUser(
                     token=token,
                     project=project_name,
                     username=username,
-                    cert_bundle=root_ca_bundle_path
+                    cert_bundle=self.root_ca_bundle_path
                 ))
 
         # Ensure that at least one valid project/token was found
-        if len(self.user_list) < 1:
+        if len(self.rest_user_list) < 1:
             raise Cons3rtApiError('A ReST API token was not found in config file: {f}'.format(f=self.config_file))
 
-        log.info('Found {n} project/token pairs'.format(n=str(len(self.user_list))))
+        log.info('Found {n} project/token pairs'.format(n=str(len(self.rest_user_list))))
 
         # Select the first user to use as the default
-        self.user = self.user_list[0]
-        if self.project is not None:
+        self.rest_user = self.rest_user_list[0]
+        if self.project:
             self.set_project_token(project_name=self.project)
-        log.info('Using ReST API token for project: {p}'.format(p=self.user.project_name))
+        log.info('Using ReST API token for project: {p}'.format(p=self.rest_user.project_name))
+        return True
+
+    def load_config_root_ca_bundle(self):
+        """Handles the root CA bundle config item
+
+        :return: None
+        :raises: Cons3rtApiError
+        """
+        log = logging.getLogger(self.cls_logger + '.load_config_root_ca_bundle')
+
+        if self.root_ca_bundle_path is None:
+            self.root_ca_bundle_path = True
+
+        # Process root CA bundle if it is a string
+        if isinstance(self.root_ca_bundle_path, str):
+            if self.root_ca_bundle_path.lower() == 'false':
+                self.root_ca_bundle_path = False
+            elif self.root_ca_bundle_path.lower() == 'true':
+                self.root_ca_bundle_path = True
+            else:
+                # Ensure the root_ca_bundle points to an actual file
+                if not os.path.isfile(self.root_ca_bundle_path):
+                    msg = 'root_ca_bundle specified in the config file was not found: {f}'.format(
+                        f=self.root_ca_bundle_path)
+                    raise Cons3rtApiError(msg)
+                log.info('Found root CA certificate bundle: {f}'.format(f=self.root_ca_bundle_path))
+        elif isinstance(self.root_ca_bundle_path, bool):
+            pass
+        else:
+            msg = 'Expected root_ca_bundle_path to be bool or str, found: {t}'.format(t=__class__.__name__)
+            raise Cons3rtApiError(msg)
+        if isinstance(self.root_ca_bundle_path, bool):
+            if self.root_ca_bundle_path:
+                log.info('Using the built-in root certificates for server-side SSL verification')
+            else:
+                log.warning('WARNING: Config for root_ca_bundle_path set to False, will not verify SSL connections')
 
     def set_project_token(self, project_name):
         """Sets the project name and token to the specified project name.  This project name
@@ -181,16 +304,16 @@ class Cons3rtApi(object):
         # Loop through the projects until the project matches
         found = False
         log.info('Attempting to set the project token pair for project: {p}'.format(p=project_name))
-        for rest_user in self.user_list:
+        for rest_user in self.rest_user_list:
             log.debug('Checking if rest user matches project [{p}]: {u}'.format(p=project_name, u=str(rest_user)))
             if rest_user.project_name == project_name:
                 log.info('Found matching rest user: {u}'.format(u=str(rest_user)))
-                self.user = rest_user
-                self.cons3rt_client = Cons3rtClient(base=self.url_base, user=self.user)
+                self.rest_user = rest_user
+                self.cons3rt_client = Cons3rtClient(base=self.url_base, user=self.rest_user)
                 found = True
                 break
         if found:
-            log.info('Set project to [{p}] and ReST API token: {t}'.format(p=self.user.project_name, t=self.user.token))
+            log.info('Set project to [{p}] and ReST API token: {t}'.format(p=self.rest_user.project_name, t=self.rest_user.token))
         else:
             log.warning('Matching ReST User not found for project: {p}'.format(p=project_name))
 
@@ -463,7 +586,7 @@ class Cons3rtApi(object):
         max_results = 40
         while True:
             log.debug('Attempting to list projects for user: {u}, page: {p}, max results: {m}'.format(
-                u=self.user.username, p=str(page_num), m=str(max_results)))
+                u=self.rest_user.username, p=str(page_num), m=str(max_results)))
             try:
                 page_of_projects = self.cons3rt_client.list_projects(
                     max_results=max_results,
@@ -492,7 +615,7 @@ class Cons3rtApi(object):
         max_results = 40
         while True:
             log.debug('Attempting to list non-member projects for user: {u}, page: {p}, max results: {m}'.format(
-                u=self.user.username, p=str(page_num), m=str(max_results)))
+                u=self.rest_user.username, p=str(page_num), m=str(max_results)))
             try:
                 page_of_projects = self.cons3rt_client.list_expanded_projects(
                     max_results=max_results,
@@ -1312,7 +1435,7 @@ class Cons3rtApi(object):
         """
         log = logging.getLogger(self.cls_logger + '.add_cloud_admin')
         if username is None:
-            username = self.user.username
+            username = self.rest_user.username
         # Ensure the cloud_id is an int
         if not isinstance(cloud_id, int):
             try:
@@ -1321,7 +1444,7 @@ class Cons3rtApi(object):
                 msg = 'The cloud_id arg must be an int'
                 raise Cons3rtApiError(msg) from exc
         try:
-            self.cons3rt_client.add_cloud_admin(cloud_id=cloud_id, username=self.user.username)
+            self.cons3rt_client.add_cloud_admin(cloud_id=cloud_id, username=self.rest_user.username)
         except Cons3rtClientError as exc:
             msg = 'Unable to add Cloud Admin {u} to Cloud: {c}'.format(u=username, c=cloud_id)
             raise Cons3rtApiError(msg) from exc
