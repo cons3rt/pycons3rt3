@@ -794,6 +794,12 @@ class Deployment(object):
         if not external_ip:
             log.warning('Unable to find an external IP for network: {n}'.format(n=network_name))
             return
+
+        internal_ip = self.get_scenario_host_ip_on_network(scenario_role_name, network_name)
+        if internal_ip == external_ip:
+            log.warning('External IP found matches the Internal IP, not returning...')
+            return
+
         log.debug('Found external IP address [{i}] for network name: {n}'.format(i=external_ip, n=network_name))
         return external_ip
 
