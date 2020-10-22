@@ -232,7 +232,7 @@ def get_primary_mac_address():
     """
     log = logging.getLogger(mod_logger + '.get_primary_mac_address')
     mac_addresses = get_mac_addresses()
-    if ['eth0'] not in mac_addresses.keys():
+    if 'eth0' not in mac_addresses.keys():
         msg = 'Problem getting the mac address for eth0'
         raise AWSMetaDataError(msg)
     return mac_addresses['eth0']
