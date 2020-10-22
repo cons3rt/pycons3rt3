@@ -43,6 +43,10 @@ class InvalidOperatingSystemTemplate(Exception):
     """Invalid OS template data"""
 
 
+class MailChimpListerError(Exception):
+    """Simple exception type for handling errors with MailChimpLister"""
+
+
 """
 CONS3RT command-line interface exceptions
 """
@@ -91,6 +95,7 @@ class Cons3rtSlackerError(Exception):
 
 class SshConfigError(Exception):
     """Problem configuring SSH on a host"""
+
 
 """
 Operating System level exceptions
