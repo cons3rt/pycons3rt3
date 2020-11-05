@@ -47,6 +47,10 @@ class MailChimpListerError(Exception):
     """Simple exception type for handling errors with MailChimpLister"""
 
 
+class ServiceRunnerError(Exception):
+    """Simple exception type for handling errors with the service runners"""
+
+
 """
 CONS3RT command-line interface exceptions
 """
@@ -139,6 +143,10 @@ class AWSMetaDataError(Exception):
 
 
 class EC2UtilError(Exception):
+    """There was a problem with an AWS EC2 operation"""
+
+
+class ElbUtilError(Exception):
     """There was a problem with an AWS EC2 operation"""
 
 

@@ -331,6 +331,76 @@ class EC2Util(object):
         log.info('Found CIDR for subnet ID [{i}]: {c}'.format(i=subnet_id, c=cidr))
         return cidr
 
+    # Ensure the subnet IDs are in the provided VPC ID
+    def verify_subnets_in_vpc(self, vpc_id, subnet_list):
+        """Determine if the list of subnets are in the provided VPC ID
+        
+        :param vpc_id: (str) ID of the VPC
+        :param subnet_list: (list) of subnet IDs
+        :return: True if all subnets in the provided list are in the VPC ID, False otherwise
+        """
+        log = logging.getLogger(self.cls_logger + '.verify_subnets_in_vpc')
+        log.info('Determining if subnets are in VPC ID [{v}]: {s}'.format(v=vpc_id, s=','.join(subnet_list)))
+        try:
+            vpc_subnets = self.list_subnets(vpc_id=vpc_id)
+        except EC2UtilError as exc:
+            msg = 'Problem listing subnets in VPC ID: {i}'.format(i=vpc_id)
+            raise EC2UtilError(msg) from exc
+        for subnet_id in subnet_list:
+            found_in_vpc = False
+            for vpc_subnet in vpc_subnets:
+                if 'SubnetId' not in vpc_subnet.keys():
+                    log.warning('SubnetId not found in subnet data: {s}'.format(s=str(vpc_subnet)))
+                    return False
+                if 'VpcId' not in vpc_subnet.keys():
+                    log.warning('VpcId not found in subnet data: {s}'.format(s=str(vpc_subnet)))
+                    return False
+                if vpc_subnet['SubnetId'] == subnet_id:
+                    if vpc_subnet['VpcId'] != vpc_id:
+                        msg = 'Subnet ID [{s}] found in VPC [{f}] not in provided VPC: {v}'.format(
+                            s=subnet_id, f=vpc_subnet['VpcId'], v=vpc_id)
+                        log.warning(msg)
+                        return False
+                    else:
+                        log.info('Found subnet {s} in provided VPC ID: {v}'.format(
+                            s=subnet_id, v=vpc_id))
+                        found_in_vpc = True
+            if not found_in_vpc:
+                log.warning('Subnet {s} not found in VPC ID: {v}'.format(s=subnet_id, v=vpc_id))
+                return False
+        return True
+
+    def verify_subnets_affinity(self, subnet_id_list, num_availability_zones=2):
+        """Ensures that at least 2 availability zones are represented by the provided subnet IDs
+        
+        :param subnet_id_list: (list) of subnet IDs
+        :param num_availability_zones: (int) number of desired availability zones
+        :return: True if at least 2 availability zones are represented, False otherwise
+        :raises: EC2UtilError
+        """
+        log = logging.getLogger(self.cls_logger + '.verify_subnets_in_two_azs')
+        log.info('Ensuring that the list of subnets [{s}] are in at least {n} availability zones'.format(
+            s=','.join(subnet_id_list), n=str(num_availability_zones)))
+        availability_zones = []
+        subnets = []
+        for subnet_id in subnet_id_list:
+            try:
+                subnets.append(self.retrieve_subnet(subnet_id=subnet_id))
+            except EC2UtilError as exc:
+                msg = 'Problem retrieving subnet: {i}'.format(i=subnet_id)
+                raise EC2UtilError(msg) from exc
+        for subnet in subnets:
+            if 'AvailabilityZone' not in subnet.keys():
+                msg = 'AvailabilityZone not found in subnet data: {d}'.format(d=str(subnet))
+                raise EC2UtilError(msg)
+            if subnet['AvailabilityZone'] not in availability_zones:
+                availability_zones.append(subnet['AvailabilityZone'])
+        if len(availability_zones) < 2:
+            log.warning('Subnet IDs must be in at least 2 availability zones, found availability zones: {z}'.format(
+                z=','.join(availability_zones)))
+            return False
+        return True
+
     def list_route_tables_with_token(self, next_token=None, vpc_id=None):
         """Listing route tables in the VPC with continuation token if provided
 
@@ -2225,6 +2295,44 @@ class EC2Util(object):
             msg = 'Unable to remove existing Security Group rules for port from Security Group: {g}'.format(
                 g=security_group_id)
             raise AWSAPIError(msg) from exc
+
+    def verify_security_groups_in_vpc(self, security_group_id_list, vpc_id):
+        """Determines if the provided list of security groups reside in the VPC
+        
+        :param security_group_id_list: (list) of security group IDs
+        :param vpc_id: (str) ID of the VPC 
+        :return: True if all of the security groups live in the provided VPC
+        """
+        log = logging.getLogger(self.cls_logger + '.verify_security_groups_in_vpc')
+        # Ensure the security group ID is in the provided VPC ID
+        try:
+            vpc_sgs = self.list_security_groups_in_vpc(vpc_id=vpc_id)
+        except EC2UtilError as exc:
+            msg = 'Problem listing security groups in VPC ID: {i}'.format(i=vpc_id)
+            raise EC2UtilError(msg) from exc
+        for security_group_id in security_group_id_list:
+            found_in_vpc = False
+            for vpc_sg in vpc_sgs:
+                if 'GroupId' not in vpc_sg.keys():
+                    log.warning('GroupId not found in security group data: {s}'.format(s=str(vpc_sg)))
+                    return False
+                if 'VpcId' not in vpc_sg.keys():
+                    log.warning('VpcId not found in subnet data: {s}'.format(s=str(vpc_sg)))
+                    return False
+                if vpc_sg['GroupId'] == security_group_id:
+                    if vpc_sg['VpcId'] != vpc_id:
+                        msg = 'Security Group ID [{s}] found in VPC [{f}] not in provided VPC: {v}'.format(
+                            s=security_group_id, f=vpc_sg['VpcId'], v=vpc_id)
+                        log.warning(msg)
+                        return False
+                    else:
+                        log.info('Found security group {s} in provided VPC ID: {v}'.format(
+                            s=security_group_id, v=vpc_id))
+                        found_in_vpc = True
+            if not found_in_vpc:
+                log.warning('Security group {s} not found in VPC ID: {v}'.format(s=security_group_id, v=vpc_id))
+                return False
+        return True
 
     def launch_instance(self, ami_id, key_name, subnet_id, security_group_id=None, security_group_list=None,
                         user_data_script_path=None, instance_type='t3.small', root_volume_location='/dev/xvda',
