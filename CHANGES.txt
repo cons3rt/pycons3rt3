@@ -1,4 +1,11 @@
 
+0.0.7a0
+=====
+
+* Added the "cons3rt run" CLI command, and added options for snapshotting all hosts in a run, or restoring
+ all hosts in a run from snapshots
+
+
 0.0.1
 =====
 
