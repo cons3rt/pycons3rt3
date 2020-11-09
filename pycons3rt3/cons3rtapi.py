@@ -4012,10 +4012,33 @@ class Cons3rtApi(object):
             raise Cons3rtApiError('Problem creating snapshot for run ID: {i}'.format(i=str(dr_id))) from exc
         return results
 
+    def restore_run_snapshots(self, dr_id):
+        """Attempts to creates snapshots for all hosts in the provided DR ID
+
+        :param dr_id: (int) ID of the deployment run
+        :return: (list) of dict data on request results
+        :raises Cons3rtApiError
+        """
+        try:
+            results = self.perform_host_action_for_run(
+                dr_id=dr_id,
+                action='RESTORE_SNAPSHOT'
+            )
+        except Cons3rtApiError as exc:
+            raise Cons3rtApiError('Problem restoring snapshot for run ID: {i}'.format(i=str(dr_id))) from exc
+        return results
+
+    def restore_run_snapshots_multiple(self, drs):
+        return self.process_run_snapshots_multiple(drs=drs, action='RESTORE_SNAPSHOT')
+
     def create_run_snapshots_multiple(self, drs):
+        return self.process_run_snapshots_multiple(drs=drs, action='CREATE_SNAPSHOT')
+
+    def process_run_snapshots_multiple(self, drs, action):
         """Attempts to creates snapshots for all hosts in the provided DR list
 
         :param drs: (list) deployment runs dicts of DR data
+        :param action: (str) CREATE_SNAPSHOT | RESTORE_SNAPSHOT
         :return: (list) of dict data on request results
         :raises Cons3rtApiError
         """
@@ -4023,10 +4046,10 @@ class Cons3rtApi(object):
         try:
             all_results = self.perform_host_action_for_run_list(
                 drs=drs,
-                action='CREATE_SNAPSHOT'
+                action=action
             )
         except Cons3rtApiError as exc:
-            raise Cons3rtApiError('Problem creating snapshots on DR list') from exc
+            raise Cons3rtApiError('Problem performing action [{a}] on DR list'.format(a=action)) from exc
 
         successful_snapshots_count = 0
         failed_snapshots_count = 0
@@ -4039,12 +4062,12 @@ class Cons3rtApi(object):
                 successful_snapshots_count += 1
                 snapshot_disk_count += result['num_disks']
                 snapshot_disk_capacity_gb += result['storage_gb']
-        log.info('Requested {n} total snapshots'.format(n=str(len(all_results))))
+        log.info('Requested {n} total snapshots with action: {a}'.format(n=str(len(all_results)), a=action))
         log.info('Completed with {s} successful snapshots and {f} failed snapshots'.format(
             s=str(successful_snapshots_count),
             f=str(failed_snapshots_count)))
-        log.info('Snapshots succeeded on a total of {n} disks with a total storage capacity of {g} GBs'.format(
-            n=str(snapshot_disk_count), g=str(snapshot_disk_capacity_gb)))
+        log.info('[{a}] succeeded on a total of {n} disks with a total storage capacity of {g} GBs'.format(
+            a=action, n=str(snapshot_disk_count), g=str(snapshot_disk_capacity_gb)))
         return all_results
 
     def power_off_multiple_runs(self, drs):

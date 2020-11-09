@@ -128,6 +128,22 @@ class Cons3rtCli(object):
         print(msg)
 
     @staticmethod
+    def print_snapshot_results(snapshot_results_list):
+        msg = 'DR_ID\tDR_Name\tHostID\tRoleName\tNumDisks\tStorageGb\tRequestTime\tResult\tError Message\n'
+        for result in snapshot_results_list:
+            msg += \
+                str(result['dr_id']) + '\t' + \
+                result['dr_name'] + '\t' + \
+                str(result['host_id']) + '\t' + \
+                result['host_role'] + '\t' + \
+                str(result['num_disks']) + '\t' + \
+                str(result['storage_gb']) + '\t' + \
+                result['request_time'] + '\t' + \
+                result['result'] + '\t' + \
+                result['err_msg'] + '\n'
+        print(msg)
+
+    @staticmethod
     def print_teams(teams_list):
         msg = 'ID\tName\n'
         for team in teams_list:
@@ -699,6 +715,55 @@ class ProjectCli(Cons3rtCli):
             return
         for run in runs:
             self.c5t.release_deployment_run(dr_id=run['id'])
+
+
+class RunCli(Cons3rtCli):
+
+    def __init__(self, args, subcommands):
+        Cons3rtCli.__init__(self, args=args, subcommands=subcommands)
+        self.valid_subcommands = [
+            'restore',
+            'snapshot'
+        ]
+
+    def process_args(self):
+        if not self.validate_args():
+            return False
+        if not self.process_subcommands():
+            return False
+        return True
+
+    def process_subcommands(self):
+        if not self.subcommands:
+            return True
+        if len(self.subcommands) < 1:
+            return True
+        if self.subcommands[0] not in self.valid_subcommands:
+            self.err('Unrecognized command: {c}'.format(c=self.subcommands[0]))
+            return False
+        if self.subcommands[0] == 'restore':
+            try:
+                self.restore()
+            except Cons3rtCliError:
+                return False
+        if self.subcommands[0] == 'snapshot':
+            try:
+                self.snapshot()
+            except Cons3rtCliError:
+                return False
+        return True
+
+    def restore(self):
+        results = []
+        for run_id in self.ids:
+            results += self.c5t.restore_run_snapshots(dr_id=run_id)
+        self.print_snapshot_results(results)
+
+    def snapshot(self):
+        results = []
+        for run_id in self.ids:
+            results += self.c5t.create_run_snapshots(dr_id=run_id)
+        self.print_snapshot_results(results)
 
 
 class TeamCli(Cons3rtCli):
