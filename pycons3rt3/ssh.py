@@ -24,17 +24,40 @@ mod_logger = Logify.get_name() + '.ssh'
 
 
 def generate_ssh_rsa_key(key_name, dest_directory=None, passphrase='', comment='', size=4096):
-    """Generates an RSA keypair
+    return generate_ssh_key(
+        key_name=key_name,
+        dest_directory=dest_directory,
+        key_type='rsa',
+        passphrase=passphrase,
+        comment=comment,
+        size=size
+    )
+
+
+def generate_ssh_ecdsa_key(key_name, dest_directory=None, passphrase='', comment='', size=521):
+    return generate_ssh_key(
+        key_name=key_name,
+        dest_directory=dest_directory,
+        key_type='ecdsa',
+        passphrase=passphrase,
+        comment=comment,
+        size=size
+    )
+
+
+def generate_ssh_key(key_name, dest_directory=None, key_type='rsa', passphrase='', comment='', size=4096):
+    """Generates an SSH keypair
 
     :param key_name: (str) key file name
     :param dest_directory: (str) path to the directory to output the key files
-    :param passphrase: (str) passphrase for the RSA key (default: None)
-    :param comment: (str) RSA key comment (default: None)
-    :param size: (int) size of the RSA key
+    :param key_type: (str) type of SSH key to generate (e.g., rsa, ecdsa)
+    :param passphrase: (str) passphrase for the SSH key (default: None)
+    :param comment: (str) SSH key comment (default: None)
+    :param size: (int) size of the SSH key (recommend 4096 for RSA, and 521 for ECDSA)
     :return: (tuple) (str) paths to the private and public key files
     :raises: SshConfigError
     """
-    log = logging.getLogger(mod_logger + '.generate_ssh_rsa_key')
+    log = logging.getLogger(mod_logger + '.generate_ssh_key')
     if not dest_directory:
         dest_directory = os.path.join(os.path.expanduser('~'), '.ssh')
     if not os.path.exists(dest_directory):
@@ -45,8 +68,10 @@ def generate_ssh_rsa_key(key_name, dest_directory=None, passphrase='', comment='
         os.remove(key_path)
     if os.path.isfile(pub_key_path):
         os.remove(pub_key_path)
-    command = ['ssh-keygen', '-t', 'rsa', '-b', str(size), '-N', '{p}'.format(p=passphrase),
+    command = ['ssh-keygen', '-t', key_type, '-b', str(size), '-N', '{p}'.format(p=passphrase),
                '-C', '{c}'.format(c=comment), '-f', key_path]
+    log.info('Attempting to generate an SSH key pair of type [{t}], size [{s}], with name [{n}], in directory [{d}], '
+             'with comment: [{c}]'.format(t=key_type, s=str(size), n=key_name, d=dest_directory, c=comment))
     try:
         result = run_command(command, output=False, timeout_sec=30.0)
     except CommandError as exc:
@@ -54,7 +79,8 @@ def generate_ssh_rsa_key(key_name, dest_directory=None, passphrase='', comment='
     if result['code'] != 0:
         raise SshConfigError('Command exited with code {a}: {c}'.format(
             a=str(result['code']), c=' '.join(command)))
-    log.info('Generated RSA keypair: {f}'.format(f=key_path))
+    log.info('Generated SSH keypair of type [{t}]: {f}'.format(t=key_type, f=key_path))
+    log.info('Setting permissions to 0400 on [{k}], and 0644 on [{p}]'.format(k=key_path, p=pub_key_path))
     try:
         os.chmod(key_path, 0o400)
         os.chmod(pub_key_path, 0o644)
@@ -193,16 +219,18 @@ def add_host_key_to_authorized_keys(key_contents=None, key_file=None):
     log.info('keys successfully added to authorized keys file')
 
 
-def add_host_to_known_hosts(host, known_hosts_file=None):
+def add_host_to_known_hosts(host, known_hosts_file=None, key_type='rsa'):
     """Adds a remote host key to the known_hosts file
 
     :param host: (str) hostname or IP of the remote host
     :param known_hosts_file: (str) full path to the known_hosts file to populate
+    :param key_type: (str) type of SSH key to scan (e.g rsa, ecdsa)
     :return: (list) of SSH keys
     :raises: SshConfigError
     """
     log = logging.getLogger(mod_logger + '.add_host_to_known_hosts')
-    command = ['ssh-keyscan', '-t', 'rsa', host]
+    log.info('Scanning host [{h}] for host key of type: {t}'.format(h=host, t=key_type))
+    command = ['ssh-keyscan', '-t', key_type, host]
     try:
         result = run_command(command, timeout_sec=30.0, output=True, print_output=False)
     except CommandError as exc:
