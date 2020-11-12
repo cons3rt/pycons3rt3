@@ -1,12 +1,12 @@
 
-0.0.7a0
+0.0.7
 =====
 
 * Added the "cons3rt run" CLI command, and added options for snapshotting all hosts in a run, or restoring
  all hosts in a run from snapshots
 * Updated the SSH generation methods to allow various key types, and added a method to ECDSA keys
 * Added new methods of encryption/decryption for openssl smime
-
+* Added Arcus site configurations, and removed old site configurations
 
 0.0.1
 =====

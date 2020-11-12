@@ -18,24 +18,27 @@ mod_logger = Logify.get_name() + '.cons3rtconfig'
 
 # List of site URLs
 site_urls = {
-    'hmc': 'https://app.hmc.hpc.mil/rest/api/',
-    'cons3rt.com': 'https://api.cons3rt.com/rest/api/',
-    'qa': 'https://api.qa.cons3rt.io/rest/api/',
-    'qa2': 'https://api.qa2.cons3rt.io/rest/api/',
+    'arcusgov': 'https://app.arcus-cloud.io/rest/api/',
+    'arcusmil': 'https://app.arcus.mil/rest/api/',
     'ci': 'https://api.ci.cons3rt.io/rest/api/',
     'ci2': 'https://api.ci2.cons3rt.io/rest/api/',
+    'cons3rt.com': 'https://api.cons3rt.com/rest/api/',
     'dev': 'https://api.dev.cons3rt.io/rest/api/',
     'dev2': 'https://api.dev2.cons3rt.io/rest/api/',
     'int': 'https://api.int.cons3rt.io/rest/api/',
     'open': 'https://api.open.cons3rt.io/rest/api/',
+    'qa': 'https://api.qa.cons3rt.io/rest/api/',
+    'qa2': 'https://api.qa2.cons3rt.io/rest/api/',
+    'qa3': 'https://api.qa3.cons3rt.io/rest/api/'
 }
 
 # The default site selection
-default_api_url = site_urls['hmc']
+default_api_url = site_urls['arcusgov']
 
 # List of sites that require certificate-based auth
 cert_auth_sites = [
-    site_urls['hmc'],
+    site_urls['arcusgov'],
+    site_urls['arcusmil'],
     site_urls['qa2']
 ]
 
@@ -72,7 +75,7 @@ def manual_config():
     cons3rt_config = {}
 
     # Get the API URL
-    site_selection_input = input('Enter the CONS3RT site ({v}) (default: hmc): '.format(v=site_url_list_str))
+    site_selection_input = input('Enter the CONS3RT site ({v}) (default: arcusgov): '.format(v=site_url_list_str))
 
     if site_selection_input:
         site_selection = site_selection_input.strip()
