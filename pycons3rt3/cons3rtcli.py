@@ -722,6 +722,8 @@ class RunCli(Cons3rtCli):
     def __init__(self, args, subcommands):
         Cons3rtCli.__init__(self, args=args, subcommands=subcommands)
         self.valid_subcommands = [
+            'off',
+            'on',
             'restore',
             'snapshot'
         ]
@@ -741,6 +743,16 @@ class RunCli(Cons3rtCli):
         if self.subcommands[0] not in self.valid_subcommands:
             self.err('Unrecognized command: {c}'.format(c=self.subcommands[0]))
             return False
+        if self.subcommands[0] == 'off':
+            try:
+                self.power_off()
+            except Cons3rtCliError:
+                return False
+        if self.subcommands[0] == 'on':
+            try:
+                self.power_on()
+            except Cons3rtCliError:
+                return False
         if self.subcommands[0] == 'restore':
             try:
                 self.restore()
@@ -752,6 +764,18 @@ class RunCli(Cons3rtCli):
             except Cons3rtCliError:
                 return False
         return True
+
+    def power_off(self):
+        results = []
+        for run_id in self.ids:
+            results += self.c5t.power_off_run(dr_id=run_id)
+        self.print_snapshot_results(results)
+
+    def power_on(self):
+        results = []
+        for run_id in self.ids:
+            results += self.c5t.power_on_run(dr_id=run_id)
+        self.print_snapshot_results(results)
 
     def restore(self):
         results = []

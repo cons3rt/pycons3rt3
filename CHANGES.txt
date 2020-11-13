@@ -1,4 +1,10 @@
 
+
+0.0.8a0
+=======
+
+* Added CLI calls to power on/off runs, and corresponding methods
+
 0.0.7
 =====
 

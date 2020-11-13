@@ -4028,6 +4028,38 @@ class Cons3rtApi(object):
             raise Cons3rtApiError('Problem restoring snapshot for run ID: {i}'.format(i=str(dr_id))) from exc
         return results
 
+    def power_off_run(self, dr_id):
+        """Attempts to power off all hosts in the provided DR ID
+
+        :param dr_id: (int) ID of the deployment run
+        :return: (list) of dict data on request results
+        :raises Cons3rtApiError
+        """
+        try:
+            results = self.perform_host_action_for_run(
+                dr_id=dr_id,
+                action='POWER_OFF'
+            )
+        except Cons3rtApiError as exc:
+            raise Cons3rtApiError('Problem performing power off for run ID: {i}'.format(i=str(dr_id))) from exc
+        return results
+
+    def power_on_run(self, dr_id):
+        """Attempts to power on all hosts in the provided DR ID
+
+        :param dr_id: (int) ID of the deployment run
+        :return: (list) of dict data on request results
+        :raises Cons3rtApiError
+        """
+        try:
+            results = self.perform_host_action_for_run(
+                dr_id=dr_id,
+                action='POWER_ON'
+            )
+        except Cons3rtApiError as exc:
+            raise Cons3rtApiError('Problem performing power on for run ID: {i}'.format(i=str(dr_id))) from exc
+        return results
+
     def restore_run_snapshots_multiple(self, drs):
         return self.process_run_snapshots_multiple(drs=drs, action='RESTORE_SNAPSHOT')
 
