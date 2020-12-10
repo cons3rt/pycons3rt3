@@ -4,6 +4,8 @@
 =======
 
 * Added CLI calls to power on/off runs, and corresponding methods
+* Added an option to keep the asset zip files after import/update
+* Added ssh.scp_file method for getting and putting files over SSH using paramiko and scp
 
 0.0.7
 =====

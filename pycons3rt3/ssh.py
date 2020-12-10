@@ -6,11 +6,15 @@ This module provides utilities for performing typical SSH actions like
 generating SSH keys
 
 """
+from datetime import datetime
 import logging
 import os
 import shutil
+import socket
 import time
-from datetime import datetime
+
+import paramiko
+from scp import SCPClient, SCPException
 
 from .bash import mkdir_p, manage_service, run_command, run_remote_command
 from .exceptions import CommandError, SshConfigError
@@ -358,3 +362,59 @@ def update_sshd_config(config_data):
         manage_service(service_name='sshd', service_action='restart', systemd=True)
     except OSError as exc:
         raise SshConfigError('Problem restarting the sshd service') from exc
+
+
+def scp_file(host, src_path, dest_path, put=False, username=None, password=None, key_filename=None, passphrase=None,
+             port=22):
+    """SCP a file from a remote host
+
+    :param host: (str) hostname or IP address to connect to
+    :param src_path: (str) full path of the source file
+    :param dest_path: (str) full path of the destination file or directory
+    :param put: (bool) Set True to put the file, get by default
+    :param username: (str) username to connect as
+    :param password: (str) password to use in the SCP connection
+    :param key_filename: (str) SSH key to use in the connection
+    :param passphrase: (str) SSH key passphrase to use in the SCP connection
+    :param port: (int) SSH port number
+    :return: (str) destination path if successful
+    :raises: SshConfigError
+    """
+    log = logging.getLogger(mod_logger + '.update_sshd_config')
+
+    transfer_file_name = src_path.split(os.sep)[-1]
+    if os.path.isdir(dest_path):
+        dest_path = dest_path + os.sep + transfer_file_name
+    client = paramiko.SSHClient()
+    client.load_system_host_keys()
+    client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+
+    connection_msg = 'connection to host [{h}:{p}] with params (if any): '.format(h=host, p=str(port))
+    connection_msg += '\n[Username: ' + username + ']' if username else ''
+    connection_msg += '\n[Password included]' if password else ''
+    connection_msg += '\n[Private key: ' + key_filename + ']' if key_filename else ''
+    connection_msg += '\n[Passphrase included]' if passphrase else ''
+    log.info('Making' + connection_msg)
+
+    try:
+        client.connect(hostname=host, port=port, username=username, password=password, key_filename=key_filename,
+                       passphrase=passphrase)
+    except (paramiko.client.SSHException, socket.error) as exc:
+        msg = 'SSH problem: ' + connection_msg
+        raise SshConfigError(msg) from exc
+
+    with SCPClient(client.get_transport()) as scp:
+        if put:
+            log.info('Attempting to SCP file from [local:{s}] to [{h}:{d}]'.format(h=host, s=src_path, d=dest_path))
+            try:
+                scp.put(files=src_path, remote_path=dest_path, preserve_times=True, recursive=True)
+            except SCPException as exc:
+                msg = 'Problem putting file [{s}] to [{d}] with: '.format(s=src_path, d=dest_path) + connection_msg
+                raise SshConfigError(msg) from exc
+        else:
+            log.info('Attempting to SCP file from [{h}:{s}] to [local:{d}]'.format(h=host, s=src_path, d=dest_path))
+            try:
+                scp.get(local_path=src_path, remote_path=dest_path, preserve_times=True, recursive=True)
+            except SCPException as exc:
+                msg = 'Problem getting file [{s}] to [{d}] with: '.format(s=src_path, d=dest_path) + connection_msg
+                raise SshConfigError(msg) from exc
