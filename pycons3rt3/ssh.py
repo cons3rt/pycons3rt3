@@ -383,8 +383,8 @@ def scp_file(host, src_path, dest_path, put=False, username=None, password=None,
     log = logging.getLogger(mod_logger + '.update_sshd_config')
 
     transfer_file_name = src_path.split(os.sep)[-1]
-    if os.path.isdir(dest_path):
-        dest_path = dest_path + os.sep + transfer_file_name
+    #if os.path.isdir(dest_path):
+    #    dest_path = dest_path + os.sep + transfer_file_name
     client = paramiko.SSHClient()
     client.load_system_host_keys()
     client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
@@ -394,7 +394,7 @@ def scp_file(host, src_path, dest_path, put=False, username=None, password=None,
     connection_msg += '\n[Password included]' if password else ''
     connection_msg += '\n[Private key: ' + key_filename + ']' if key_filename else ''
     connection_msg += '\n[Passphrase included]' if passphrase else ''
-    log.info('Making' + connection_msg)
+    log.info('Making ' + connection_msg)
 
     try:
         client.connect(hostname=host, port=port, username=username, password=password, key_filename=key_filename,
