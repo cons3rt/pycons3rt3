@@ -383,8 +383,8 @@ def scp_file(host, src_path, dest_path, put=False, username=None, password=None,
     log = logging.getLogger(mod_logger + '.update_sshd_config')
 
     transfer_file_name = src_path.split(os.sep)[-1]
-    #if os.path.isdir(dest_path):
-    #    dest_path = dest_path + os.sep + transfer_file_name
+    if os.path.isdir(dest_path):
+        dest_path = dest_path + os.sep + transfer_file_name
     client = paramiko.SSHClient()
     client.load_system_host_keys()
     client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
