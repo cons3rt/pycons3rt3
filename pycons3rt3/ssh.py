@@ -382,13 +382,14 @@ def scp_file(host, src_path, dest_path, put=False, username=None, password=None,
     """
     log = logging.getLogger(mod_logger + '.update_sshd_config')
 
-    transfer_file_name = src_path.split(os.sep)[-1]
-    if os.path.isdir(dest_path):
-        dest_path = dest_path + os.sep + transfer_file_name
+    # Stand up the SSH client with paramiko
     client = paramiko.SSHClient()
     client.load_system_host_keys()
     client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
 
+    # String for help with log messages
+    action = 'put' if put else 'get'
+    dest_host = host if put else 'local'
     connection_msg = 'connection to host [{h}:{p}] with params (if any): '.format(h=host, p=str(port))
     connection_msg += '\n[Username: ' + username + ']' if username else ''
     connection_msg += '\n[Password included]' if password else ''
@@ -396,6 +397,7 @@ def scp_file(host, src_path, dest_path, put=False, username=None, password=None,
     connection_msg += '\n[Passphrase included]' if passphrase else ''
     log.info('Making ' + connection_msg)
 
+    # Connect to the remote host using the provided params
     try:
         client.connect(hostname=host, port=port, username=username, password=password, key_filename=key_filename,
                        passphrase=passphrase)
@@ -403,18 +405,25 @@ def scp_file(host, src_path, dest_path, put=False, username=None, password=None,
         msg = 'SSH problem: ' + connection_msg
         raise SshConfigError(msg) from exc
 
+    # Attempt the SCP file transfer
     with SCPClient(client.get_transport()) as scp:
         if put:
             log.info('Attempting to SCP file from [local:{s}] to [{h}:{d}]'.format(h=host, s=src_path, d=dest_path))
             try:
                 scp.put(files=src_path, remote_path=dest_path, preserve_times=True)
             except SCPException as exc:
+                client.close()
                 msg = 'Problem putting file [{s}] to [{d}] with: '.format(s=src_path, d=dest_path) + connection_msg
                 raise SshConfigError(msg) from exc
+            finally:
+                client.close()
         else:
             log.info('Attempting to SCP file from [{h}:{s}] to [local:{d}]'.format(h=host, s=src_path, d=dest_path))
             try:
-                scp.get(local_path=src_path, remote_path=dest_path, preserve_times=True)
+                scp.get(local_path=dest_path, remote_path=src_path, preserve_times=True)
             except SCPException as exc:
                 msg = 'Problem getting file [{s}] to [{d}] with: '.format(s=src_path, d=dest_path) + connection_msg
                 raise SshConfigError(msg) from exc
+            finally:
+                client.close()
+    log.info('SCP [{a}] complete to [{h}:{d}]'.format(a=action, h=dest_host, d=dest_path))
