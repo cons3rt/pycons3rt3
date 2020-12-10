@@ -407,14 +407,14 @@ def scp_file(host, src_path, dest_path, put=False, username=None, password=None,
         if put:
             log.info('Attempting to SCP file from [local:{s}] to [{h}:{d}]'.format(h=host, s=src_path, d=dest_path))
             try:
-                scp.put(files=src_path, remote_path=dest_path, preserve_times=True, recursive=True)
+                scp.put(files=src_path, remote_path=dest_path, preserve_times=True)
             except SCPException as exc:
                 msg = 'Problem putting file [{s}] to [{d}] with: '.format(s=src_path, d=dest_path) + connection_msg
                 raise SshConfigError(msg) from exc
         else:
             log.info('Attempting to SCP file from [{h}:{s}] to [local:{d}]'.format(h=host, s=src_path, d=dest_path))
             try:
-                scp.get(local_path=src_path, remote_path=dest_path, preserve_times=True, recursive=True)
+                scp.get(local_path=src_path, remote_path=dest_path, preserve_times=True)
             except SCPException as exc:
                 msg = 'Problem getting file [{s}] to [{d}] with: '.format(s=src_path, d=dest_path) + connection_msg
                 raise SshConfigError(msg) from exc
