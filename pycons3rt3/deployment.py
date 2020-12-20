@@ -652,6 +652,34 @@ class Deployment(object):
         self.virtualization_realm_type = self.get_value('cons3rt.deploymentRun.virtRealm.type')
         log.info('Found virtualization realm type : {t}'.format(t=self.virtualization_realm_type))
 
+    def is_aws(self):
+        """Determine if this deployment is in AWS
+
+        :return: (bool) True if AWS, False otherwise
+        """
+        return self.virtualization_realm_type.lower() == 'amazon'
+
+    def is_azure(self):
+        """Determine if this deployment is in Azure
+
+        :return: (bool) True if Azure, False otherwise
+        """
+        return self.virtualization_realm_type.lower() == 'azure'
+
+    def is_openstack(self):
+        """Determine if this deployment is in AWS
+
+        :return: (bool) True if Openstack, False otherwise
+        """
+        return self.virtualization_realm_type.lower() == 'ppenstack'
+
+    def is_vcloud(self):
+        """Determine if this deployment is in vCloud
+
+        :return: (bool) True if vCloud, False otherwise
+        """
+        return self.virtualization_realm_type.lower() == 'vcloud'
+
     def update_hosts_file(self, ip, entry):
         """Updated the hosts file depending on the OS
 
