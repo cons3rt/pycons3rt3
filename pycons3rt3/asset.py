@@ -487,7 +487,8 @@ def import_asset(cons3rt_api, asset_info):
         return asset_data
     asset_data = {
         'asset_id': asset_id,
-        'site_url': cons3rt_api.url_base
+        'site_url': cons3rt_api.url_base,
+        'project': cons3rt_api.project
     }
     print('Imported asset from zip: {z}'.format(z=asset_info.asset_zip_path))
     try:
@@ -540,7 +541,8 @@ def update_asset(cons3rt_api, asset_info):
     return True
 
 
-def import_update(asset_dir, dest_dir, visibility=None, import_only=False, log_level=None, config_file=None):
+def import_update(asset_dir, dest_dir, visibility=None, import_only=False, log_level=None, config_file=None,
+                  keep_asset_zip=False):
     """Creates an asset zip, and attempts to import/update the asset
 
     :param asset_dir: (str) path to asset directory
@@ -549,6 +551,7 @@ def import_update(asset_dir, dest_dir, visibility=None, import_only=False, log_l
     :param import_only: (bool) Whe True, import even if an existing ID is found
     :param log_level: (str) set the desired log level
     :param config_file: (str) path to a config file to use for the asset import/update
+    :param keep_asset_zip: (bool) Set True to not remove the asset zip after import/update
     :return: (int) 0 = Success, non-zero otherwise
     """
     if log_level:
@@ -632,7 +635,11 @@ def import_update(asset_dir, dest_dir, visibility=None, import_only=False, log_l
                 valid_site_data.append(asset_data)
 
     # Remove the asset zip file
-    os.remove(asset_info.asset_zip_path)
+    if not keep_asset_zip:
+        print('Removing asset zip file: {f}'.format(f=asset_info.asset_zip_path))
+        os.remove(asset_info.asset_zip_path)
+    else:
+        print('FYI... keeping asset zip file: {f}'.format(f=asset_info.asset_zip_path))
 
     # Remove and replace the asset data yaml file
     if os.path.isfile(asset_yml):
@@ -849,14 +856,15 @@ def main():
     parser = argparse.ArgumentParser(description='cons3rt asset CLI')
     parser.add_argument('command', help='Command for the Asset CLI')
     parser.add_argument('--asset_dir', help='Path to the asset to import')
-    parser.add_argument('--dest_dir', help='Destination directory for the asset zip (default is Downloads)')
-    parser.add_argument('--asset_type', help='Set to: containers, software')
     parser.add_argument('--asset_subtype', help='Asset subtype to query on')
-    parser.add_argument('--expanded', help='Include to retrieve expanded info on assets', action='store_true')
-    parser.add_argument('--community', help='Include to retrieve community assets', action='store_true')
+    parser.add_argument('--asset_type', help='Set to: containers, software')
     parser.add_argument('--category_ids', help='List of category IDs to filter on')
-    parser.add_argument('--name', help='Asset name to filter on')
+    parser.add_argument('--community', help='Include to retrieve community assets', action='store_true')
+    parser.add_argument('--dest_dir', help='Destination directory for the asset zip (default is Downloads)')
+    parser.add_argument('--expanded', help='Include to retrieve expanded info on assets', action='store_true')
+    parser.add_argument('--keep', help='Include to keep the asset zip file after import/update', action='store_true')
     parser.add_argument('--latest', help='Include to only return the latest with the highest ID', action='store_true')
+    parser.add_argument('--name', help='Asset name to filter on')
     parser.add_argument('--visibility', help='Set to the desired visibility')
     args = parser.parse_args()
 
@@ -920,6 +928,11 @@ def main():
     if args.visibility:
         visibility = args.visibility
 
+    # Set the keep flag
+    keep = False
+    if args.keep:
+        keep = True
+
     # Process the command
     res = 0
 
@@ -933,7 +946,8 @@ def main():
     elif command == 'queryids':
         res = query_assets_args(args, id_only=True)
     elif command == 'update':
-        res = import_update(asset_dir=asset_dir, dest_dir=dest_dir, visibility=visibility, log_level='WARNING')
+        res = import_update(asset_dir=asset_dir, dest_dir=dest_dir, visibility=visibility, log_level='WARNING',
+                            keep_asset_zip=keep)
     elif command == 'validate':
         res = validate(asset_dir=asset_dir)
     return res
