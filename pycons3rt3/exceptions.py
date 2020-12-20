@@ -164,3 +164,7 @@ class Route53UtilError(Exception):
 
 class S3UtilError(Exception):
     """There was a problem with an AWS S3 operation"""
+
+
+class StsUtilError(Exception):
+    """There was a problem with an AWS STS operation"""
