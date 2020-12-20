@@ -216,7 +216,7 @@ class OperatingSystemType(object):
             return 'FEDORA_23_X64'
         if 'rasp' in template_name:
             return 'RASPBIAN'
-        if 'redhat' in template_name or 'red hat' in template_name:
+        if 'redhat' in template_name or 'red hat' in template_name or 'red-hat' in template_name:
             if '5' in template_name:
                 if 'x86' in template_name:
                     return 'RHEL_5_X86'
