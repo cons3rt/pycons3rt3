@@ -52,7 +52,11 @@ class Route53Util(object):
         :raises: Route53UtilError
         """
         log = logging.getLogger(self.cls_logger + '.add_record')
-        if self.domain not in name:
+        if name == '':
+            name = self.domain
+        elif name == '.':
+            name = self.domain
+        elif self.domain not in name:
             name = name + '.' + self.domain
         log.info('Adding record: [ {t} | {n} | {v} | {x} ]'.format(t=record_type, n=name, v=value, x=str(time_to_live)))
         self.dns_records.append(
@@ -111,7 +115,7 @@ class Route53Util(object):
         :return: (dict) record set (see boto3 docs)
         :raises: Route53UtilError
         """
-        log = logging.getLogger(self.cls_logger + '.add_record')
+        log = logging.getLogger(self.cls_logger + '.delete_record')
         if self.domain not in name:
             name = name + '.' + self.domain
         log.info('Deleting record: [ {t} | {n} | {v} ]'.format(t=record_type, n=name, v=value))
