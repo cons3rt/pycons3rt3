@@ -8,10 +8,9 @@ from .exceptions import Cons3rtClientError
 
 class Cons3rtClient:
 
-    def __init__(self, base, user):
-        self.base = base
+    def __init__(self, user):
         self.user = user
-        self.http_client = Client(base)
+        self.http_client = Client(base=self.user.rest_api_url)
 
     def set_user(self, user):
         self.user = user
@@ -109,11 +108,6 @@ class Cons3rtClient:
         :return: (int) Cloud ID
         :raises: Cons3rtClientError
         """
-        if self.user is None:
-            raise Cons3rtClientError('Cons3rtClient was initialized with an invalid user')
-        if self.base is None:
-            raise Cons3rtClientError('Cons3rtClient was initialized with an invalid base')
-
         # Register the Cloud
         try:
             response = self.http_client.http_post(rest_user=self.user, target='clouds', content_file=cloud_file)
@@ -137,11 +131,6 @@ class Cons3rtClient:
         :return:  (int) Team ID
         :raises: Cons3rtClientError
         """
-        if self.user is None:
-            raise Cons3rtClientError('Cons3rtClient was initialized with an invalid user')
-        if self.base is None:
-            raise Cons3rtClientError('Cons3rtClient was initialized with an invalid base')
-
         # Create the Team
         try:
             response = self.http_client.http_post(rest_user=self.user, target='teams', content_file=team_file)
@@ -165,11 +154,6 @@ class Cons3rtClient:
         :return:  None
         :raises: Cons3rtClientError
         """
-        if self.user is None:
-            raise Cons3rtClientError('Cons3rtClient was initialized with an invalid user')
-        if self.base is None:
-            raise Cons3rtClientError('Cons3rtClient was initialized with an invalid base')
-
         # Create the user
         try:
             response = self.http_client.http_post(rest_user=self.user, target='users', content_file=user_file)
@@ -193,11 +177,6 @@ class Cons3rtClient:
         :return: None
         :raises: Cons3rtClientError
         """
-        if self.user is None:
-            raise Cons3rtClientError('Cons3rtClient was initialized with an invalid user')
-        if self.base is None:
-            raise Cons3rtClientError('Cons3rtClient was initialized with an invalid base')
-
         # Set the target URL
         target = 'projects/{i}/members/?username={u}'.format(i=str(project_id), u=username)
 
@@ -255,11 +234,6 @@ class Cons3rtClient:
         :return: (int) Scenario ID
         :raises: Cons3rtClientError
         """
-        if self.user is None:
-            raise Cons3rtClientError('Cons3rtClient was initialized with an invalid user')
-        if self.base is None:
-            raise Cons3rtClientError('Cons3rtClient was initialized with an invalid base')
-
         # Create JSON content
         try:
             json_content = json.dumps(scenario_data)
@@ -293,11 +267,6 @@ class Cons3rtClient:
         :return: (int) Deployment ID
         :raises: Cons3rtClientError
         """
-        if self.user is None:
-            raise Cons3rtClientError('Cons3rtClient was initialized with an invalid user')
-        if self.base is None:
-            raise Cons3rtClientError('Cons3rtClient was initialized with an invalid base')
-
         # Create JSON content
         try:
             json_content = json.dumps(deployment_data)

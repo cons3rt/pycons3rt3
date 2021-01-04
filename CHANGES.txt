@@ -7,6 +7,11 @@
 * Added an option to keep the asset zip files after import/update
 * Added ssh.scp_file method for getting and putting files over SSH using paramiko and scp
 * Added route53 util for creating public/private hosted zones and adding/deleting DNS records
+* Added a --keep flag for the asset command, to keep the asset zip after import, and added project to the asset_data.yml that gets saved on import/update into a site
+* Added methods to the Deployment class to return a boolean if the deployment is in AWS, Azure, Openstack, or VCloud
+* Added StsUtil and StsUtilError classes, to get informationa about the AWS caller
+* Added red-hat as a possible name for Red Hat templates when auto-configuring
+* Added the beginning of a multi-site config file for Cons3rtApi
 
 0.0.7
 =====

@@ -13,7 +13,7 @@ from .cloud import Cloud
 from .cons3rtclient import Cons3rtClient
 from .deployment import Deployment
 from .pycons3rtlibs import RestUser
-from .cons3rtconfig import cons3rtapi_config_file, get_pycons3rt_conf_dir
+from .cons3rtconfig import cons3rtapi_config_file, get_pycons3rt_conf_dir, site_urls
 from .exceptions import Cons3rtClientError, Cons3rtApiError, DeploymentError, InvalidCloudError, \
     InvalidOperatingSystemTemplate
 from .ostemplates import OperatingSystemTemplate, OperatingSystemType
@@ -42,7 +42,7 @@ class Cons3rtApi(object):
         self.virtrealm = ''
         self.rest_user_list = []
         self.load_config()
-        self.cons3rt_client = Cons3rtClient(base=self.url_base, user=self.rest_user)
+        self.cons3rt_client = Cons3rtClient(user=self.rest_user)
 
     def load_config(self):
         """Load config data from args, environment vars, or config files
@@ -92,6 +92,7 @@ class Cons3rtApi(object):
             log.info('Loading config: URL: [{u}], username: [{n}], project: [{p}]'.format(
                 u=self.url_base, n=self.username, p=self.project))
             self.rest_user_list.append(RestUser(
+                rest_api_url=self.url_base,
                 token=self.api_token,
                 project=self.project,
                 username=self.username,
@@ -103,6 +104,7 @@ class Cons3rtApi(object):
             log.info('Loading config: URL: [{u}], client cert: [{c}], project: [{p}]'.format(
                 u=self.url_base, c=self.cert_path, p=self.project))
             self.rest_user_list.append(RestUser(
+                rest_api_url=self.url_base,
                 token=self.api_token,
                 project=self.project,
                 cert_file_path=self.cert_path,
@@ -148,32 +150,19 @@ class Cons3rtApi(object):
             log.info('Found environment variable CONS3RT_CLIENT_CERT: {v}'.format(v=self.cert_path))
         return self.load_config_args()
 
-    def load_config_file(self):
-        """Loads either the specified config file or the default config file
+    def load_site_config_data(self, config_data):
+        """Loads config data for a site
 
-        :return: True if successful, False otherwise
+        :return: None
         :raises: Cons3rtApiError
         """
-        log = logging.getLogger(self.cls_logger + '.load_config_file')
-
-        # Ensure the file_path file exists
-        if not os.path.isfile(self.config_file):
-            raise Cons3rtApiError('Config file not found: {f}'.format(f=self.config_file))
-
-        # Load the config file
-        try:
-            with open(self.config_file, 'r') as f:
-                config_data = json.load(f)
-        except(OSError, IOError) as exc:
-            raise Cons3rtApiError('Unable to read config file: {f}'.format(f=self.config_file)) from exc
-        log.info('Loading config from file: {f}'.format(f=self.config_file))
+        log = logging.getLogger(self.cls_logger + '.load_site_config_data')
 
         # Attempt to load the URL
         try:
-            self.url_base = config_data['api_url']
+            url_base = config_data['api_url']
         except KeyError:
-            raise Cons3rtApiError('api_url not defined in the config file')
-        log.info('Using CONS3RT API URL: {u}'.format(u=self.url_base))
+            raise Cons3rtApiError('api_url not defined in config data: {d}'.format(d=str(config_data)))
 
         # Attempt to find a username in the config data
         try:
@@ -193,18 +182,17 @@ class Cons3rtApi(object):
                 if not os.path.isfile(cert_file_path):
                     raise Cons3rtApiError('config.json provided a cert, but the cert file was not found: {f}'.format(
                         f=cert_file_path))
-            log.info('Found client certificate: {f}'.format(f=cert_file_path))
 
         # Check for root CA certificate bundle path
         if 'root_ca_bundle' in config_data.keys():
-            self.root_ca_bundle_path = config_data['root_ca_bundle']
+            root_ca_bundle_path = config_data['root_ca_bundle']
         else:
-            self.root_ca_bundle_path = True
-        self.load_config_root_ca_bundle()
+            root_ca_bundle_path = True
 
         # Ensure that either a username or cert_file_path was found
         if username is None and cert_file_path is None:
-            raise Cons3rtApiError('The config file must contain values for either: name or cert')
+            raise Cons3rtApiError('The config data must contain values for either: name or cert: {d}'.format(
+                d=str(config_data)))
 
         # Ensure at least one token is found
         try:
@@ -225,18 +213,51 @@ class Cons3rtApi(object):
             # Create a cert-based auth or username-based auth user depending on the config
             if cert_file_path:
                 self.rest_user_list.append(RestUser(
+                    rest_api_url=url_base,
                     token=token,
                     project=project_name,
                     cert_file_path=cert_file_path,
-                    cert_bundle=self.root_ca_bundle_path
+                    cert_bundle=root_ca_bundle_path
                 ))
             elif username:
                 self.rest_user_list.append(RestUser(
+                    rest_api_url=url_base,
                     token=token,
                     project=project_name,
                     username=username,
-                    cert_bundle=self.root_ca_bundle_path
+                    cert_bundle=root_ca_bundle_path
                 ))
+
+    def load_config_file(self):
+        """Loads either the specified config file or the default config file
+
+        :return: True if successful, False otherwise
+        :raises: Cons3rtApiError
+        """
+        log = logging.getLogger(self.cls_logger + '.load_config_file')
+
+        # Ensure the file_path file exists
+        if not os.path.isfile(self.config_file):
+            raise Cons3rtApiError('Config file not found: {f}'.format(f=self.config_file))
+
+        # Load the config file
+        try:
+            with open(self.config_file, 'r') as f:
+                config_data = json.load(f)
+        except(OSError, IOError) as exc:
+            raise Cons3rtApiError('Unable to read config file: {f}'.format(f=self.config_file)) from exc
+        log.info('Loading config from file: {f}'.format(f=self.config_file))
+
+        # Check for multi-site configuration
+        try:
+            if 'sites' in config_data.keys():
+                for site_config_data in config_data['sites']:
+                    self.load_site_config_data(config_data=site_config_data)
+            else:
+                self.load_site_config_data(config_data=config_data)
+        except Cons3rtApiError as exc:
+            msg = 'Problem loading configuration from file: {f}'.format(f=self.config_file)
+            raise Cons3rtApiError(msg) from exc
 
         # Ensure that at least one valid project/token was found
         if len(self.rest_user_list) < 1:

@@ -23,10 +23,9 @@ class Client:
         self.base = base
         self.max_retry_attempts = max_retry_attempts
         self.retry_time_sec = retry_time_sec
-
-        if not self.base.endswith('/'):
-            self.base = self.base + '/'
-
+        if self.base:
+            if not self.base.endswith('/'):
+                self.base = self.base + '/'
         self.cls_logger = mod_logger + '.Client'
 
     @staticmethod
@@ -371,6 +370,7 @@ class Client:
         headers['Accept'] = 'application/json'
         headers['Connection'] = 'Keep-Alive'
         headers['Expect'] = '100-continue'
+        # file_name = content_file.split(os.sep)[-1]
 
         # Open the content_file to create the multipart encoder
         start_time = time.time()
@@ -384,10 +384,27 @@ class Client:
             })
 
             # Add the Content-Type
-            headers["Content-Type"] = form.content_type
+            headers['Content-Type'] = form.content_type
+            # headers['Content-Transfer-Encoding'] = 'binary'
+            # headers['Content-Disposition'] = 'form-data; name=file filename={f}'.format(f=file_name)
 
             # Create the request
             s = requests.Session()
+
+            # Handle the cert auth
+            if rest_user.cert_file_path:
+                s.cert = rest_user.cert_file_path
+                log.info('Adding client certificate to the MultiPart upload request: {c}'.format(
+                    c=s.cert))
+
+            # Handle the cert bundle
+            if rest_user.cert_bundle is None:
+                log.info('Cert bundle is none, setting to True to enable verification')
+                s.verify = True
+            else:
+                s.verify = rest_user.cert_bundle
+            log.info('Using SSL verify setting for the MultiPart upload: {v}'.format(v=str(s.verify)))
+
             req = requests.Request(method, url, data=form, headers=headers)
             prepped = req.prepare()
             log.info('Request URL: {u}'.format(u=url))
@@ -396,7 +413,7 @@ class Client:
 
             # Send the request
             try:
-                response = s.send(prepped, cert=rest_user.cert_file_path, verify=rest_user.cert_bundle)
+                response = s.send(prepped)
             except SSLError:
                 self.__http_exception__(
                     exc=sys.exc_info(),

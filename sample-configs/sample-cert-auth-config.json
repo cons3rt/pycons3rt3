@@ -1,6 +1,6 @@
 {
   "cert": "path_to_pem_file",
-  "api_url": "https://www.milcloud.hanscom.hpc.mil/rest/api/",
+  "api_url": "https://app.arcus-cloud.io/rest/api/",
   "root_ca_bundle": "path_to_pem_file",
   "projects": [
     {

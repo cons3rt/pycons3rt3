@@ -1,0 +1,59 @@
+{
+  "sites": [
+    {
+      "api_url": "https://api.cons3rt.com/rest/api/",
+      "name": "yennaco",
+      "projects": [
+        {
+          "name": "Homer",
+          "rest_key": "7474890c-b01e-4820-8185-96e563461383"
+        },
+        {
+          "name": "CONS3RT Development",
+          "rest_key": "104ffbdb-5674-443f-8bb8-01ca7888aaaa"
+        },
+        {
+          "name": "Homer Development",
+          "rest_key": "8125de0b-eee4-47be-ae45-fc43475aab8f"
+        },
+        {
+          "name": "Homer Prod",
+          "rest_key": "74c819d7-004b-4f5c-bece-559ceb94a4ff"
+        }
+      ]
+    },
+    {
+      "api_url": "https://app.arcus-cloud.io/rest/api/",
+      "cert": "yennaco2021.pem",
+      "projects": [
+        {
+          "name": "Homer",
+          "rest_key": "6660e1ad-7263-4b90-9368-9b2a03a89865"
+        },
+        {
+          "name": "Arcus Asset Development",
+          "rest_key": "593c5c7a-f18a-4e86-82d8-a1e634c5c949"
+        }
+      ]
+    },
+    {
+      "api_url": "https://app.qa.cons3rt.io/rest/api/",
+      "cert": "/Users/yennaco/.cons3rt/conf/yennaco2021.pem",
+      "root_ca_bundle": "/Users/yennaco/.cons3rt/conf/ci_bundle.pem",
+      "projects": [
+        {
+          "name": "jackpine",
+          "rest_key": "da8cac8f-2fdd-41c8-95d3-61799f799806"
+        }
+      ]
+    }
+  ],
+  "api_url": "https://api.cons3rt.com/rest/api/",
+  "name": "yennaco",
+  "projects": [
+    {
+      "name": "Homer",
+      "rest_key": "7474890c-b01e-4820-8185-96e563461383"
+    }
+  ]
+}

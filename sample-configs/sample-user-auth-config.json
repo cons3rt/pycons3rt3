@@ -1,6 +1,6 @@
 {
   "name": "my_username",
-  "api_url": "https://www.cons3rt.com/rest/api/",
+  "api_url": "https://app.cons3rt.com/rest/api/",
   "root_ca_bundle": "path_to_pem_file",
   "projects": [
     {
