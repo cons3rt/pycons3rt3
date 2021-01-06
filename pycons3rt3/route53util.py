@@ -32,6 +32,8 @@ class Route53Util(object):
         self.vpc_id = vpc_id
         self.vpc_region = vpc_region
         self.hosted_zone_id = None
+        if self.vpc_id:
+            self.private = True
         try:
             self.client = get_route53_client(region_name=region_name, aws_access_key_id=aws_access_key_id,
                                              aws_secret_access_key=aws_secret_access_key)
