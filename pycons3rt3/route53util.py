@@ -189,7 +189,7 @@ class Route53Util(object):
             return False
         for vpc in existing_hosted_zone_details['VPCs']:
             if all(x in vpc.keys() for x in ['VPCRegion', 'VPCId']):
-                if self.vpc_region == vpc['VPCRegion'] and self.vpc_id != vpc['VPCId']:
+                if self.vpc_region == vpc['VPCRegion'] and self.vpc_id == vpc['VPCId']:
                     log.info('Found matching hosted zone ID: {z}'.format(z=hosted_zone_id))
                     return True
             else:
