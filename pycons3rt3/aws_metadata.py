@@ -25,6 +25,8 @@ mod_logger = Logify.get_name() + '.aws_metadata'
 # AWS Meta Data Service URL
 metadata_url = 'http://169.254.169.254/latest/meta-data/'
 
+character_encoding = 'utf-8'
+
 
 def is_aws():
     """Determines if this system is on AWS
@@ -92,6 +94,8 @@ def get_instance_id():
         log.error(msg)
         return
     instance_id = response.content
+    if isinstance(instance_id, bytes):
+        instance_id = instance_id.decode(character_encoding)
     return instance_id
 
 
@@ -131,6 +135,8 @@ def get_vpc_id_from_mac_address():
         log.error(msg)
         return
     vpc_id = response.content
+    if isinstance(vpc_id, bytes):
+        vpc_id = vpc_id.decode(character_encoding)
     return vpc_id
 
 
@@ -170,6 +176,8 @@ def get_owner_id_from_mac_address():
         log.error(msg)
         return
     owner_id = response.content
+    if isinstance(owner_id, bytes):
+        owner_id = owner_id.decode(character_encoding)
     return owner_id
 
 
@@ -200,6 +208,8 @@ def get_availability_zone():
         log.error(msg)
         return
     availability_zone = response.content
+    if isinstance(availability_zone, bytes):
+        availability_zone = availability_zone.decode(character_encoding)
     return availability_zone
 
 
