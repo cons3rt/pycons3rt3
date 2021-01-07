@@ -2839,6 +2839,9 @@ class EC2Util(object):
                 EnableDnsHostnames={
                     'Value': True
                 },
+                VpcId=vpc_id
+            )
+            self.client.modify_vpc_attribute(
                 EnableDnsSupport={
                     'Value': True
                 },
