@@ -187,20 +187,16 @@ class Route53Util(object):
         if 'VPCs' not in existing_hosted_zone_details:
             log.warning('VPCs data not found for existing private zone ID: {i}'.format(i=hosted_zone_id))
             return False
-        if all(x in existing_hosted_zone_details['VPCs'].keys() for x in ['VPCRegion', 'VPCId']):
-            if self.vpc_region != existing_hosted_zone_details['VPCs']['VPCRegion']:
-                log.warning('Existing hosted zone is in a different region [{e}] than expected: {r}'.format(
-                    e=existing_hosted_zone_details['VPCs']['VPCRegion'], r=self.vpc_region))
+        for vpc in existing_hosted_zone_details['VPCs']:
+            if all(x in vpc.keys() for x in ['VPCRegion', 'VPCId']):
+                if self.vpc_region == vpc['VPCRegion'] and self.vpc_id != vpc['VPCId']:
+                    log.info('Found matching hosted zone ID: {z}'.format(z=hosted_zone_id))
+                    return True
+            else:
+                log.warning('Missing VPC data in hosted zone: {z}'.format(z=str(vpc)))
                 return False
-            if self.vpc_id != existing_hosted_zone_details['VPCs']['VPCId']:
-                log.warning('Existing hosted zone is in a different VPC [{e}] than expected: {v}'.format(
-                    e=existing_hosted_zone_details['VPCs']['VPCId'], v=self.vpc_id))
-                return False
-        else:
-            log.warning('Missing VPC data in hosted zone: {z}'.format(z=str(existing_hosted_zone_details)))
-            return False
-        log.info('Found matching hosted zone ID: {z}'.format(z=hosted_zone_id))
-        return True
+        log.info('This is not a matching private hosted zone: {z}'.format(z=hosted_zone_id))
+        return False
 
     def update_records(self):
         """Updates the hosted zone with the records in self.dns_records
