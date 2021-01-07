@@ -10,7 +10,8 @@ import logging
 from botocore.client import ClientError
 
 from .awsutil import get_boto3_client
-from .exceptions import Route53UtilError
+from .ec2util import EC2Util
+from .exceptions import EC2UtilError, Route53UtilError
 from .logify import Logify
 
 
@@ -90,6 +91,7 @@ class Route53Util(object):
         if hosted_zone:
             self.hosted_zone_id = hosted_zone['Id']
             log.info('Found existing hosted zone ID: {i}'.format(i=self.hosted_zone_id))
+            enable_vpc_private_dns(vpc_id=self.vpc_id)
             return hosted_zone
 
         # Create hosted zone
@@ -98,6 +100,7 @@ class Route53Util(object):
                 hosted_zone = create_private_hosted_zone(
                     client=self.client, domain=self.domain, vpc_id=self.vpc_id, vpc_region=self.vpc_region
                 )
+                enable_vpc_private_dns(vpc_id=self.vpc_id)
             else:
                 hosted_zone = create_public_hosted_zone(
                     client=self.client, domain=self.domain
@@ -348,6 +351,21 @@ def create_simple_change_record(record_type, name, value, action='UPSERT', time_
             ]
         }
     }
+
+
+def enable_vpc_private_dns(vpc_id):
+    """Enabled private DNS in the VPC
+
+    :param vpc_id: (str) ID of the VPC
+    :return: (None)
+    :raises: Route53UtilError
+    """
+    ec2 = EC2Util()
+    try:
+        ec2.enable_vpc_dns(vpc_id=vpc_id)
+    except EC2UtilError as exc:
+        msg = 'Unable to enable private DNS for VPC: {v}'.format(v=vpc_id)
+        raise Route53UtilError(msg) from exc
 
 
 def get_hosted_zone(client, hosted_zone_id):

@@ -2823,6 +2823,31 @@ class EC2Util(object):
         log.info('Successfully attach Internet gateway {i} to VPC: {v}'.format(i=ig_id, v=vpc_id))
         return vpc_id
 
+    def enable_vpc_dns(self, vpc_id):
+        """Sets the EnableDnsHostnames and EnableDnsSupport values to True for the VPC ID
+
+        modify_vpc_attribute
+
+        :param vpc_id: (str) ID of the VPC
+        :return: None
+        :raises: EC2UtilError
+        """
+        log = logging.getLogger(self.cls_logger + '.enable_vpc_dns')
+        log.info('Setting EnableDnsHostnames and EnableDnsSupport to True for VPC ID: {v}'.format(v=vpc_id))
+        try:
+            self.client.modify_vpc_attribute(
+                EnableDnsHostnames={
+                    'Value': True
+                },
+                EnableDnsSupport={
+                    'Value': True
+                },
+                VpcId=vpc_id
+            )
+        except ClientError as exc:
+            msg = 'Problem setting EnableDnsHostnames and EnableDnsSupport to True for VPC ID: {v}'.format(v=vpc_id)
+            raise EC2UtilError(msg) from exc
+
     def create_subnet(self, name, vpc_id, cidr, availability_zone=None):
         """Creates a subnet
 
