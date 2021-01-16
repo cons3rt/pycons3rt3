@@ -257,6 +257,7 @@ def get_mac_addresses():
     """Uses the ip addr command to enumerate mac addresses by device
 
     :return: (dict) Containing device: ip_address
+    :raises: CommandError
     """
     log = logging.getLogger(mod_logger + '.get_mac_addresses')
     log.debug('Running the ip addr command...')

@@ -13,7 +13,7 @@ import requests
 
 from .bash import get_mac_addresses
 from .logify import Logify
-from .exceptions import AWSMetaDataError
+from .exceptions import AWSMetaDataError, CommandError
 
 
 __author__ = 'Joe Yennaco'
@@ -104,12 +104,12 @@ def get_vpc_id_from_mac_address():
 
     :return: String instance ID or None
     """
-    log = logging.getLogger(mod_logger + '.get_vpc_id')
+    log = logging.getLogger(mod_logger + '.get_vpc_id_from_mac_address')
 
     # Exit if not running on AWS
-    if not is_aws():
-        log.info('This machine is not running in AWS, exiting...')
-        return
+    # if not is_aws():
+    #     log.info('This machine is not running in AWS, exiting...')
+    #     return
 
     # Get the primary interface MAC address to query the meta data service
     log.debug('Attempting to determine the primary interface MAC address...')
@@ -241,8 +241,12 @@ def get_primary_mac_address():
     :raises: AWSMetaDataError
     """
     log = logging.getLogger(mod_logger + '.get_primary_mac_address')
-    mac_addresses = get_mac_addresses()
+    try:
+        mac_addresses = get_mac_addresses()
+    except CommandError as exc:
+        msg = 'Problem getting mac addresses on this host'
+        raise AWSMetaDataError(msg) from exc
     if 'eth0' not in mac_addresses.keys():
-        msg = 'Problem getting the mac address for eth0'
+        msg = 'Problem getting the mac address for eth0 from list: {d}'.format(d=str(mac_addresses))
         raise AWSMetaDataError(msg)
     return mac_addresses['eth0']
