@@ -12,7 +12,7 @@ from .logify import Logify
 from .cloud import Cloud
 from .cons3rtclient import Cons3rtClient
 from .deployment import Deployment
-from .pycons3rtlibs import RestUser
+from .pycons3rtlibs import HostActionResult, RestUser
 from .cons3rtconfig import cons3rtapi_config_file, get_pycons3rt_conf_dir, site_urls
 from .exceptions import Cons3rtClientError, Cons3rtApiError, DeploymentError, InvalidCloudError, \
     InvalidOperatingSystemTemplate
@@ -330,7 +330,7 @@ class Cons3rtApi(object):
             if rest_user.project_name == project_name:
                 log.info('Found matching rest user: {u}'.format(u=str(rest_user)))
                 self.rest_user = rest_user
-                self.cons3rt_client = Cons3rtClient(base=self.url_base, user=self.rest_user)
+                self.cons3rt_client = Cons3rtClient(user=self.rest_user)
                 found = True
                 break
         if found:
@@ -3953,16 +3953,16 @@ class Cons3rtApi(object):
             total_disk_capacity_gb = total_disk_capacity_mb / 1024
             log.info('Found {n} disks with capacity {g} GBs for host: {h}'.format(
                 h=str(host['id']), n=str(len(host['disks'])), g=str(total_disk_capacity_gb)))
-            request_info = {
-                'dr_id': dr_id,
-                'dr_name': dr_info['name'],
-                'host_id': host['id'],
-                'host_role': host['systemRole'],
-                'action': action,
-                'request_time': datetime.datetime.now().strftime('%Y%m%d-%H%M%S'),
-                'num_disks': len(host['disks']),
-                'storage_gb': total_disk_capacity_gb
-            }
+            host_action_result = HostActionResult(
+                dr_id=dr_id,
+                dr_name=dr_info['name'],
+                host_id=host['id'],
+                host_role=host['systemRole'],
+                action=action,
+                request_time=datetime.datetime.now().strftime('%Y%m%d-%H%M%S'),
+                num_disks=len(host['disks']),
+                storage_gb=total_disk_capacity_gb
+            )
             try:
                 self.perform_host_action(
                     dr_id=dr_id,
@@ -3975,12 +3975,11 @@ class Cons3rtApi(object):
                 err_msg = 'Problem performing host action [{a}] on host ID: {i}\n{e}'.format(
                     a=action, i=str(host['id']), e=str(exc))
                 log.warning(err_msg)
-                request_info['err_msg'] = err_msg
-                request_info['result'] = 'FAIL'
+                host_action_result.set_err_msg(err_msg=err_msg)
+                host_action_result.set_fail()
             else:
-                request_info['err_msg'] = 'None'
-                request_info['result'] = 'OK'
-            results.append(request_info)
+                host_action_result.set_success()
+            results.append(host_action_result)
             log.info('Waiting {s} sec to perform the next host action for run ID {i}...'.format(
                 s=str(inter_host_action_delay_sec), i=str(dr_id)))
             time.sleep(inter_host_action_delay_sec)
@@ -4108,13 +4107,15 @@ class Cons3rtApi(object):
         failed_snapshots_count = 0
         snapshot_disk_count = 0
         snapshot_disk_capacity_gb = 0
-        for result in all_results:
-            if result['result'] == 'FAIL':
+        for host_action_result in all_results:
+            if not isinstance(host_action_result, HostActionResult):
+                continue
+            if host_action_result.is_fail():
                 failed_snapshots_count += 1
             else:
                 successful_snapshots_count += 1
-                snapshot_disk_count += result['num_disks']
-                snapshot_disk_capacity_gb += result['storage_gb']
+                snapshot_disk_count += host_action_result.num_disks
+                snapshot_disk_capacity_gb += host_action_result.storage_gb
         log.info('Requested {n} total snapshots with action: {a}'.format(n=str(len(all_results)), a=action))
         log.info('Completed with {s} successful snapshots and {f} failed snapshots'.format(
             s=str(successful_snapshots_count),
@@ -4284,8 +4285,10 @@ class Cons3rtApi(object):
 
         successful_action_count = 0
         failed_action_count = 0
-        for result in all_results:
-            if result['result'] == 'FAIL':
+        for host_action_result in all_results:
+            if not isinstance(host_action_result, HostActionResult):
+                continue
+            if host_action_result.is_fail():
                 failed_action_count += 1
             else:
                 successful_action_count += 1
@@ -4389,6 +4392,51 @@ class Cons3rtApi(object):
                 drs.append(vr_dr)
         log.info('Found {n} active deployment runs in team ID: {i}'.format(i=str(team_id), n=str(len(drs))))
         return drs
+
+    def list_active_runs_in_team_owned_projects(self, team_id):
+        """Returns a list of active deployment runs in the provided team ID in owned projects
+
+        May include remote access runs and other VR-DRs not owned by the team's projects
+
+        :param team_id: (int) ID of the team
+        :return: (list) of deployment runs
+        :raises: Cons3rtApiError
+        """
+        log = logging.getLogger(self.cls_logger + '.list_active_runs_in_team_owned_projects')
+        team_details = self.get_team_details(team_id=team_id)
+        if 'ownedProjects' not in team_details.keys():
+            msg = 'ownedProjects not found in team detail data: {d}'.format(d=str(team_details))
+            raise Cons3rtApiError(msg)
+        owned_project_names = []
+        team_owned_project_drs = []
+        for project in team_details['ownedProjects']:
+            if 'name' not in project.keys():
+                log.warning('name not found in project data: {p}'.format(p=str(project)))
+                continue
+            owned_project_names.append(project['name'])
+        team_drs = self.list_active_runs_in_team(team_id=team_id)
+
+        # Filter on DRs in owned projects
+        for team_dr in team_drs:
+            if 'id' not in team_dr:
+                log.warning('id not found in deployment run data: {p}'.format(p=str(team_dr)))
+                continue
+            if 'project' not in team_dr:
+                log.warning('project not found in deployment run data: {p}'.format(p=str(team_dr)))
+                continue
+            if 'name' not in team_dr['project']:
+                log.warning('name not found in deployment run data: {p}'.format(p=str(team_dr)))
+                continue
+            if team_dr['project']['name'] in owned_project_names:
+                log.info('Adding DR {i} in project {p} to the list of team owned runs'.format(
+                    i=str(team_dr['id']), p=team_dr['project']['name']))
+                team_owned_project_drs.append(team_dr)
+            else:
+                log.info('Excluding DR {i} in project {p} to the list of of team owned runs'.format(
+                    i=str(team_dr['id']), p=team_dr['project']['name']))
+        log.info('Found {n} team [{t}] project-owned deployment runs'.format(
+            n=str(len(team_owned_project_drs)), t=team_details['name']))
+        return team_owned_project_drs
 
     def list_runs_in_project(self, project_id, search_type='SEARCH_ALL'):
         """Returns a list of deployment runs in the provided project ID, using the provided search type
