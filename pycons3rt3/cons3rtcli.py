@@ -4,6 +4,7 @@ import traceback
 
 from .cons3rtapi import Cons3rtApi
 from .exceptions import Cons3rtApiError, Cons3rtReportsError
+from .pycons3rtlibs import HostActionResult
 from .reports import generate_team_report
 
 
@@ -128,19 +129,10 @@ class Cons3rtCli(object):
         print(msg)
 
     @staticmethod
-    def print_snapshot_results(snapshot_results_list):
-        msg = 'DR_ID\tDR_Name\tHostID\tRoleName\tNumDisks\tStorageGb\tRequestTime\tResult\tError Message\n'
-        for result in snapshot_results_list:
-            msg += \
-                str(result['dr_id']) + '\t' + \
-                result['dr_name'] + '\t' + \
-                str(result['host_id']) + '\t' + \
-                result['host_role'] + '\t' + \
-                str(result['num_disks']) + '\t' + \
-                str(result['storage_gb']) + '\t' + \
-                result['request_time'] + '\t' + \
-                result['result'] + '\t' + \
-                result['err_msg'] + '\n'
+    def print_host_action_results_list(host_action_results_list):
+        msg = HostActionResult.get_host_action_result_header() + '\n'
+        for host_action_result in host_action_results_list:
+            msg += str(host_action_result) + '\n'
         print(msg)
 
     @staticmethod
@@ -769,25 +761,25 @@ class RunCli(Cons3rtCli):
         results = []
         for run_id in self.ids:
             results += self.c5t.power_off_run(dr_id=run_id)
-        self.print_snapshot_results(results)
+        self.print_host_action_results_list(results)
 
     def power_on(self):
         results = []
         for run_id in self.ids:
             results += self.c5t.power_on_run(dr_id=run_id)
-        self.print_snapshot_results(results)
+        self.print_host_action_results_list(results)
 
     def restore(self):
         results = []
         for run_id in self.ids:
             results += self.c5t.restore_run_snapshots(dr_id=run_id)
-        self.print_snapshot_results(results)
+        self.print_host_action_results_list(results)
 
     def snapshot(self):
         results = []
         for run_id in self.ids:
             results += self.c5t.create_run_snapshots(dr_id=run_id)
-        self.print_snapshot_results(results)
+        self.print_host_action_results_list(results)
 
 
 class TeamCli(Cons3rtCli):

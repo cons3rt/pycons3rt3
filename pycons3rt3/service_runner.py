@@ -7,7 +7,7 @@ to execute functions in AWS or Azure not integrated into the main CONS3RT applic
 
 service_runner.RunMonitor.monitor takes the arg: func_tasks has the following requirements:
 
-* A function must be passed in as fund_tasks
+* A function must be passed in as func_tasks
 * Must be executable with no args provided
 * Raises ServiceRunnerError if an error is detected
 * Returns a dict with the following:
