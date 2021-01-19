@@ -35,7 +35,10 @@ class Cons3rtApi(object):
         self.project = project
         self.api_token = api_token
         self.cert_path = cert_path
-        self.root_ca_bundle_path = root_ca_bundle_path
+        if root_ca_bundle_path:
+            self.root_ca_bundle_path = root_ca_bundle_path
+        else:
+            self.root_ca_bundle_path = True
         self.retries = ''
         self.timeout = ''
         self.queries = ''
@@ -84,13 +87,11 @@ class Cons3rtApi(object):
         """
         log = logging.getLogger(self.cls_logger + '.load_config_args')
 
-        # Load the root CA bundle config
-        self.load_config_root_ca_bundle()
-
         # Check for username-based args
         if all([self.url_base, self.username, self.project, self.api_token]):
-            log.info('Loading config: URL: [{u}], username: [{n}], project: [{p}]'.format(
-                u=self.url_base, n=self.username, p=self.project))
+            self.load_config_root_ca_bundle()
+            log.info('Loading config: URL: [{u}], username: [{n}], project: [{p}], cert validation: [{v}]'.format(
+                u=self.url_base, n=self.username, p=self.project, v=str(self.root_ca_bundle_path)))
             self.rest_user_list.append(RestUser(
                 rest_api_url=self.url_base,
                 token=self.api_token,
@@ -101,8 +102,9 @@ class Cons3rtApi(object):
             self.rest_user = self.rest_user_list[0]
             return True
         elif all([self.url_base, self.cert_path, self.project, self.api_token]):
-            log.info('Loading config: URL: [{u}], client cert: [{c}], project: [{p}]'.format(
-                u=self.url_base, c=self.cert_path, p=self.project))
+            self.load_config_root_ca_bundle()
+            log.info('Loading config: URL: [{u}], client cert: [{c}], project: [{p}], cert validation: [{v}]'.format(
+                u=self.url_base, c=self.cert_path, p=self.project, v=str(self.root_ca_bundle_path)))
             self.rest_user_list.append(RestUser(
                 rest_api_url=self.url_base,
                 token=self.api_token,
@@ -163,12 +165,15 @@ class Cons3rtApi(object):
             url_base = config_data['api_url']
         except KeyError:
             raise Cons3rtApiError('api_url not defined in config data: {d}'.format(d=str(config_data)))
+        log.info('Using ReST API URL: {u}'.format(u=url_base))
 
         # Attempt to find a username in the config data
         try:
             username = config_data['name']
         except KeyError:
             username = None
+        else:
+            log.info('Running as CONS3RT username: {n}'.format(n=username))
 
         # Attempt to find a cert_file_path in the config data
         try:
@@ -182,12 +187,12 @@ class Cons3rtApi(object):
                 if not os.path.isfile(cert_file_path):
                     raise Cons3rtApiError('config.json provided a cert, but the cert file was not found: {f}'.format(
                         f=cert_file_path))
+                log.info('Using client certificate file: {f}'.format(f=cert_file_path))
 
         # Check for root CA certificate bundle path
         if 'root_ca_bundle' in config_data.keys():
-            root_ca_bundle_path = config_data['root_ca_bundle']
-        else:
-            root_ca_bundle_path = True
+            self.root_ca_bundle_path = config_data['root_ca_bundle']
+        self.load_config_root_ca_bundle()
 
         # Ensure that either a username or cert_file_path was found
         if username is None and cert_file_path is None:
@@ -217,7 +222,7 @@ class Cons3rtApi(object):
                     token=token,
                     project=project_name,
                     cert_file_path=cert_file_path,
-                    cert_bundle=root_ca_bundle_path
+                    cert_bundle=self.root_ca_bundle_path
                 ))
             elif username:
                 self.rest_user_list.append(RestUser(
@@ -225,7 +230,7 @@ class Cons3rtApi(object):
                     token=token,
                     project=project_name,
                     username=username,
-                    cert_bundle=root_ca_bundle_path
+                    cert_bundle=self.root_ca_bundle_path
                 ))
 
     def load_config_file(self):
@@ -279,9 +284,6 @@ class Cons3rtApi(object):
         :raises: Cons3rtApiError
         """
         log = logging.getLogger(self.cls_logger + '.load_config_root_ca_bundle')
-
-        if self.root_ca_bundle_path is None:
-            self.root_ca_bundle_path = True
 
         # Process root CA bundle if it is a string
         if isinstance(self.root_ca_bundle_path, str):
