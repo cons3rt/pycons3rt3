@@ -43,7 +43,7 @@ def is_aws():
 
     while True:
         if attempt_num > max_num_tries:
-            log.info('Unable to query the AWS meta data URL, this system appears to be not running on AWS\n{e}')
+            log.info('Unable to query the AWS meta data URL, this system appears to be not running on AWS')
             return False
 
         # Query the AWS meta data URL
