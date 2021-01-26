@@ -91,7 +91,8 @@ class Route53Util(object):
         if hosted_zone:
             self.hosted_zone_id = hosted_zone['Id']
             log.info('Found existing hosted zone ID: {i}'.format(i=self.hosted_zone_id))
-            enable_vpc_private_dns(vpc_id=self.vpc_id)
+            if self.private:
+                enable_vpc_private_dns(vpc_id=self.vpc_id)
             return hosted_zone
 
         # Create hosted zone
