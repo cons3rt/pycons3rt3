@@ -1,6 +1,6 @@
 
 
-0.0.8a0
+0.0.8
 =======
 
 * Added CLI calls to power on/off runs, and corresponding methods
