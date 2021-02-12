@@ -9,10 +9,10 @@ RUN pip install --no-cache-dir -r ./cfg/requirements.txt
 RUN python setup.py install
 
 # Build
-# docker build -t pycons3rt3:v0.0.6-ubi .
+# docker build -t pycons3rt3:v0.0.8-ubi .
 
 # Run and mount your CONS3RT config directory
-# docker run --rm -it -v ~/.cons3rt:/root/.cons3rt pycons3rt3:v0.0.6-ubi
+# docker run --rm -it -v ~/.cons3rt:/root/.cons3rt pycons3rt3:v0.0.8-ubi
 
 # For the UBI version
-# docker run --rm -it -v ~/.cons3rt:/opt/app-root/src/.cons3rt pycons3rt3:v0.0.6-ubi cons3rt cloud list
+# docker run --rm -it -v ~/.cons3rt:/opt/app-root/src/.cons3rt pycons3rt3:v0.0.8-ubi cons3rt cloud list
