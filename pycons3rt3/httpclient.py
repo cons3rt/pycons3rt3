@@ -245,6 +245,9 @@ class Client:
         # Add content type if content was provided
         if content:
             headers['Content-Type'] = '{t}'.format(t=content_type)
+            log.debug('Making POST with content:\n{c}'.format(c=str(content)))
+        else:
+            log.debug('Making POST with no content')
 
         # Make the POST request
         attempt_num = 1
