@@ -2874,7 +2874,7 @@ class Cons3rtApi(object):
 
     def create_template_registration(self, vr_id, template_name, operating_system=None, display_name=None,
                                      cons3rt_agent_installed=True, container_capable=False, default_username=None,
-                                     default_password=None, has_gpu=False, license_str=None, note=None, max_cpus=20,
+                                     default_password=None, license_str=None, note=None, max_cpus=20,
                                      max_ram_mb=131072, root_disk_size_mb=102400, additional_disks=None,
                                      linux_package_manager=None, power_on_delay_override=None, powershell_version=None,
                                      linux_service_management=None):
@@ -2890,7 +2890,6 @@ class Cons3rtApi(object):
         :param container_capable: (bool) Set true if the OS can launch containers
         :param default_username: (str) Default template username
         :param default_password: (str) Default template password
-        :param has_gpu: (bool) Set true if this template supports GPU
         :param license_str: (str) Optional license info
         :param note: (str) Optional note
         :param max_cpus: (int) Maximum number of CPUs for the template
@@ -2947,7 +2946,7 @@ class Cons3rtApi(object):
             template_data = template.generate_registration_data(
                 display_name=display_name, cons3rt_agent_installed=cons3rt_agent_installed,
                 container_capable=container_capable, default_username=default_username,
-                default_password=default_password, has_gpu=has_gpu, license_str=license_str, note=note,
+                default_password=default_password, license_str=license_str, note=note,
                 max_cpus=max_cpus, max_ram_mb=max_ram_mb, disks=disks, linux_package_manager=linux_package_manager,
                 power_on_delay_override=power_on_delay_override, powershell_version=powershell_version,
                 linux_service_management=linux_service_management
@@ -3083,14 +3082,13 @@ class Cons3rtApi(object):
         return is_success
 
     def update_template_subscription(self, vr_id, template_subscription_id, offline, state='IN_DEVELOPMENT',
-                                     allow_gpu=False, max_cpus=20, max_ram_mb=131072):
+                                     max_cpus=20, max_ram_mb=131072):
         """Updates template subscription data in the provided virtualization realm ID
 
         :param vr_id: (int) ID of the virtualization realm
         :param template_subscription_id: (int) ID of the template subscription
         :param offline: (bool) Set True to set the template to offline, False for online
         :param state: (str) Subscription state
-        :param allow_gpu: (bool) Set True to allow GPU bindings for this template subscription
         :param max_cpus: (int) Set to the maximum number of CPUs allowed
         :param max_ram_mb: (int) Set to the maximum RAM in megabytes allowed
         :return: (dict) of template subscription data
@@ -3125,11 +3123,6 @@ class Cons3rtApi(object):
             msg = 'state arg must be a str, found: {t}'.format(t=state.__class__.__name__)
             raise Cons3rtApiError(msg)
 
-        # Ensure allow_gpu is a bool
-        if not isinstance(allow_gpu, bool):
-            msg = 'allow_gpu arg must be an bool, found: {t}'.format(t=allow_gpu.__class__.__name__)
-            raise Cons3rtApiError(msg)
-
         # Ensure the max_cpus is an int
         if not isinstance(max_cpus, int):
             try:
@@ -3157,7 +3150,6 @@ class Cons3rtApi(object):
         # Validate the subscription data
         subscription_data = {
             'state': state,
-            'allowGpuUsage': allow_gpu,
             'maxNumCpus': max_cpus,
             'maxRamInMegabytes': max_ram_mb
         }
@@ -4995,12 +4987,9 @@ class Cons3rtApi(object):
                 continue
 
             # TODO when Tracker 4459 is fixed, include the reg_details['templateData']['maxCpu']
-            has_gpu = False
             max_ram_mb = 131072
             max_cpus = 16
             if 'templateData' in reg_details.keys():
-                if 'HasGpu' in reg_details['templateData']:
-                    has_gpu = reg_details['templateData']['HasGpu']
                 if 'maxRamInMegabytes' in reg_details['templateData']:
                     max_ram_mb = reg_details['templateData']['maxRamInMegabytes']
                 if 'maxNumCpus' in reg_details['templateData']:
@@ -5014,7 +5003,6 @@ class Cons3rtApi(object):
                     template_subscription_id=subscription['id'],
                     offline=False,
                     state='IN_DEVELOPMENT',
-                    allow_gpu=has_gpu,
                     max_cpus=max_cpus,
                     max_ram_mb=max_ram_mb
                 )

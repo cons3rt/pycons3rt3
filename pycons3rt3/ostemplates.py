@@ -299,7 +299,7 @@ class OperatingSystemTemplate(object):
         self.operating_system_type = operating_system_type
         self.registration_data = {}
         self.required_args = [
-            'cons3rt_agent_installed', 'container_capable', 'has_gpu', 'max_cpus', 'max_ram_mb'
+            'cons3rt_agent_installed', 'container_capable', 'max_cpus', 'max_ram_mb'
         ]
         self.root_disk_size = 102400
         self.additional_disks = []
@@ -326,7 +326,6 @@ class OperatingSystemTemplate(object):
             'operatingSystem': self.operating_system_type,
             'cons3rtAgentInstalled': kwargs['cons3rt_agent_installed'],
             'containerCapable': kwargs['container_capable'],
-            'hasGpu': kwargs['has_gpu'],
             'maxNumCpus': kwargs['max_cpus'],
             'maxRamInMegabytes': kwargs['max_ram_mb'],
             'disks': self.disks
@@ -392,7 +391,7 @@ class OperatingSystemTemplate(object):
             msg = 'Missing required args: {a}'.format(a=','.join(missing_required_args))
             raise InvalidOperatingSystemTemplate(msg)
 
-        arg_bools = ['cons3rt_agent_installed', 'container_capable', 'has_gpu']
+        arg_bools = ['cons3rt_agent_installed', 'container_capable']
         for arg_bool in arg_bools:
             if not kwargs[arg_bool]:
                 continue
