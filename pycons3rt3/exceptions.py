@@ -162,6 +162,10 @@ class Route53UtilError(Exception):
     """There was a problem with an AWS Route53 operation"""
 
 
+class S3OrganizationError(Exception):
+    """Handles Errors deleting"""
+
+
 class S3UtilError(Exception):
     """There was a problem with an AWS S3 operation"""
 

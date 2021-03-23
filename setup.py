@@ -46,11 +46,12 @@ dist = setup(
     install_requires=requirements,
     entry_points={
         'console_scripts': [
-            'pycons3rt_setup = pycons3rt3.osutil:main',
             'asset = pycons3rt3.asset:main',
-            'slack = pycons3rt3.slack:main',
+            'cons3rt = pycons3rt3.cons3rt:main',
+            's3organizer = pycons3rt3.s3organizer:main',
             'deployment = pycons3rt3.deployment:main',
-            'cons3rt = pycons3rt3.cons3rt:main'
+            'pycons3rt_setup = pycons3rt3.osutil:main',
+            'slack = pycons3rt3.slack:main'
         ],
     },
     classifiers=[
