@@ -88,7 +88,7 @@ class EC2Util(object):
                 return False
             try:
                 if resource_id.startswith('i-'):
-                    self.client.describe_instances(InstanceIds=[resource_id])
+                    get_instance(client=self.client, instance_id=resource_id)
                 elif resource_id.startswith('subnet-'):
                     self.client.describe_subnets(SubnetIds=[resource_id])
                 elif resource_id.startswith('sg-'):
@@ -182,29 +182,21 @@ class EC2Util(object):
             log.info('This machine is not running in AWS, exiting...')
             return
 
-        if self.instance_id is None:
-            log.error('Unable to get the Instance ID for this machine')
+        if not self.instance_id:
+            log.warning('Unable to get the Instance ID for this machine')
             return
         log.info('Found Instance ID: {i}'.format(i=self.instance_id))
 
         log.info('Querying AWS to get the VPC ID...')
         try:
-            response = self.client.describe_instances(
-                    DryRun=False,
-                    InstanceIds=[self.instance_id])
+            instance = get_instance(client=self.client, instance_id=self.instance_id)
         except ClientError as exc:
-            log.error('Unable to query AWS to get info for instance {i}\n{e}'.format(
-                    i=self.instance_id, e=str(exc)))
+            log.warning('Unable to query AWS to get info for instance {i}\n{e}'.format(i=self.instance_id, e=str(exc)))
             return
-
-        # Get the VPC ID from the response
-        try:
-            vpc_id = response['Reservations'][0]['Instances'][0]['VpcId']
-        except KeyError:
-            log.error('Unable to get VPC ID from response: {r}'.format(r=response))
-            return
-        log.info('Found VPC ID: {v}'.format(v=vpc_id))
-        return vpc_id
+        if 'VpcId' in instance.keys():
+            log.info('Found VPC ID: {v}'.format(v=instance['VpcId']))
+            return instance['VpcId']
+        log.warning('Unable to get VPC ID from instance: {i}'.format(i=str(instance)))
 
     def list_available_regions(self):
         """Returns a list of available regions for this client
@@ -1196,38 +1188,22 @@ class EC2Util(object):
         log = logging.getLogger(self.cls_logger + '.get_eni_id')
 
         # Get the instance-id
-        if self.instance_id is None:
-            msg = 'Instance ID not found for this machine'
-            log.error(msg)
+        if not self.instance_id:
+            msg = 'Instance ID not found for this machine, unable to determine ENI ID'
             raise OSError(msg)
-        log.info('Found instance ID: {i}'.format(i=self.instance_id))
-
-        log.debug('Querying EC2 instances...')
-        try:
-            response = self.client.describe_instances(
-                    DryRun=False,
-                    InstanceIds=[self.instance_id]
-            )
-        except ClientError as exc:
-            msg = 'Unable to query EC2 for instances'
-            log.error(msg)
-            raise AWSAPIError(msg) from exc
-        log.debug('Found instance info: {r}'.format(r=response))
+        log.info('Querying instance ID [{i}] to look for ENIs...'.format(i=self.instance_id))
+        instance = get_instance(client=self.client, instance_id=self.instance_id)
 
         # Find the ENI ID
         log.info('Looking for the ENI ID to alias...')
         eni_id = None
         try:
-            for reservation in response['Reservations']:
-                for instance in reservation['Instances']:
-                    if instance['InstanceId'] == self.instance_id:
-                        for network_interface in instance['NetworkInterfaces']:
-                            if network_interface['Attachment']['DeviceIndex'] == interface:
-                                eni_id = network_interface['NetworkInterfaceId']
+            for network_interface in instance['NetworkInterfaces']:
+                if network_interface['Attachment']['DeviceIndex'] == interface:
+                    eni_id = network_interface['NetworkInterfaceId']
         except KeyError as exc:
-            msg = 'ENI ID not found in AWS response for interface: {i}'.format(i=interface)
+            msg = 'Unable ot find ENI ID instance data: {i}'.format(i=str(instance))
             raise EC2UtilError(msg) from exc
-
         log.info('Found ENI ID: {e}'.format(e=eni_id))
         return eni_id
 
@@ -1580,7 +1556,7 @@ class EC2Util(object):
         log.info('Successfully attached ENI ID {eni} to EC2 instance ID {i}'.format(
                 eni=eni_id, i=self.instance_id))
 
-    def get_elastic_ips(self):
+    def get_elastic_ips(self, instance_id=None):
         """Returns the elastic IP info for this instance any are
         attached
 
@@ -1588,18 +1564,20 @@ class EC2Util(object):
         :raises AWSAPIError
         """
         log = logging.getLogger(self.cls_logger + '.get_elastic_ips')
-        instance_id = get_instance_id()
-        if instance_id is None:
-            log.error('Unable to get the Instance ID for this machine')
-            return
-        log.info('Found Instance ID: {i}'.format(i=instance_id))
+
+        # Ensure instance_id is set
+        if not instance_id:
+            if self.instance_id:
+                instance_id = self.instance_id
+            else:
+                instance_id = get_instance_id()
+        if not instance_id is None:
+            msg = 'Unable to determine instance ID to query for elastic IPs'
+            raise EC2UtilError(msg)
 
         log.info('Querying AWS for info about instance ID {i}...'.format(i=instance_id))
         try:
-            instance_info = self.client.describe_instances(DryRun=False, InstanceIds=[instance_id])
-        except ClientError as exc:
-            msg = 'Unable to query AWS to get info for instance {i}'.format(i=instance_id)
-            raise AWSAPIError(msg) from exc
+            instance_info = get_instance(client=self.client, instance_id=self.instance_id)
 
         # Get the list of Public/Elastic IPs for this instance
         public_ips = []
@@ -2579,14 +2557,7 @@ class EC2Util(object):
         :return: dict containing EC2 instance data
         :raises: EC2UtilError
         """
-        log = logging.getLogger(self.cls_logger + '.get_ec2_instances')
-        log.info('Describing EC2 instances...')
-        try:
-            response = self.client.describe_instances()
-        except ClientError as exc:
-            msg = 'There was a problem describing EC2 instances'
-            raise EC2UtilError(msg) from exc
-        return response
+        return list_instances(client=self.client)
 
     def get_ebs_volumes(self):
         """Describes the EBS volumes
@@ -2594,14 +2565,7 @@ class EC2Util(object):
         :return: dict containing EBS volume data
         :raises EC2UtilError
         """
-        log = logging.getLogger(self.cls_logger + '.get_ebs_volumes')
-        log.info('Describing EBS volumes...')
-        try:
-            response = self.client.describe_volumes()
-        except ClientError as exc:
-            msg = 'There was a problem describing EBS volumes'
-            raise EC2UtilError(msg) from exc
-        return response
+        return list_volumes(client=self.client)
 
     def get_vpcs(self):
         """Describes the VPCs
@@ -5007,6 +4971,11 @@ def parse_transit_gateway_routes(route_table_id, transit_gateway_routes):
     return transit_routes_list
 
 
+############################################################################
+# Method for retrieving AWS Service IP addresses
+############################################################################
+
+
 def get_aws_service_ips(regions=None, include_elastic_ips=False, ipv6=False):
     """Returns a list of AWS service IP addresses
 
@@ -5080,6 +5049,11 @@ def get_aws_service_ips(regions=None, include_elastic_ips=False, ipv6=False):
     return region_filtered_ip_ranges
 
 
+############################################################################
+# Method for retrieving AWS Red Hat Update Server RHUI3 IP addresses
+############################################################################
+
+
 def get_aws_rhui3_ips(regions=None):
     """Returns the list of Red Hat RHUI3 IP addresses
 
@@ -5119,3 +5093,370 @@ def get_aws_rhui3_ips(regions=None):
             else:
                 log.error('Invalid RHUI3 IP address returned for region {r}: {i}'.format(r=region, i=rhui3_region_ip))
     return rhui3_ips
+
+
+############################################################################
+# Methods for retrieving EC2 Instances
+############################################################################
+
+
+def list_instances_with_token(client, max_results=100, continuation_token=None):
+    """Returns a list of instances using the provided token and owner ID
+
+    :param client: boto3.client object
+    :param max_results: (int) max results to query on
+    :param continuation_token: (str) token to query on
+    :return: (dict) response object containing response data
+    """
+    if continuation_token:
+        return client.describe_instances(
+            DryRun=False,
+            MaxResults=max_results,
+            NextToken=continuation_token
+        )
+    else:
+        return client.describe_instances(
+            DryRun=False,
+            MaxResults=max_results
+        )
+
+
+def list_instances(client):
+    """Gets a list of EC2 instances in this account/region
+
+    :param client: boto3.client object
+    :return: (list)
+    :raises: EC2UtilError
+    """
+    log = logging.getLogger(mod_logger + '.list_instances')
+    log.info('Getting a list of EC2 instances...')
+    instances = []
+    continuation_token = None
+    next_query = True
+    max_results = 100
+    while True:
+        if not next_query:
+            break
+        try:
+            response = list_instances_with_token(
+                client=client,
+                max_results=max_results,
+                continuation_token=continuation_token
+            )
+        except ClientError as exc:
+            msg = 'Problem querying for EC2 instances'
+            raise EC2UtilError(msg) from exc
+        if 'Reservations' not in response.keys():
+            log.warning('Reservations not found in response: {r}'.format(r=str(response.keys())))
+            return instances
+        if 'NextToken' not in response.keys():
+            next_query = False
+        else:
+            continuation_token = response['NextToken']
+        for reservation in response['Reservations']:
+            if 'Instances' not in reservation.keys():
+                log.warning('Instances not found in reservation: {r}'.format(r=str(reservation)))
+                continue
+            instances += reservation['Instances']
+    log.info('Found {n} EC2 instances'.format(n=str(len(instances))))
+    return instances
+
+
+def list_instance_names(client):
+    """Gets a list of EC2 instances that have name tags, and returns the list of names
+
+    :param client: boto3.client object
+    :return: (list) of (str) "Name" tag values, if any
+    """
+    log = logging.getLogger(mod_logger + '.list_instance_names')
+    instance_names = []
+    instances = list_instances(client=client)
+    log.info('Looking for instances with the Name tag set...')
+    for instance in instances:
+        if 'Tags' not in instance.keys():
+            continue
+        for tag in instance['Tags']:
+            if tag['Key'] == 'Name':
+                instance_names.append(tag['Value'])
+                log.info('Found instance with Name tag: {v}'.format(v=tag['Value']))
+    return instance_names
+
+
+def get_instance(client, instance_id):
+    """Returns detailed info about the instance ID
+
+    :param client: boto3.client object
+    :param instance_id: (str) ID of the snapshot to retrieve
+    :return: (dict) data about the snapshot (see boto3 docs)
+    :raises: EC2UtilError
+    """
+    log = logging.getLogger(mod_logger + '.get_instance')
+    log.info('Getting info about instance ID: {i}'.format(i=instance_id))
+    try:
+        response = client.describe_instances(DryRun=False, SnapshotIds=[instance_id])
+    except ClientError as exc:
+        msg = 'Unable to describe instance ID: {a}'.format(a=instance_id)
+        raise EC2UtilError(msg) from exc
+    if 'Reservations' not in response.keys():
+        msg = 'Reservations not found in response: {r}'.format(r=str(response))
+        raise EC2UtilError(msg)
+    reservations = response['Reservations']
+    if not isinstance(reservations, list):
+        msg = 'Expected Reservations to be a list, found: {t}'.format(t=reservations.__class__.__name__)
+        raise EC2UtilError(msg)
+    instances = []
+    for reservation in reservations:
+        if 'Instances' not in reservation.keys():
+            msg = 'Instances not found in reservation: {r}'.format(r=str(reservation))
+            raise EC2UtilError(msg)
+        if not isinstance(reservation['Instances'], list):
+            msg = 'Expected Instances to be a list, found: {t}'.format(t=reservation['Instances'].__class__.__name__)
+            raise EC2UtilError(msg)
+        instances += reservation['Instances']
+    if len(instances) != 1:
+        msg = 'Expected to find 1 instance, found: {n}'.format(n=str(len(instances)))
+        raise EC2UtilError(msg)
+    return instances[0]
+
+
+############################################################################
+# Methods for retrieving EC2 Snapshots
+############################################################################
+
+
+def list_snapshots_with_token(client, owner_id, max_results=100, continuation_token=None):
+    """Returns a list of snapshots using the provided token and owner ID
+
+    :param client: boto3.client object
+    :param owner_id: (str) owner ID for the account
+    :param max_results: (int) max results to query on
+    :param continuation_token: (str) token to query on
+    :return: (dict) response object containing response data
+    """
+    if continuation_token:
+        return client.describe_snapshots(
+            DryRun=False,
+            MaxResults=max_results,
+            NextToken=continuation_token,
+            OwnerIds=[owner_id]
+        )
+    else:
+        return client.describe_snapshots(
+            DryRun=False,
+            MaxResults=max_results,
+            OwnerIds=[owner_id]
+        )
+
+
+def list_snapshots(client, owner_id):
+    """Gets a list of EC2 snapshots in this account/region
+
+    :param client: boto3.client object
+    :param owner_id: (str) ID of the account to search
+    :return: (list)
+    :raises: EC2UtilError
+    """
+    log = logging.getLogger(mod_logger + '.list_snapshots')
+    log.info('Getting a list of EC2 snapshots in account ID: {i}'.format(i=owner_id))
+    snapshots = []
+    continuation_token = None
+    next_query = True
+    max_results = 100
+    while True:
+        if not next_query:
+            break
+        try:
+            response = list_snapshots_with_token(
+                client=client,
+                owner_id=owner_id,
+                max_results=max_results,
+                continuation_token=continuation_token
+            )
+        except ClientError as exc:
+            msg = 'Problem querying for EC2 instances'
+            raise EC2UtilError(msg) from exc
+        if 'Snapshots' not in response.keys():
+            log.warning('Snapshots not found in response: {r}'.format(r=str(response.keys())))
+            return snapshots
+        if 'NextToken' not in response.keys():
+            next_query = False
+        else:
+            continuation_token = response['NextToken']
+        snapshots += response['Snapshots']
+    log.info('Found {n} EC2 snapshots'.format(n=str(len(snapshots))))
+    return snapshots
+
+
+def get_snapshot(client, snapshot_id):
+    """Returns detailed info about the snapshot ID
+
+    :param client: boto3.client object
+    :param snapshot_id: (str) ID of the snapshot to retrieve
+    :return: (dict) data about the snapshot (see boto3 docs)
+    :raises: EC2UtilError
+    """
+    log = logging.getLogger(mod_logger + '.get_snapshot')
+    log.info('Getting info about snapshot ID: {i}'.format(i=snapshot_id))
+    try:
+        response = client.describe_snapshots(DryRun=False, SnapshotIds=[snapshot_id])
+    except ClientError as exc:
+        msg = 'Unable to describe snapshot ID: {a}'.format(a=snapshot_id)
+        raise EC2UtilError(msg) from exc
+    if 'Snapshots' not in response:
+        msg = 'Snapshots not found in response: {r}'.format(r=str(response))
+        raise EC2UtilError(msg)
+    snapshots = response['Snapshots']
+    if not isinstance(snapshots, list):
+        msg = 'Expected Snapshots to be a list, found: {t}'.format(t=snapshots.__class__.__name__)
+        raise EC2UtilError(msg)
+    if len(snapshots) != 1:
+        msg = 'Expected to find 1 snapshot, found: {n}'.format(n=str(len(snapshots)))
+        raise EC2UtilError(msg)
+    return snapshots[0]
+
+
+############################################################################
+# Methods for retrieving EC2 AMIs / Images
+############################################################################
+
+
+def list_images(client, owner_id):
+    """Gets a list of EC2 snapshots in this account/region
+
+    :param client: boto3.client object
+    :param owner_id: (str) ID of the account to search
+    :return: (list)
+    :raises: EC2UtilError
+    """
+    log = logging.getLogger(mod_logger + '.list_images')
+    log.info('Getting a list of EC2 images/AMIs in account ID: {i}'.format(i=owner_id))
+    try:
+        response = client.describe_images(
+            DryRun=False,
+            Owners=[owner_id]
+        )
+    except ClientError as exc:
+        msg = 'Problem querying for EC2 images'
+        raise EC2UtilError(msg) from exc
+    if 'Images' not in response.keys():
+        msg = 'Images not found in response: {r}'.format(r=str(response.keys()))
+        raise EC2UtilError(msg)
+    images = response['Images']
+    log.info('Found {n} EC2 images'.format(n=str(len(images))))
+    return images
+
+
+def get_image(client, ami_id):
+    """Returns detailed info about the AMI ID
+
+    :param client: boto3.client object
+    :param ami_id: (str) ID of the AMI to retrieve
+    :return: (dict) data about the AMI (see boto3 docs)
+    :raises: EC2UtilError
+    """
+    log = logging.getLogger(mod_logger + '.get_image')
+    log.info('Getting info about AMI ID: {i}'.format(i=ami_id))
+    try:
+        response = client.describe_images(DryRun=False, ImageIds=[ami_id])
+    except ClientError as exc:
+        msg = 'Unable to describe image ID: {a}'.format(a=ami_id)
+        raise EC2UtilError(msg) from exc
+    if 'Images' not in response:
+        msg = 'Images not found in response: {r}'.format(r=str(response))
+        raise EC2UtilError(msg)
+    if len(response['Images']) != 1:
+        msg = 'Expected to find 1 image, found {n} in response: {r}'.format(
+            n=str(len(response['Images'])), r=str(response))
+        raise EC2UtilError(msg)
+    return response['Images'][0]
+
+
+############################################################################
+# Methods for retrieving EC2 Volumes
+############################################################################
+
+
+def list_volumes_with_token(client, max_results=100, continuation_token=None):
+    """Returns a list of volumes using the provided token and owner ID
+
+    :param client: boto3.client object
+    :param max_results: (int) max results to query on
+    :param continuation_token: (str) token to query on
+    :return: (dict) response object containing response data
+    """
+    if continuation_token:
+        return client.describe_volumes(
+            DryRun=False,
+            MaxResults=max_results,
+            NextToken=continuation_token
+        )
+    else:
+        return client.describe_volumes(
+            DryRun=False,
+            MaxResults=max_results
+        )
+
+
+def list_volumes(client):
+    """Gets a list of EC2 volumes in this account/region
+
+    :param client: boto3.client object
+    :return: (list)
+    :raises: EC2UtilError
+    """
+    log = logging.getLogger(mod_logger + '.list_volumes')
+    log.info('Getting a list of EC2 volumes...')
+    volumes = []
+    continuation_token = None
+    next_query = True
+    max_results = 100
+    while True:
+        if not next_query:
+            break
+        try:
+            response = list_volumes_with_token(
+                client=client,
+                max_results=max_results,
+                continuation_token=continuation_token
+            )
+        except ClientError as exc:
+            msg = 'Problem querying for EC2 instances'
+            raise EC2UtilError(msg) from exc
+        if 'Volumes' not in response.keys():
+            log.warning('Volumes not found in response: {r}'.format(r=str(response.keys())))
+            return volumes
+        if 'NextToken' not in response.keys():
+            next_query = False
+        else:
+            continuation_token = response['NextToken']
+        volumes += response['Volumes']
+    log.info('Found {n} EC2 volumes'.format(n=str(len(volumes))))
+    return volumes
+
+
+def get_volume(client, volume_id):
+    """Returns detailed info about the volume ID
+
+    :param client: boto3.client object
+    :param volume_id: (str) ID of the volume to retrieve
+    :return: (dict) data about the volume (see boto3 docs)
+    :raises: EC2UtilError
+    """
+    log = logging.getLogger(mod_logger + '.get_volume')
+    log.info('Getting info about volume ID: {i}'.format(i=volume_id))
+    try:
+        response = client.describe_volumes(DryRun=False, VolumeIds=[volume_id])
+    except ClientError as exc:
+        msg = 'Unable to describe volume ID: {a}'.format(a=volume_id)
+        raise EC2UtilError(msg) from exc
+    if 'Volumes' not in response:
+        msg = 'Volumes not found in response: {r}'.format(r=str(response))
+        raise EC2UtilError(msg)
+    volumes = response['Volumes']
+    if not isinstance(volumes, list):
+        msg = 'Expected Volumes to be a list, found: {t}'.format(t=volumes.__class__.__name__)
+        raise EC2UtilError(msg)
+    if len(volumes) != 1:
+        msg = 'Expected to find 1 volume, found: {n}'.format(n=str(len(volumes)))
+        raise EC2UtilError(msg)
+    return volumes[0]
