@@ -1561,7 +1561,7 @@ class EC2Util(object):
         attached
 
         :return: (dict) Info about the Elastic IPs
-        :raises AWSAPIError
+        :raises EC2UtilError
         """
         log = logging.getLogger(self.cls_logger + '.get_elastic_ips')
 
@@ -1576,8 +1576,7 @@ class EC2Util(object):
             raise EC2UtilError(msg)
 
         log.info('Querying AWS for info about instance ID {i}...'.format(i=instance_id))
-        try:
-            instance_info = get_instance(client=self.client, instance_id=self.instance_id)
+        instance_info = get_instance(client=self.client, instance_id=self.instance_id)
 
         # Get the list of Public/Elastic IPs for this instance
         public_ips = []
@@ -1605,11 +1604,11 @@ class EC2Util(object):
         except ClientError as exc:
             msg = 'Unable to query AWS to get info for addresses {p}'.format(p=public_ips)
             log.error(msg)
-            raise AWSAPIError(msg) from exc
+            raise EC2UtilError(msg) from exc
         if not address_info:
             msg = 'No address info return for Public IPs: {p}'.format(p=public_ips)
             log.error(msg)
-            raise AWSAPIError(msg)
+            raise EC2UtilError(msg)
         return address_info
 
     def disassociate_elastic_ips(self):
