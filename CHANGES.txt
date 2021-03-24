@@ -1,7 +1,15 @@
 
+0.0.9
+=====
+
+* Removed GPU from template registraiton/subscription to react to CONS3Rt changes
+* Added the s3organizer CLI command and tool for helping organize, move, and delete items in S3 buckets
+* Added logic for finding and deleting orphan snapshots in AWS accounts
+* Added the ability to create and update IAM roles and policies
+* Added the ability to generate STS login tokens with or without MFA when assuming roles in other accounts
 
 0.0.8
-=======
+=====
 
 * Added CLI calls to power on/off runs, and corresponding methods
 * Added an option to keep the asset zip files after import/update
