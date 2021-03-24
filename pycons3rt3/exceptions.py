@@ -147,11 +147,15 @@ class EC2UtilError(Exception):
 
 
 class ElbUtilError(Exception):
-    """There was a problem with an AWS EC2 operation"""
+    """There was a problem with an AWS ELB operation"""
+
+
+class IamUtilError(Exception):
+    """There was a problem with an AWS IAM operation"""
 
 
 class ImageUtilError(Exception):
-    """There was a problem with an AWS AMI operation"""
+    """There was a problem with an AWS EC2 AMI/snapshot/volume operation"""
 
 
 class RdsUtilError(Exception):
@@ -163,7 +167,7 @@ class Route53UtilError(Exception):
 
 
 class S3OrganizationError(Exception):
-    """Handles Errors deleting"""
+    """Handles Errors deleting and organizing S3"""
 
 
 class S3UtilError(Exception):
