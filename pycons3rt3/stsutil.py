@@ -122,7 +122,6 @@ class AwsOrganizationAccount(object):
         config_content = '[default]\nregion = {r}\noutput = {f}\n\n'.format(r=region, f=self.output_format)
         with open(config_file, 'w') as f:
             f.write(config_content)
-        time.sleep(1)
 
     def set_credentials(self, access_key_id, secret_access_key, session_token=None, region=None):
         """Set the credentials file to the provided credentials
