@@ -101,9 +101,10 @@ class AwsOrganizationAccount(object):
         self.master_credentials_file = os.path.join(aws_dir, 'credentials.' + self.description)
         self.customer_list = [x['customer'] for x in self.child_account_list]
 
-    def reset_master_account_credentials(self):
+    def reset_master_account_credentials(self, region=None):
         """Resets the master account credentials
 
+        :region: (str) Name of the region to reset the master account credentials to
         :return: None
         :raises: OSError
         """
@@ -116,7 +117,9 @@ class AwsOrganizationAccount(object):
         if os.path.isfile(config_file):
             os.remove(config_file)
         shutil.copy2(self.master_credentials_file, credentials_file)
-        config_content = '[default]\nregion = {r}\noutput = {f}\n\n'.format(r=self.default_region, f=self.output_format)
+        if not region:
+            region = self.default_region
+        config_content = '[default]\nregion = {r}\noutput = {f}\n\n'.format(r=region, f=self.output_format)
         with open(config_file, 'w') as f:
             f.write(config_content)
         time.sleep(1)
