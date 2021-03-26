@@ -60,6 +60,22 @@ class Cons3rtCli(object):
         traceback.print_exc()
 
     @staticmethod
+    def print_deployments(deployment_list):
+        msg = 'ID\tName\n'
+        for deployment in deployment_list:
+            if 'id' in deployment:
+                msg += str(deployment['id'])
+            else:
+                msg += '      '
+            msg += '\t'
+            if 'name' in deployment:
+                msg += deployment['name']
+            else:
+                msg += '                '
+            msg += '\n'
+        print(msg)
+
+    @staticmethod
     def print_drs(dr_list):
         msg = 'ID\tName\t\t\t\t\t\tStatus\t\tProject\t\tCreator\n'
         for dr_info in dr_list:
@@ -570,6 +586,148 @@ class CloudspaceCli(Cons3rtCli):
             )
 
 
+class DeploymentCli(Cons3rtCli):
+
+    def __init__(self, args, subcommands):
+        Cons3rtCli.__init__(self, args=args, subcommands=subcommands)
+        self.valid_subcommands = [
+            'list',
+            'run'
+        ]
+
+    def process_args(self):
+        if not self.validate_args():
+            return False
+        if not self.process_subcommands():
+            return False
+        return True
+
+    def process_subcommands(self):
+        if not self.subcommands:
+            return True
+        if len(self.subcommands) < 1:
+            return True
+        if self.subcommands[0] not in self.valid_subcommands:
+            self.err('Unrecognized command: {c}'.format(c=self.subcommands[0]))
+            return False
+        if self.subcommands[0] == 'list':
+            try:
+                self.list_deployments()
+            except Cons3rtCliError:
+                return False
+        if self.subcommands[0] == 'run':
+            try:
+                self.run()
+            except Cons3rtCliError:
+                return False
+        return True
+
+    def run(self):
+        if not self.ids:
+            msg = '--id or --ids arg required to specify the deployment ID(s)'
+            self.err(msg)
+            raise Cons3rtCliError(msg)
+        if len(self.subcommands) > 1:
+            run_subcommand = self.subcommands[1]
+            if run_subcommand == 'delete':
+                self.delete_runs_for_deployments()
+                return
+            elif run_subcommand == 'list':
+                self.list_runs_for_deployments()
+                return
+            elif run_subcommand == 'release':
+                self.release_runs()
+                return
+            else:
+                self.err('Unrecognized command: {c}'.format(c=run_subcommand))
+            return False
+
+    def list_deployments(self):
+        deployments = []
+        try:
+            deployments += self.c5t.list_deployments()
+        except Cons3rtApiError as exc:
+            msg = 'There was a problem listing deployments\n{e}'.format(e=str(exc))
+            self.err(msg)
+            raise Cons3rtCliError(msg) from exc
+        print('Found {n} deployments'.format(n=str(len(deployments))))
+        if len(deployments) > 0:
+            deployments = self.sort_by_id(deployments)
+            self.print_deployments(deployment_list=deployments)
+
+    def list_runs_for_deployments(self):
+        runs = []
+        for deployment_id in self.ids:
+            try:
+                runs += self.c5t.list_deployment_runs_for_deployment(deployment_id=deployment_id)
+            except Cons3rtApiError as exc:
+                msg = 'Problem listing deployment runs for deployment ID: {i}'.format(i=deployment_id)
+                self.err(msg)
+                raise Cons3rtCliError(msg) from exc
+        if len(runs) > 0:
+            runs = self.sort_by_id(runs)
+            self.print_drs(dr_list=runs)
+        print('Total number of runs found: {n}'.format(n=str(len(runs))))
+        return runs
+
+    def delete_runs_for_deployments(self):
+        runs = self.list_runs_for_deployments()
+        inactive_run_ids = []
+        for run in runs:
+            if 'id' not in run.keys():
+                print('WARN: id not found in run: {r}'.format(r=str(run)))
+                continue
+            if 'deploymentRunStatus' not in run.keys():
+                print('WARN: deploymentRunStatus not found in run: {r}'.format(r=str(run)))
+                continue
+            if run['deploymentRunStatus'] in ['CANCELED', 'COMPLETED', 'TESTED']:
+                inactive_run_ids.append(run['id'])
+        if len(inactive_run_ids) > 0:
+            inactive_run_ids = self.sort_by_id(inactive_run_ids)
+        else:
+            print('No inactive runs to delete for deployment IDs: [{i}]'.format(
+                i=','.join(map(str, self.ids))))
+            return
+        print('Deleting [{n}] inactive runs: [{i}]'.format(
+            n=str(len(inactive_run_ids)), i=','.join(map(str, inactive_run_ids))))
+        for inactive_run_id in inactive_run_ids:
+            print('Deleting inactive deployment run: {i}'.format(i=inactive_run_id))
+            self.c5t.delete_inactive_run(dr_id=inactive_run_id)
+
+    def release_runs(self):
+        runs = self.list_runs_for_deployments()
+        active_run_ids = []
+        if len(runs) > 0:
+            runs = self.sort_by_id(runs)
+        else:
+            print('No runs found to release')
+            return
+        for run in runs:
+            if 'id' not in run.keys():
+                print('WARN: id not found in run: {r}'.format(r=str(run)))
+                continue
+            if 'deploymentRunStatus' not in run.keys():
+                print('WARN: deploymentRunStatus not found in run: {r}'.format(r=str(run)))
+                continue
+            if run['deploymentRunStatus'] in ['RESERVED']:
+                active_run_ids.append(run['id'])
+        if len(active_run_ids) > 0:
+            active_run_ids = self.sort_by_id(active_run_ids)
+        else:
+            print('No active runs to release for deployment IDs: [{i}]'.format(
+                i=','.join(map(str, self.ids))))
+            return
+        print('Releasing [{n}] active runs: [{i}]'.format(
+            n=str(len(active_run_ids)), i=','.join(map(str, active_run_ids))))
+        proceed = input('These runs will not be recoverable, proceed with release? (y/n) ')
+        if not proceed:
+            return
+        if proceed != 'y':
+            return
+        for active_run_id in active_run_ids:
+            self.c5t.release_deployment_run(dr_id=active_run_id)
+
+
 class ProjectCli(Cons3rtCli):
 
     def __init__(self, args, subcommands):
@@ -686,6 +844,10 @@ class ProjectCli(Cons3rtCli):
             runs += self.list_runs_for_project(project_id=project_id, search_type='SEARCH_INACTIVE')
         if len(runs) > 0:
             runs = self.sort_by_id(runs)
+        else:
+            print('No inactive runs to delete for project IDs: [{i}]'.format(
+                i=','.join(map(str, self.ids))))
+            return
         print('Total number of inactive runs found to delete: {n}'.format(n=str(len(runs))))
         for run in runs:
             self.c5t.delete_inactive_run(dr_id=run['id'])
@@ -697,15 +859,19 @@ class ProjectCli(Cons3rtCli):
         if len(runs) > 0:
             runs = self.sort_by_id(runs)
         else:
-            print('No runs found to release')
+            print('No inactive runs to release for project IDs: [{i}]'.format(
+                i=','.join(map(str, self.ids))))
             return
-        print('Total number of inactive runs found to release: {n}'.format(n=str(len(runs))))
+        print('Total number of active runs found to release: {n}'.format(n=str(len(runs))))
         proceed = input('These runs will not be recoverable, proceed with release? (y/n) ')
         if not proceed:
             return
         if proceed != 'y':
             return
         for run in runs:
+            if 'id' not in run.keys():
+                print('WARNING: id not found in run: {r}'.format(r=str(run)))
+                continue
             self.c5t.release_deployment_run(dr_id=run['id'])
 
 

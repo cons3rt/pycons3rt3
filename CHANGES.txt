@@ -7,6 +7,7 @@
 * Added logic for finding and deleting orphan snapshots in AWS accounts
 * Added the ability to create and update IAM roles and policies
 * Added the ability to generate STS login tokens with or without MFA when assuming roles in other accounts
+* Added the deployment subcommand: cons3rt deployment list, or cons3rt deployment run list/delete/release
 
 0.0.8
 =====
