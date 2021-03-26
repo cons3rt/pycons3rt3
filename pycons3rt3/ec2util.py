@@ -5272,7 +5272,7 @@ def list_snapshots(client, owner_id):
                 continuation_token=continuation_token
             )
         except ClientError as exc:
-            msg = 'Problem querying for EC2 instances'
+            msg = 'Problem querying for EC2 snapshots'
             raise EC2UtilError(msg) from exc
         if 'Snapshots' not in response.keys():
             log.warning('Snapshots not found in response: {r}'.format(r=str(response.keys())))
@@ -5419,7 +5419,7 @@ def list_volumes(client):
                 continuation_token=continuation_token
             )
         except ClientError as exc:
-            msg = 'Problem querying for EC2 instances'
+            msg = 'Problem querying for EC2 volumes'
             raise EC2UtilError(msg) from exc
         if 'Volumes' not in response.keys():
             log.warning('Volumes not found in response: {r}'.format(r=str(response.keys())))
