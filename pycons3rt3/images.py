@@ -221,11 +221,13 @@ class ImageUtil(object):
             raise ImageUtilError(msg)
         if not ami_id:
             ami_id = ami_info['ImageId']
-        log.info('Retrieving the list snapshots backing AMI ID: {i}'.format(i=ami_id))
+        log.info('Retrieving the list of snapshots backing AMI ID: {i}'.format(i=ami_id))
 
         # Grab the Snapshot IDs
         snapshot_ids = []
         for block_device_mapping in ami_info['BlockDeviceMappings']:
+            if 'Ebs' not in block_device_mapping.keys():
+                continue
             try:
                 snapshot_id = block_device_mapping['Ebs']['SnapshotId']
             except KeyError as exc:
