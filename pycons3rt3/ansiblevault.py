@@ -8,6 +8,7 @@ with ansible-vault
 """
 import logging
 import os
+import shutil
 
 from .logify import Logify
 from .bash import run_command
@@ -35,8 +36,15 @@ def ansible_vault_decrypt_file(encrypted_file, decrypted_file, password_file):
     if not os.path.isfile(encrypted_file):
         raise CommandError('Encrypted file not found: {f}'.format(f=encrypted_file))
 
-    command = ['ansible-vault', 'decrypt', encrypted_file, '--output', decrypted_file, '--vault-password-file',
-               password_file]
+    # Remove decrypted file if it exists
+    if os.path.isfile(decrypted_file):
+        os.remove(decrypted_file)
+
+    # First, copy the encrypted file into the desired output place
+    shutil.copy2(encrypted_file, decrypted_file)
+
+    # Decrypt the file in-place
+    command = ['ansible-vault', 'decrypt', decrypted_file, '--vault-password-file', password_file]
     try:
         result = run_command(command, timeout_sec=10.0)
     except CommandError as exc:
@@ -65,8 +73,14 @@ def ansible_vault_encrypt_file(decrypted_file, password_file, encrypted_file=Non
     if not encrypted_file:
         encrypted_file = decrypted_file + '.enc'
 
-    command = ['ansible-vault', 'encrypt', encrypted_file, '--output', decrypted_file, '--vault-password-file',
-               password_file]
+    # Remove encrypted file if it exists
+    if os.path.isfile(encrypted_file):
+        os.remove(encrypted_file)
+
+    # First, copy the decrypted file into the desired output place
+    shutil.copy2(decrypted_file, encrypted_file)
+
+    command = ['ansible-vault', 'encrypt', encrypted_file, '--vault-password-file', password_file]
     try:
         result = run_command(command, timeout_sec=10.0)
     except CommandError as exc:
