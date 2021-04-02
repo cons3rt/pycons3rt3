@@ -74,7 +74,7 @@ def openssl_decrypt(encrypted_file, decrypted_file, password_file):
     return True
 
 
-def openssl_smime_decrypt(encrypted_file, decrypted_file, key_file):
+def openssl_smime_decrypt(encrypted_file, decrypted_file, password_file):
     """Decrypts a file using openssl smime and a password file
 
     # From Otto
@@ -83,22 +83,22 @@ def openssl_smime_decrypt(encrypted_file, decrypted_file, key_file):
 
     :param encrypted_file: (str) path to encrypted file
     :param decrypted_file: (str) path to decrypted file
-    :param key_file: (str) path to the key file for decryption
+    :param password_file: (str) path to the key file for decryption
     :return: True (if successful)
     :raises: CommandError
     """
     log = logging.getLogger(mod_logger + '.openssl_smime_decrypt')
-    if not os.path.isfile(key_file):
-        raise CommandError('Key file not found: {f}'.format(f=key_file))
+    if not os.path.isfile(password_file):
+        raise CommandError('Password file not found: {f}'.format(f=password_file))
     if not os.path.isfile(encrypted_file):
         raise CommandError('Encrypted file not found: {f}'.format(f=encrypted_file))
     command = ['openssl', 'smime', '-decrypt', '-md', 'sha512', '-binary', '-in', encrypted_file, '-inform', 'DER',
-               '-out', decrypted_file, '-inkey', key_file]
+               '-out', decrypted_file, '-inkey', password_file]
     try:
         result = run_command(command, timeout_sec=10.0)
     except CommandError as exc:
-        raise CommandError('Problem decrypting file {f} with key file: {p}'.format(
-            f=decrypted_file, p=key_file)) from exc
+        raise CommandError('Problem decrypting file {f} with password file: {p}'.format(
+            f=decrypted_file, p=password_file)) from exc
     if result['code'] != 0:
         raise CommandError('openssl exited with code: {c}'.format(c=str(result['code'])))
     log.info('Created decrypted file: {d}'.format(d=decrypted_file))
