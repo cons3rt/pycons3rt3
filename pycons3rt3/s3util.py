@@ -14,6 +14,7 @@ Classes:
         connecting to S3, or a problem with a download or upload
         operation.
 """
+import json
 import logging
 import re
 import os
@@ -26,6 +27,7 @@ from botocore.client import ClientError
 from botocore.exceptions import EndpointConnectionError
 from s3transfer.exceptions import RetriesExceededError
 
+from .awsutil import get_boto3_client
 from .logify import Logify
 from .exceptions import S3UtilError
 
@@ -461,6 +463,104 @@ class S3Util(object):
         return True
 
 
+############################################################################
+# Methods for blocking public access
+############################################################################
+
+
+def block_public_access(client, bucket_name, block_public_acls=True, ignore_public_acls=True, block_public_policy=True,
+                        restrict_public_buckets=True):
+    """Enabled bucket encryption
+
+    :param client: boto3.client
+    :param bucket_name: (str) bucket name
+    :param block_public_acls: (bool) Specifies whether Amazon S3 should block public access control lists (ACLs) for
+        this bucket and objects in this bucket
+    :param ignore_public_acls: (bool) Specifies whether Amazon S3 should ignore public ACLs for this bucket and
+        objects in this bucket
+    :param block_public_policy: (bool) Specifies whether Amazon S3 should block public bucket policies for this bucket
+    :param restrict_public_buckets: (bool) Specifies whether Amazon S3 should restrict public bucket policies for this
+        bucket
+    :return: None
+    :raises: S3UtilError
+    """
+    log = logging.getLogger(mod_logger + '.block_public_access')
+    msg = 'For bucket [{n}], setting Block Public ACLs to [{b}], Ignore Public ACLs to [{i}], BlockPublic Policy to ' \
+          '[{c}], and Restrict Public Buckets to [{r}]'.format(n=bucket_name, b=block_public_acls, i=ignore_public_acls,
+                                                               c=block_public_policy, r=restrict_public_buckets)
+    log.info(msg)
+    try:
+        client.put_public_access_block(
+            Bucket=bucket_name,
+            PublicAccessBlockConfiguration={
+                'BlockPublicAcls': block_public_acls,
+                'IgnorePublicAcls': ignore_public_acls,
+                'BlockPublicPolicy': block_public_policy,
+                'RestrictPublicBuckets': restrict_public_buckets
+            }
+        )
+    except ClientError as exc:
+        msg = 'Problem setting block public access on [{n}]'.format(n=bucket_name)
+        raise S3UtilError(msg) from exc
+
+
+############################################################################
+# Methods for creating S3 buckets
+############################################################################
+
+
+def create_bucket(client, bucket_name, region='us-east-1'):
+    """Creates the specified bucket, if it already exists returns it
+
+    Default configuration is set up
+
+    :param client: boto3.client object
+    :param bucket_name: (str) bucket name
+    :param region: (str) region to create the bucket in
+    :return: (dict) role data (specified in boto3)
+    :raises: IamUtilError
+    """
+    log = logging.getLogger(mod_logger + '.create_bucket')
+    log.info('Attempting to create bucket [{n}]'.format(n=bucket_name))
+
+    # Checking for existing bucket
+    bucket_data = None
+    existing_buckets = list_buckets(client=client)
+    for existing_bucket in existing_buckets:
+        if 'Name' not in existing_bucket.keys():
+            log.warning('Name not found in bucket: {r}'.format(r=str(existing_bucket)))
+            continue
+        if bucket_name == existing_bucket['Name']:
+            bucket_data = existing_bucket
+    if bucket_data:
+        log.info('Found existing bucket [{n}]'.format(n=bucket_name))
+        return bucket_data
+    log.info('Attempting to create bucket [{n}]'.format(n=bucket_name))
+    try:
+        response = client.create_bucket(
+            Bucket=bucket_name,
+            CreateBucketConfiguration={
+                'LocationConstraint': region
+            }
+        )
+    except ClientError as exc:
+        msg = 'Problem creating bucket [{n}]'.format(n=bucket_name)
+        raise S3UtilError(msg) from exc
+    if 'Location' not in response.keys():
+        msg = 'Location not found in response: {d}'.format(d=str(response))
+        raise S3UtilError(msg)
+    log.info('Created new bucket: [{n}]'.format(n=bucket_name))
+    return {
+        'Name': bucket_name,
+        'Location': response['Location']
+    }
+
+
+############################################################################
+# Methods for downloading objects
+############################################################################
+
+
 def download(download_info):
     """Module  method for downloading from S3
 
@@ -566,6 +666,209 @@ def download(download_info):
             return destination
 
 
+############################################################################
+# Methods for enabling default encryption
+############################################################################
+
+
+def enable_bucket_encryption(client, bucket_name, kms_id=None):
+    """Enabled bucket encryption
+
+    :param client: boto3.client
+    :param bucket_name: (str) bucket name
+    :param kms_id: (str) AWS Key Management Service (KMS) customer master key ID to use for the default encryption.
+        You can specify the key ID or the Amazon Resource Name (ARN) of the CMK. However, if you are using encryption
+        with cross-account operations, you must use a fully qualified CMK ARN. For more information, see Using
+        encryption for cross-account operations.
+    :return: None
+    :raises: S3UtilError
+    """
+    log = logging.getLogger(mod_logger + '.enable_bucket_encryption')
+
+    if kms_id:
+        rule = {
+            'ApplyServerSideEncryptionByDefault': {
+                'SSEAlgorithm': 'aws:kms',
+                'KMSMasterKeyID': kms_id
+            }
+        }
+        msg = 'Enabling default encryption on [{n}] with KMS ID  [{k}]'.format(n=bucket_name, k=kms_id)
+    else:
+        rule = {
+            'ApplyServerSideEncryptionByDefault': {
+                'SSEAlgorithm': 'AES256',
+            }
+        }
+        msg = 'Enabling default encryption on [{n}] with AES256'.format(n=bucket_name)
+    rules = [rule]
+    log.info(msg)
+    try:
+        client.put_bucket_encryption(
+            Bucket=bucket_name,
+            ServerSideEncryptionConfiguration={'Rules': rules}
+        )
+    except ClientError as exc:
+        msg = 'Problem enabling bucket encryption on [{n}]'.format(n=bucket_name)
+        raise S3UtilError(msg) from exc
+
+
+############################################################################
+# Methods for enabling logging
+############################################################################
+
+
+def enable_bucket_logging(client, bucket_name, target_bucket, prefix):
+    """Enable bucket logging
+
+    :param client: boto3.client
+    :param bucket_name: (str) bucket name
+    :param target_bucket: (str) target bucket name
+    :param prefix: (str) prefix to append to logs stored in the target bucket
+    :return: None
+    :raises: S3UtilError
+    """
+    log = logging.getLogger(mod_logger + '.enable_bucket_logging')
+    log.info('Enabling logging on bucket [{n}] to target bucket [{t}] with prefix [{p}]'.format(
+        n=bucket_name, t=target_bucket, p=prefix))
+    try:
+        client.put_bucket_logging(
+            Bucket=bucket_name,
+            BucketLoggingStatus={
+                'LoggingEnabled': {
+                    'TargetBucket': target_bucket,
+                    'TargetPrefix': prefix
+                }
+            }
+        )
+    except ClientError as exc:
+        msg = 'Problem enabling bucket logging on [{n}]'.format(n=bucket_name)
+        raise S3UtilError(msg) from exc
+
+
+def enable_bucket_log_delivery(client, target_bucket_name):
+    """Adds an ACL to allow log delivery to the provided target bucket.  Once configured, other buckets can
+    send logs to this bucket
+
+    :param client: boto3.client
+    :param target_bucket_name: (str) bucket name of the logging target
+    :return: None
+    :raises: S3UtilError
+    """
+    log = logging.getLogger(mod_logger + '.enable_bucket_log_delivery')
+    log.info('Enabling log delivery on target bucket [{n}]'.format(n=target_bucket_name))
+
+    # Get the current ACL
+    try:
+        response = client.get_bucket_acl(Bucket=target_bucket_name)
+    except ClientError as exc:
+        msg = 'Problem getting ACL for bucket [{n}]'.format(n=target_bucket_name)
+        raise S3UtilError(msg) from exc
+    if 'Grants' not in response.keys():
+        msg = 'Grants not found in response: {d}'.format(d=str(response))
+        raise S3UtilError(msg)
+    if 'Owner' not in response.keys():
+        msg = 'Owner not found in response: {d}'.format(d=str(response))
+        raise S3UtilError(msg)
+    existing_grants = response['Grants']
+    owner = response['Owner']
+
+    # Determine the log delivery URI based on region
+    log_delivery_uri = 'http://acs.amazonaws.com/groups/s3/LogDelivery'
+
+    new_grants = [
+        {
+            'Grantee': {
+                'URI': log_delivery_uri,
+                'Type': 'Group'
+            },
+            'Permission': 'WRITE'
+        },
+        {
+            'Grantee': {
+                'URI': log_delivery_uri,
+                'Type': 'Group'
+            },
+            'Permission': 'READ_ACP'
+        }
+    ]
+
+    # Append existing ACL
+    new_grants += existing_grants
+
+    # Update the bucket ACL
+    try:
+        client.put_bucket_acl(
+            Bucket=target_bucket_name,
+            AccessControlPolicy={
+                'Grants': new_grants,
+                'Owner': owner
+            }
+        )
+    except ClientError as exc:
+        msg = 'Problem enabling bucket logging on [{n}]'.format(n=target_bucket_name)
+        raise S3UtilError(msg) from exc
+
+
+############################################################################
+# Methods for enabling versioning
+############################################################################
+
+
+def enable_bucket_versioning(client, bucket_name, enable=True, mfa_delete=False, mfa_device=None):
+    """Enable bucket versioning
+
+    :param client: boto3.client
+    :param bucket_name: (str) bucket name
+    :param enable: (bool) Set True to enable, False to suspend versioning
+    :param mfa_delete: (bool) Set True to force MFA for object deletion
+    :param mfa_device: (str) ARN of the MFA device for this request
+    :return: None
+    :raises: S3UtilError
+    """
+    log = logging.getLogger(mod_logger + '.enable_bucket_versioning')
+    log.info('Enabling versioning on bucket: {n}'.format(n=bucket_name))
+
+    status = 'Suspended'
+    if enable:
+        status = 'Enabled'
+
+    mfa_status = 'Disabled'
+    if mfa_delete:
+        mfa_status = 'Enabled'
+
+    mfa_str = None
+    if mfa_device:
+        mfa_totp = input('Enter your MFA code for [{d}]: '.format(d=mfa_device))
+        mfa_str = '{d} {c}'.format(d=mfa_device, c=mfa_totp)
+
+    try:
+        if mfa_str:
+            client.put_bucket_versioning(
+                Bucket=bucket_name,
+                VersioningConfiguration={
+                    'MFADelete': mfa_status,
+                    'Status': status
+                },
+                MFA=mfa_str
+            )
+        else:
+            client.put_bucket_versioning(
+                Bucket=bucket_name,
+                VersioningConfiguration={
+                    'MFADelete': mfa_status,
+                    'Status': status
+                }
+            )
+    except ClientError as exc:
+        msg = 'Problem enabling bucket versioning on [{n}]'.format(n=bucket_name)
+        raise S3UtilError(msg) from exc
+
+
+############################################################################
+# Methods for finding objects
+############################################################################
+
+
 def find_bucket_keys(bucket_name, regex, region_name=None, aws_access_key_id=None, aws_secret_access_key=None):
     """Finds a list of S3 keys matching the passed regex
 
@@ -602,6 +905,85 @@ def find_bucket_keys(bucket_name, regex, region_name=None, aws_access_key_id=Non
             matched_keys.append(item.key)
     log.info('Found matching keys: {k}'.format(k=matched_keys))
     return matched_keys
+
+
+############################################################################
+# Getting a boto3 client object for S3
+############################################################################
+
+
+def get_s3_client(region_name=None, aws_access_key_id=None, aws_secret_access_key=None, aws_session_token=None):
+    """Gets an S3 client
+
+    :return: boto3.client object
+    :raises: AWSAPIError
+    """
+    return get_boto3_client(service='s3', region_name=region_name, aws_access_key_id=aws_access_key_id,
+                            aws_secret_access_key=aws_secret_access_key, aws_session_token=aws_session_token)
+
+
+############################################################################
+# Listing S3 buckets
+############################################################################
+
+
+def list_buckets(client):
+    """Returns a list of S3 buckets
+
+    :param client: boto3.client
+    :return: (list) of (dict) S3 buckets (see boto3 docs
+    """
+    log = logging.getLogger(mod_logger + '.list_buckets')
+    log.info('Attempting to list S3 buckets...')
+    try:
+        response = client.list_buckets()
+    except ClientError as exc:
+        msg = 'Problem listing S3 buckets'
+        raise S3UtilError(msg) from exc
+    if 'Buckets' not in response.keys():
+        msg = 'Buckets not found in response: {d}'.format(d=str(response))
+        raise S3UtilError(msg)
+    return response['Buckets']
+
+
+############################################################################
+# Methods for setting bucket policy
+############################################################################
+
+
+def set_bucket_policy(client, bucket_name, policy_document):
+    """Set the bucket policy to the provided
+
+    :param client: boto3.client
+    :param bucket_name: (str) bucket name
+    :param policy_document: (str) path to JSON policy file
+    :return: None
+    :raises: S3UtilError
+    """
+    log = logging.getLogger(mod_logger + '.set_bucket_policy')
+    log.info('Setting policy on bucket [{n}] to policy document [{d}]'.format(
+        n=bucket_name, d=policy_document))
+
+    # Ensure the file exists
+    if not os.path.isfile(policy_document):
+        raise S3UtilError('Policy document not found: {f}'.format(f=policy_document))
+    try:
+        with open(policy_document, 'r') as f:
+            policy_document_data = json.load(f)
+    except(OSError, IOError) as exc:
+        raise S3UtilError('Unable to read policy file: {f}'.format(f=policy_document)) from exc
+    log.info('Loading policy from file: {f}'.format(f=policy_document))
+    json_policy_data = json.dumps(policy_document_data)
+
+    # Replace account ID in the policy
+    json_policy_data = json_policy_data.replace('REPLACE_ACCOUNT_ID', '12345')
+
+    try:
+        client.put_bucket_policy(Bucket=bucket_name, Policy=json_policy_data)
+    except ClientError as exc:
+        msg = 'Problem setting bucket policy for [{n}] to [{d}] with contents:\n{c}'.format(
+            n=bucket_name, d=policy_document, c=json_policy_data)
+        raise S3UtilError(msg) from exc
 
 
 def main():

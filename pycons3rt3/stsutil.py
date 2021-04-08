@@ -333,6 +333,7 @@ def login_as_role(aws_account, account_id_to_switch_to, session_name, role_name=
             print('Using provided TOTP code')
     else:
         print('Not using MFA')
+    print('--------------------------')
 
     # Generate credentials
     credentials = assume_role(client=sts, role_arn=role_arn, session_name=session_name, duration_sec=duration_sec,
@@ -356,6 +357,7 @@ def login_as_role(aws_account, account_id_to_switch_to, session_name, role_name=
         print('  Secret Access Key: {i}'.format(i=secret_access_key))
         print('  Session Token: {i}'.format(i=session_token))
         print('  Token Expiration: {e}'.format(e=expiration_str))
+        print('--------------------------')
 
     if set_credentials_file:
         # Set credentials to the new token
@@ -365,4 +367,4 @@ def login_as_role(aws_account, account_id_to_switch_to, session_name, role_name=
             session_token=session_token,
             region=region
         )
-    return access_key_id, secret_access_key, session_token, region
+    return access_key_id, secret_access_key, session_token, region, mfa_device

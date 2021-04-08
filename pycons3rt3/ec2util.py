@@ -45,11 +45,13 @@ nat_default_size = 't3.micro'
 class EC2Util(object):
     """Utility for interacting with the AWS API
     """
-    def __init__(self, region_name=None, aws_access_key_id=None, aws_secret_access_key=None, skip_is_aws=False):
+    def __init__(self, region_name=None, aws_access_key_id=None, aws_secret_access_key=None, aws_session_token=None,
+                 skip_is_aws=False):
         self.cls_logger = mod_logger + '.EC2Util'
         try:
             self.client = get_ec2_client(region_name=region_name, aws_access_key_id=aws_access_key_id,
-                                         aws_secret_access_key=aws_secret_access_key)
+                                         aws_secret_access_key=aws_secret_access_key,
+                                         aws_session_token=aws_session_token)
         except ClientError as exc:
             msg = 'Unable to create an EC2 client'
             raise EC2UtilError(msg) from exc
@@ -100,7 +102,7 @@ class EC2Util(object):
                 elif resource_id.startswith('vpc-'):
                     self.client.describe_vpcs(VpcIds=[resource_id])
                 elif resource_id.startswith('igw-'):
-                    self.client.describe_vpcs(InternetGatewayIds=[resource_id])
+                    self.client.describe_internet_gateways(InternetGatewayIds=[resource_id])
                 else:
                     log.warning('Resource type not supported for this method: {r}'.format(r=resource_id))
                     return False
@@ -1571,7 +1573,7 @@ class EC2Util(object):
                 instance_id = self.instance_id
             else:
                 instance_id = get_instance_id()
-        if not instance_id is None:
+        if not instance_id:
             msg = 'Unable to determine instance ID to query for elastic IPs'
             raise EC2UtilError(msg)
 
@@ -2579,7 +2581,10 @@ class EC2Util(object):
         except ClientError as exc:
             msg = 'There was a problem describing VPCs'
             raise EC2UtilError(msg) from exc
-        return response
+        if 'Vpcs' not in response.keys():
+            msg = 'Vpcs not found in response: {d}'.format(d=str(response))
+            raise EC2UtilError(msg)
+        return response['Vpcs']
 
     def retrieve_vpc(self, vpc_id):
         """Retrieve info on the provided VPC ID
@@ -2635,7 +2640,7 @@ class EC2Util(object):
         """Return the VPC ID matching the provided name or None if not found
 
         :param vpc_name: (str) name of the VPC
-        :return: (id) of the VPC or None if not found
+        :return: (dict) VPC data if found, or None if not found
         """
         log = logging.getLogger(self.cls_logger + '.get_vpc_id_by_name')
         log.info('Getting a list of VPCS...')
@@ -2645,13 +2650,13 @@ class EC2Util(object):
             raise EC2UtilError('Problem listing VPCs') from exc
 
         # Ensure VPCs were found
-        if 'Vpcs' not in vpcs.keys():
+        if len(vpcs) < 1:
             log.info('No VPCs found')
             return
 
         # Check eac VPC for matching name
-        log.info('Found [{n}] VPCs'.format(n=str(len(vpcs['Vpcs']))))
-        for vpc in vpcs['Vpcs']:
+        log.info('Found [{n}] VPCs'.format(n=str(len(vpcs))))
+        for vpc in vpcs:
             if 'VpcId' not in vpc.keys():
                 continue
             if 'Tags' not in vpc.keys():
@@ -2659,7 +2664,7 @@ class EC2Util(object):
             for tag in vpc['Tags']:
                 if tag['Key'] == 'Name' and tag['Value'] == vpc_name:
                     log.info('Found VPC with name [{n}] has ID: {i}'.format(n=vpc_name, i=vpc['VpcId']))
-                    return vpc['VpcId']
+                    return vpc
         log.info('VPC with name {n} not found'.format(n=vpc_name))
 
     def create_vpc(self, vpc_name, cidr_block, amazon_ipv6_cidr=False, instance_tenancy='default', dry_run=False):
@@ -2670,18 +2675,18 @@ class EC2Util(object):
         :param instance_tenancy: (str) default or dedicated
         :param amazon_ipv6_cidr: (bool) Set true to request an Amazon IPv6 CIDR block
         :param dry_run: (bool) Set true to dry run the call
-        :return: (str) VPC ID
+        :return: (dict) VPC data (see boto3 docs)
         """
         log = logging.getLogger(self.cls_logger + '.create_vpc')
 
         # Check for an existing VPC with the desired name
         try:
-            vpc_id = self.get_vpc_id_by_name(vpc_name=vpc_name)
+            existing_vpc = self.get_vpc_id_by_name(vpc_name=vpc_name)
         except EC2UtilError as exc:
             raise EC2UtilError('Problem checking for existing VPCs') from exc
-        if vpc_id:
-            log.info('Found existing VPC named {n} with ID: {i}'.format(n=vpc_name, i=vpc_id))
-            return vpc_id
+        if existing_vpc:
+            log.info('Found existing VPC named {n} with ID: {i}'.format(n=vpc_name, i=existing_vpc['VpcId']))
+            return existing_vpc
 
         # Create the VPC
         try:
@@ -2712,7 +2717,7 @@ class EC2Util(object):
         if not self.create_name_tag(resource_id=vpc_id, resource_name=vpc_name):
             raise EC2UtilError('Problem setting name tag for VPC ID: {i}'.format(i=vpc_id))
         log.info('Successfully created VPC name {n} with ID: {n}'.format(n=vpc_name, i=vpc_id))
-        return vpc_id
+        return response['Vpc']
 
     def add_vpc_cidr(self, vpc_id, cidr, amazon_ipv6_cidr=False):
         """Adds the provided CIDR block to the VPC
@@ -2740,18 +2745,34 @@ class EC2Util(object):
 
         :param vpc_name: (str) name of the VPC
         :param cidr_block: (str) desired CIDR block
-        :return: (str) ID of the VPC that was created or configured
+        :return: (tuple) (str) ID of the VPC that was created or configured, (str) ID of the Internet Gateway
         """
         log = logging.getLogger(self.cls_logger + '.create_usable_vpc')
 
         # Create a VPC
         try:
-            vpc_id = self.create_vpc(vpc_name=vpc_name, cidr_block=cidr_block)
+            vpc = self.create_vpc(vpc_name=vpc_name, cidr_block=cidr_block)
         except EC2UtilError as exc:
             raise EC2UtilError('Problem creating a VPC') from exc
-        log.info('Created VPC ID: {i}'.format(i=vpc_id))
+        log.info('Created (or found existing) VPC ID: {i}'.format(i=vpc['VpcId']))
+
+        # Check if the VPC already has an internet gateway
+        try:
+            igs = list_internet_gateways(client=self.client)
+        except EC2UtilError as exc:
+            msg = 'Problem listing internet gateways'
+            raise EC2UtilError(msg) from exc
+
+        for ig in igs:
+            if 'Attachments' in ig.keys():
+                for attachment in ig['Attachments']:
+                    if attachment['VpcId'] == vpc['VpcId']:
+                        log.info('VPC [{v}] already has attached Internet gateway [{i}]'.format(
+                            v=vpc['VpcId'], i=ig['InternetGatewayId']))
+                        return vpc['VpcId'], ig['InternetGatewayId']
 
         # Create an Internet Gateway
+        log.info('Existing attached internet gateway not found for VPC [{v}], creating one...'.format(v=vpc['VpcId']))
         try:
             internet_gateway = self.client.create_internet_gateway(DryRun=False)
         except ClientError as exc:
@@ -2779,12 +2800,13 @@ class EC2Util(object):
             self.client.attach_internet_gateway(
                 DryRun=False,
                 InternetGatewayId=ig_id,
-                VpcId=vpc_id
+                VpcId=vpc['VpcId']
             )
         except ClientError as exc:
-            raise EC2UtilError('Problem attaching Internet gateway {i} to VPC {v}'.format(i=ig_id, v=vpc_id)) from exc
-        log.info('Successfully attach Internet gateway {i} to VPC: {v}'.format(i=ig_id, v=vpc_id))
-        return vpc_id
+            msg = 'Problem attaching Internet gateway {i} to VPC {v}'.format(i=ig_id, v=vpc['VpcId'])
+            raise EC2UtilError(msg) from exc
+        log.info('Successfully attach Internet gateway {i} to VPC: {v}'.format(i=ig_id, v=vpc['VpcId']))
+        return vpc['VpcId'], ig_id
 
     def enable_vpc_dns(self, vpc_id):
         """Sets the EnableDnsHostnames and EnableDnsSupport values to True for the VPC ID
@@ -2825,6 +2847,19 @@ class EC2Util(object):
         :raises: EC2UtilError
         """
         log = logging.getLogger(self.cls_logger + '.create_subnet')
+
+        # Checking for existing Subnet in VOC
+        try:
+            existing_vpc_subnets = self.list_subnets(vpc_id=vpc_id)
+        except EC2UtilError as exc:
+            log.warning('Unable to list existing subnets in VPC [{v}]\n{e}'.format(v=vpc_id, e=str(exc)))
+        else:
+            for existing_vpc_subnet in existing_vpc_subnets:
+                if existing_vpc_subnet['CidrBlock'] == cidr:
+                    log.info('Found existing subnet [{s}] for VPC [{v}] with CIDR [{c}]'.format(
+                        s=existing_vpc_subnet['SubnetId'], v=vpc_id, c=cidr))
+                    return existing_vpc_subnet['SubnetId']
+
         log.info('Creating subnet in with name [{n}] in VPC ID [{v}] with CIDR: {c}'.format(
             n=name, v=vpc_id, c=cidr))
         try:
@@ -4729,6 +4764,11 @@ class TransitGatewayRoute(object):
         return json_output
 
 
+############################################################################
+# Method for getting an EC2 client
+############################################################################
+
+
 def get_ec2_client(region_name=None, aws_access_key_id=None, aws_secret_access_key=None, aws_session_token=None):
     """Gets an EC2 client
 
@@ -5376,7 +5416,7 @@ def get_image(client, ami_id):
 
 
 def list_volumes_with_token(client, max_results=100, continuation_token=None):
-    """Returns a list of volumes using the provided token and owner ID
+    """Returns a list of volumes using the provided token
 
     :param client: boto3.client object
     :param max_results: (int) max results to query on
@@ -5459,3 +5499,66 @@ def get_volume(client, volume_id):
         msg = 'Expected to find 1 volume, found: {n}'.format(n=str(len(volumes)))
         raise EC2UtilError(msg)
     return volumes[0]
+
+
+############################################################################
+# Methods for retrieving internet gateways
+############################################################################
+
+
+def list_internet_gateways_with_token(client, max_results=100, continuation_token=None):
+    """Returns a list of internet gateways using the provided token
+
+    :param client: boto3.client object
+    :param max_results: (int) max results to query on
+    :param continuation_token: (str) token to query on
+    :return: (dict) response object containing response data
+    """
+    if continuation_token:
+        return client.describe_internet_gateways(
+            DryRun=False,
+            MaxResults=max_results,
+            NextToken=continuation_token
+        )
+    else:
+        return client.describe_internet_gateways(
+            DryRun=False,
+            MaxResults=max_results
+        )
+
+
+def list_internet_gateways(client):
+    """Gets a list of internet gateways in this account/region
+
+    :param client: boto3.client object
+    :return: (list)
+    :raises: EC2UtilError
+    """
+    log = logging.getLogger(mod_logger + '.list_internet_gateways')
+    log.info('Getting a list of internet gateways...')
+    internet_gateways = []
+    continuation_token = None
+    next_query = True
+    max_results = 100
+    while True:
+        if not next_query:
+            break
+        try:
+            response = list_internet_gateways_with_token(
+                client=client,
+                max_results=max_results,
+                continuation_token=continuation_token
+            )
+        except ClientError as exc:
+            msg = 'Problem querying for internet gateways'
+            raise EC2UtilError(msg) from exc
+        if 'InternetGateways' not in response.keys():
+            log.warning('InternetGateways not found in response: {r}'.format(r=str(response.keys())))
+            return internet_gateways
+        if 'NextToken' not in response.keys():
+            next_query = False
+        else:
+            continuation_token = response['NextToken']
+        internet_gateways += response['InternetGateways']
+    log.info('Found {n} internet gateways'.format(n=str(len(internet_gateways))))
+    return internet_gateways

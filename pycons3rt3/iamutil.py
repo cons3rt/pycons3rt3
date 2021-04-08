@@ -27,6 +27,27 @@ mod_logger = Logify.get_name() + '.iamutil'
 ############################################################################
 
 
+def attach_policy_to_group(client, group_name, policy_arn):
+    """Attach the policy to the group
+
+    :param client: boto3.client object
+    :param group_name: (str) name of the role
+    :param policy_arn: (str) ARN of the policy
+    :return: None
+    :raises: IamUtilError
+    """
+    log = logging.getLogger(mod_logger + '.attach_policy_to_group')
+    log.info('Attaching policy [{p}] to group: [{r}]'.format(p=policy_arn, r=group_name))
+    try:
+        client.attach_group_policy(
+            GroupName=group_name,
+            PolicyArn=policy_arn
+        )
+    except ClientError as exc:
+        msg = 'Problem attaching policy [{p}] to group [{r}]'.format(p=policy_arn, r=group_name)
+        raise IamUtilError(msg) from exc
+
+
 def attach_policy_to_role(client, role_name, policy_arn):
     """Attach the policy to the role
 
@@ -46,6 +67,58 @@ def attach_policy_to_role(client, role_name, policy_arn):
     except ClientError as exc:
         msg = 'Problem attaching policy [{p}] to role [{r}]'.format(p=policy_arn, r=role_name)
         raise IamUtilError(msg) from exc
+
+
+############################################################################
+# Methods for creating groups
+############################################################################
+
+
+def create_group(client, group_name, path='/'):
+    """Creates the specified group, if it already exists returns it
+
+    :param client: boto3.client object
+    :param group_name: (str) group name
+    :param path: (str) path to the group
+    :return: (dict) group data (specified in boto3)
+    :raises: IamUtilError
+    """
+    log = logging.getLogger(mod_logger + '.create_group')
+    log.info('Attempting to create group [{n}]'.format(n=group_name))
+
+    # Checking for existing group
+    group_data = None
+    existing_groups = list_groups(client=client, path_prefix=path)
+    for existing_group in existing_groups:
+        if 'GroupName' not in existing_group.keys():
+            log.warning('GroupName not found in group: {r}'.format(r=str(existing_group)))
+            continue
+        if 'Path' not in existing_group.keys():
+            log.warning('Path not found in group: {r}'.format(r=str(existing_group)))
+            continue
+        if 'Arn' not in existing_group.keys():
+            log.warning('Arn not found in group: {r}'.format(r=str(existing_group)))
+            continue
+        if group_name == existing_group['GroupName'] and path == existing_group['Path']:
+            group_data = existing_group
+
+    if group_data:
+        log.info('Found existing group name [{n}] at path [{p}]'.format(n=group_name, p=path))
+        return group_data
+    log.info('Attempting to create group [{n}]'.format(n=group_name))
+    try:
+        response = client.create_group(
+            GroupName=group_name,
+            Path=path
+        )
+    except ClientError as exc:
+        msg = 'Problem creating group [{n}]'.format(n=group_name)
+        raise IamUtilError(msg) from exc
+    if 'Group' not in response.keys():
+        msg = 'Group not found in response: {d}'.format(d=str(response))
+        raise IamUtilError(msg)
+    log.info('Created new group: [{n}]'.format(n=group_name))
+    return response['Group']
 
 
 ############################################################################
@@ -86,8 +159,8 @@ def create_or_update_policy(client, policy_name, policy_document, path='/', desc
     :param client: boto3.client object
     :param policy_name: (str) policy name
     :param policy_document: (str) path to JSON policy file
-    :param path: (str) path to the role
-    :param description: (str) description of the role
+    :param path: (str) path to the policy
+    :param description: (str) description of the policy
     :return: (dict) role data (specified in boto3)
     :raises: IamUtilError
     """
@@ -111,7 +184,7 @@ def create_or_update_policy(client, policy_name, policy_document, path='/', desc
     existing_policies = list_policies(client=client, path_prefix=path)
     for existing_policy in existing_policies:
         if 'PolicyName' not in existing_policy.keys():
-            log.warning('PolicyName not found in role: {r}'.format(r=str(existing_policy)))
+            log.warning('PolicyName not found in policy: {r}'.format(r=str(existing_policy)))
             continue
         if 'Path' not in existing_policy.keys():
             log.warning('Path not found in policy: {r}'.format(r=str(existing_policy)))
@@ -156,8 +229,8 @@ def create_policy(client, policy_name, policy_document, path='/', description=''
     :param client: boto3.client object
     :param policy_name: (str) policy name
     :param policy_document: (str) path to JSON policy file
-    :param path: (str) path to the role
-    :param description: (str) description of the role
+    :param path: (str) path to the policy
+    :param description: (str) description of the policy
     :return: (dict) role data (specified in boto3)
     :raises: IamUtilError
     """
@@ -322,13 +395,73 @@ def delete_oldest_policy_version(client, policy_arn):
 
 
 def get_iam_client(region_name=None, aws_access_key_id=None, aws_secret_access_key=None, aws_session_token=None):
-    """Gets an IAN client
+    """Gets an IAM client
 
     :return: boto3.client object
     :raises: AWSAPIError
     """
     return get_boto3_client(service='iam', region_name=region_name, aws_access_key_id=aws_access_key_id,
                             aws_secret_access_key=aws_secret_access_key, aws_session_token=aws_session_token)
+
+
+############################################################################
+# Methods for listing groups
+############################################################################
+
+
+def list_groups_with_marker(client, path_prefix='/', marker=None, max_results=100):
+    """Returns a list of IAM groups using the provided marker
+
+    :param client: boto3.client object
+    :param path_prefix: (str) IAM group path prefix
+    :param max_results: (int) max results to query on
+    :param marker: (str) token to query on
+    :return: (dict) response object containing response data
+    """
+    if marker:
+        return client.list_groups(
+            PathPrefix=path_prefix,
+            Marker=marker,
+            MaxItems=max_results
+        )
+    else:
+        return client.list_groups(
+            PathPrefix=path_prefix,
+            MaxItems=max_results
+        )
+
+
+def list_groups(client, path_prefix='/'):
+    """Lists groups in IAM
+
+    :param client: boto3.client object
+    :param path_prefix: (str) IAM group path prefix
+    :return: (list) of groups (dict)
+    :raises: IamUtilError
+    """
+    log = logging.getLogger(mod_logger + '.list_groups')
+    marker = None
+    next_query = True
+    group_list = []
+    log.info('Attempting to list IAM groups...')
+    while True:
+        if not next_query:
+            break
+        response = list_groups_with_marker(client=client, path_prefix=path_prefix, marker=marker)
+        if 'IsTruncated' not in response.keys():
+            log.warning('IsTruncated not found in response: {r}'.format(r=str(response)))
+            return group_list
+        if 'Groups' not in response.keys():
+            log.warning('Groups not found in response: {r}'.format(r=str(response)))
+            return group_list
+        next_query = response['IsTruncated']
+        group_list += response['Groups']
+        if 'Marker' not in response.keys():
+            next_query = False
+        else:
+            marker = response['Marker']
+    log.info('Found {n} IAM groups'.format(n=str(len(group_list))))
+    return group_list
 
 
 ############################################################################
@@ -522,6 +655,67 @@ def list_roles(client, path_prefix='/'):
 
 
 ############################################################################
+# Update the account password policy
+############################################################################
+
+
+def update_account_password_policy(client, min_password_len=14, symbols=True, numbers=True, uppers=True, lowers=True,
+                                   allow_change=True, max_age=90, previous_password_prevention=24, hard_expiry=False):
+    """
+
+    :param client: boto3.client object
+    :param min_password_len: (int) minimum number of characters
+    :param symbols: (bool) require symbols
+    :param numbers: (bool) require numbers
+    :param uppers: (bool) require uppers
+    :param lowers: (bool) require lowers
+    :param allow_change: (bool) allow self-password reset
+    :param max_age: (int) maximum age before password expires in days
+    :param previous_password_prevention: (int) number of historical passwords to prevent reuse
+    :param hard_expiry: (bool) disallow users from reset when expired
+    :return: None
+    :raises: IamUtilError
+    """
+    log = logging.getLogger(mod_logger + '.update_account_password_policy')
+    log_msg = 'Updating account password policy: '
+    msg = '[Minimum Length: ' + str(min_password_len)
+    if symbols:
+        msg += ', symbols required'
+    if numbers:
+        msg += ', numbers required'
+    if uppers:
+        msg += ', uppers required'
+    if lowers:
+        msg += ', lowers required'
+    if allow_change:
+        msg += ', allow self-reset'
+    else:
+        msg += ', NOT allow self-reset'
+    msg += ', maximum age: ' + str(max_age)
+    msg += ', previous password reuse prevention: ' + str(previous_password_prevention)
+    if hard_expiry:
+        msg += ', self-reset NOT allowed after expiration]'
+    else:
+        msg += ', self-reset allowed after expiration]'
+    log.info(log_msg + msg)
+    try:
+        client.update_account_password_policy(
+            MinimumPasswordLength=min_password_len,
+            RequireSymbols=symbols,
+            RequireNumbers=numbers,
+            RequireUppercaseCharacters=uppers,
+            RequireLowercaseCharacters=lowers,
+            AllowUsersToChangePassword=allow_change,
+            MaxPasswordAge=max_age,
+            PasswordReusePrevention=previous_password_prevention,
+            HardExpiry=hard_expiry
+        )
+    except ClientError as exc:
+        msg = 'Problem setting password policy: [{m}]'.format(m=msg)
+        raise IamUtilError(msg) from exc
+
+
+############################################################################
 # Update an existing role
 ############################################################################
 
@@ -624,5 +818,6 @@ def update_role_trust_policy(client, role_name, role_policy):
             PolicyDocument=json_role_policy_data
         )
     except ClientError as exc:
-        msg = 'Problem updating the trust policy to [{p}] for role [{n}]'.format(p=role_policy, n=role_name)
+        msg = 'Problem updating the trust policy to [{p}] for role [{n}] with\n{d}'.format(
+            p=role_policy, n=role_name, d=str(json_role_policy_data))
         raise IamUtilError(msg) from exc
