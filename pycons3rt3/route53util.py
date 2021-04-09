@@ -320,7 +320,7 @@ def create_public_hosted_zone(client, domain, comment=''):
         msg = 'Id not found in HostedZone data: {d}'.format(d=str(response['HostedZone']))
         raise Route53UtilError(msg)
     log.info('Created public hosted zone: {d}'.format(d=domain))
-    return response
+    return response['HostedZone']
 
 
 def create_simple_change_record(record_type, name, value, action='UPSERT', time_to_live=300):
