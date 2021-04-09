@@ -109,7 +109,7 @@ class Route53Util(object):
         except Route53UtilError as exc:
             msg = 'Problem creating hosted zone: {d}'.format(d=self.domain)
             raise Route53UtilError(msg) from exc
-        self.hosted_zone_id = hosted_zone['HostedZone']['Id']
+        self.hosted_zone_id = hosted_zone['Id']
         return hosted_zone
 
     def delete_record(self, record_type, name, value):
@@ -286,7 +286,7 @@ def create_private_hosted_zone(client, domain, vpc_id, vpc_region, comment=''):
         msg = 'Id not found in HostedZone data: {d}'.format(d=str(response['HostedZone']))
         raise Route53UtilError(msg)
     log.info('Created private hosted zone: {d}'.format(d=domain))
-    return response
+    return response['HostedZone']
 
 
 def create_public_hosted_zone(client, domain, comment=''):
