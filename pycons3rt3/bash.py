@@ -458,7 +458,11 @@ def source(script):
             log.warning('Problem setting environment variable, skipping: {p}\n{e}'.format(p=env_var, e=str(exc)))
             continue
         log.debug('Added environment variable {p}={v}'.format(p=entry[0], v=entry[1]))
-    os.environ.update(env)
+    try:
+        os.environ.update(env)
+    except OSError as exc:
+        msg = 'Problem updating the environment'
+        raise CommandError(msg) from exc
     return env
 
 
