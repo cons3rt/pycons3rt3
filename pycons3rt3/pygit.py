@@ -39,15 +39,58 @@ def get_git_cmd():
     return git_cmd
 
 
+def git_status(git_repo_dir):
+    """Determines whether the git repo is in a good state
+
+    :param git_repo_dir: (str) path to the git clone directory
+    :return: True if git status returns 0, False otherwise
+    """
+    log = logging.getLogger(mod_logger + '.git_status')
+
+    # Get the git command executable
+    try:
+        git_cmd = get_git_cmd()
+    except PyGitError as exc:
+        log.error('git command not found, cannot run git status\n{e}'.format(e=str(exc)))
+        return False
+    command = [git_cmd, 'status']
+    os.chdir(git_repo_dir)
+
+    # Run git status and check the exit code
+    log.info('Running git status on directory: {d}'.format(d=git_repo_dir))
+    try:
+        result = run_command(command)
+    except CommandError as exc:
+        log.error('There was a problem running the git command: {c}\n{e}'.format(c=command, e=str(exc)))
+        return False
+    else:
+        if result['code'] != 0:
+            log.warning('The git command {g} failed and returned exit code: {c}\n{o}'.format(
+                g=command, c=result['code'], o=result['output']))
+            return False
+        else:
+            log.info('git status returned successfully with output: {o}'.format(o=result['output']))
+            return True
+
+
 def empty_clone_dir(clone_dir):
     """Empties out contents of the clone directory
 
     :param clone_dir: (str) path to the git clone directory
     :return: True if successful, False otherwise
     """
-    for root, dirs, files in os.walk(clone_dir):
-        for file in files:
-            os.remove(os.path.join(root, file))
+    log = logging.getLogger(mod_logger + '.empty_clone_dir')
+    if not os.path.isdir(clone_dir):
+        log.error('Not a directory: {d}'.format(d=clone_dir))
+        return False
+    try:
+        for root, dirs, files in os.walk(clone_dir):
+            for file in files:
+                os.remove(os.path.join(root, file))
+    except OSError as exc:
+        log.error('Error removing contents of directory [{d}]\n{e}'.format(d=clone_dir, e=str(exc)))
+        return False
+    return True
 
 
 def git_clone(url, clone_dir, branch='master', username=None, password=None, max_retries=10, retry_sec=30,
@@ -102,27 +145,29 @@ def git_clone(url, clone_dir, branch='master', username=None, password=None, max
         except PyGitError as exc:
             raise PyGitError('git command not found, cannot run clone') from exc
 
-    # Build a git clone or git pull command based on the existence of the clone directory
+    # Build a git clone or git pull command based on the existence of the clone directory and if it had a good
+    # previous clone
     do_empty = False
-    if os.path.isdir(os.path.join(clone_dir, '.git')):
-        log.debug('Git repo directory already exists, updating repo in: {d}'.format(d=clone_dir))
+    pull = False
+    if os.path.isdir(clone_dir):
+        if git_status(git_repo_dir=clone_dir):
+            pull = True
+        else:
+            do_empty = True
+    else:
+        # Create a subdirectory to clone into
+        log.debug('Creating the repo directory: {d}'.format(d=clone_dir))
+        try:
+            mkdir_p(clone_dir)
+        except CommandError as exc:
+            msg = 'Unable to create source directory: {d}'.format(d=clone_dir)
+            raise PyGitError(msg) from exc
+
+    # Create the git clone command
+    if pull:
         os.chdir(clone_dir)
         command = [git_cmd, 'pull']
     else:
-        if os.path.exists(clone_dir):
-            # Empty the clone directory -- otherwise cloning into this directory fails
-            do_empty = True
-            empty_clone_dir(clone_dir)
-        else:
-            # Create a subdirectory to clone into
-            log.debug('Creating the repo directory: {d}'.format(d=clone_dir))
-            try:
-                mkdir_p(clone_dir)
-            except CommandError as exc:
-                msg = 'Unable to create source directory: {d}'.format(d=clone_dir)
-                raise PyGitError(msg) from exc
-
-        # Create the git clone command
         if git_lfs:
             command = [git_cmd, 'lfs']
         else:
@@ -133,9 +178,12 @@ def git_clone(url, clone_dir, branch='master', username=None, password=None, max
     log.info('Running git command: {c}'.format(c=command))
     for i in range(max_retries):
         attempt_num = i + 1
-        log.info('Attempt #{n} to git clone the repository...'.format(n=attempt_num))
+        log.info('Attempt #{n} of {m} to git clone the repository...'.format(n=str(attempt_num), m=str(max_retries)))
+
+        # Empty the directory if it has contents but not a good clone
         if do_empty:
             empty_clone_dir(clone_dir)
+
         try:
             result = run_command(command)
         except CommandError as exc:
@@ -145,13 +193,13 @@ def git_clone(url, clone_dir, branch='master', username=None, password=None, max
                 log.warning('The git command {g} failed and returned exit code: {c}\n{o}'.format(
                     g=command, c=result['code'], o=result['output']))
             else:
-                log.info('Successfully cloned/updated GIT repo: {u}'.format(u=url))
+                log.info('Successfully cloned/pulled git repo: {u}'.format(u=url))
                 return
         if attempt_num == max_retries:
-            msg = 'Attempted unsuccessfully to clone the git repo after {n} attempts'.format(n=attempt_num)
+            msg = 'Attempted unsuccessfully to clone/pull the git repo after {n} attempts'.format(n=attempt_num)
             log.error(msg)
             raise PyGitError(msg)
-        log.info('Waiting to retry the git clone in {t} seconds...'.format(t=retry_sec))
+        log.info('Waiting to retry the git clone/pull in {t} seconds...'.format(t=retry_sec))
         time.sleep(retry_sec)
 
 
