@@ -83,6 +83,7 @@ def empty_clone_dir(clone_dir):
     if not os.path.isdir(clone_dir):
         log.error('Not a directory: {d}'.format(d=clone_dir))
         return False
+    log.info('Emptying directory: {d}'.format(d=clone_dir))
     try:
         for root, dirs, files in os.walk(clone_dir):
             for file in files:
