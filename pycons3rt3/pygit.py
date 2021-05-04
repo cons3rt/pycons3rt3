@@ -55,23 +55,25 @@ def git_status(git_repo_dir):
         log.error('git command not found, cannot run git status\n{e}'.format(e=str(exc)))
         return False
     command = [git_cmd, 'status']
+    cwd = os.getcwd()
     os.chdir(git_repo_dir)
 
     # Run git status and check the exit code
     log.info('Running git status on directory: {d}'.format(d=git_repo_dir))
+    success = False
     try:
         result = run_command(command)
     except CommandError as exc:
         log.error('There was a problem running the git command: {c}\n{e}'.format(c=command, e=str(exc)))
-        return False
     else:
         if result['code'] != 0:
             log.warning('The git command {g} failed and returned exit code: {c}\n{o}'.format(
                 g=command, c=result['code'], o=result['output']))
-            return False
         else:
             log.info('git status returned successfully with output: {o}'.format(o=result['output']))
-            return True
+            success = True
+    os.chdir(cwd)
+    return success
 
 
 def git_clone(url, clone_dir, branch='master', username=None, password=None, max_retries=10, retry_sec=30,
