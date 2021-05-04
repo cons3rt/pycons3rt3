@@ -6,6 +6,7 @@ This module provides utilities for performing git operations
 
 """
 import logging
+import shutil
 import os
 import time
 
@@ -71,27 +72,6 @@ def git_status(git_repo_dir):
         else:
             log.info('git status returned successfully with output: {o}'.format(o=result['output']))
             return True
-
-
-def empty_clone_dir(clone_dir):
-    """Empties out contents of the clone directory
-
-    :param clone_dir: (str) path to the git clone directory
-    :return: True if successful, False otherwise
-    """
-    log = logging.getLogger(mod_logger + '.empty_clone_dir')
-    if not os.path.isdir(clone_dir):
-        log.error('Not a directory: {d}'.format(d=clone_dir))
-        return False
-    log.info('Emptying directory: {d}'.format(d=clone_dir))
-    try:
-        for root, dirs, files in os.walk(clone_dir):
-            for file in files:
-                os.remove(os.path.join(root, file))
-    except OSError as exc:
-        log.error('Error removing contents of directory [{d}]\n{e}'.format(d=clone_dir, e=str(exc)))
-        return False
-    return True
 
 
 def git_clone(url, clone_dir, branch='master', username=None, password=None, max_retries=10, retry_sec=30,
@@ -182,8 +162,9 @@ def git_clone(url, clone_dir, branch='master', username=None, password=None, max
         log.info('Attempt #{n} of {m} to git clone the repository...'.format(n=str(attempt_num), m=str(max_retries)))
 
         # Empty the directory if it has contents but not a good clone
-        if do_empty:
-            empty_clone_dir(clone_dir)
+        if not pull and os.path.isdir(clone_dir):
+            log.info('Removing existing directory: {d}'.format(d=clone_dir))
+            shutil.rmtree(clone_dir)
 
         try:
             result = run_command(command)
