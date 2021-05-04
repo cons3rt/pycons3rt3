@@ -39,6 +39,17 @@ def get_git_cmd():
     return git_cmd
 
 
+def empty_clone_dir(clone_dir):
+    """Empties out contents of the clone directory
+
+    :param clone_dir: (str) path to the git clone directory
+    :return: True if successful, False otherwise
+    """
+    for root, dirs, files in os.walk(clone_dir):
+        for file in files:
+            os.remove(os.path.join(root, file))
+
+
 def git_clone(url, clone_dir, branch='master', username=None, password=None, max_retries=10, retry_sec=30,
               git_cmd=None, git_lfs=False):
     """Clones a git url
@@ -92,18 +103,24 @@ def git_clone(url, clone_dir, branch='master', username=None, password=None, max
             raise PyGitError('git command not found, cannot run clone') from exc
 
     # Build a git clone or git pull command based on the existence of the clone directory
+    do_empty = False
     if os.path.isdir(os.path.join(clone_dir, '.git')):
         log.debug('Git repo directory already exists, updating repo in: {d}'.format(d=clone_dir))
         os.chdir(clone_dir)
         command = [git_cmd, 'pull']
     else:
-        # Create a subdirectory to clone into
-        log.debug('Creating the repo directory: {d}'.format(d=clone_dir))
-        try:
-            mkdir_p(clone_dir)
-        except CommandError as exc:
-            msg = 'Unable to create source directory: {d}'.format(d=clone_dir)
-            raise PyGitError(msg) from exc
+        if os.path.exists(clone_dir):
+            # Empty the clone directory -- otherwise cloning into this directory fails
+            do_empty = True
+            empty_clone_dir(clone_dir)
+        else:
+            # Create a subdirectory to clone into
+            log.debug('Creating the repo directory: {d}'.format(d=clone_dir))
+            try:
+                mkdir_p(clone_dir)
+            except CommandError as exc:
+                msg = 'Unable to create source directory: {d}'.format(d=clone_dir)
+                raise PyGitError(msg) from exc
 
         # Create the git clone command
         if git_lfs:
@@ -117,6 +134,8 @@ def git_clone(url, clone_dir, branch='master', username=None, password=None, max
     for i in range(max_retries):
         attempt_num = i + 1
         log.info('Attempt #{n} to git clone the repository...'.format(n=attempt_num))
+        if do_empty:
+            empty_clone_dir(clone_dir)
         try:
             result = run_command(command)
         except CommandError as exc:
