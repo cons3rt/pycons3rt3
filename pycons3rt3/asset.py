@@ -124,6 +124,61 @@ class Asset(object):
         return str(self.asset_dir_path)
 
 
+def download_asset(asset_id, download_dir):
+    """Downloads the specified asset ID to the specified download directory
+
+    :param asset_id: (int) ID of the asset
+    :param download_dir: (str) path of the directory to download to
+    :return: (str) path to the downloaded asset or None
+    """
+    log = logging.getLogger(mod_logger + '.validate_asset_structure')
+    c = Cons3rtApi()
+    try:
+        asset_zip = c.download_asset(asset_id=asset_id, background=False, dest_dir=download_dir, suppress_status=False,
+                                     overwrite=True)
+    except Cons3rtApiError as exc:
+        msg = 'Problem downloading asset ID [{i}] to download directory [{d}]\n{e}\n{t}'.format(
+            i=str(asset_id), d=download_dir, e=str(exc), t=traceback.format_exc())
+        log.error(msg)
+        return
+    return asset_zip
+
+
+def download_cli(args):
+    """Handles the asset download subcommand
+
+    :param args: ArgParse
+    :return: (int) 0 if successful, non-zero otherwise
+    """
+    # Determine and validate the asset ID
+    if args.id:
+        asset_id = args.id
+    else:
+        print('ERROR: Please provide the asset ID to download as the --id parameter')
+        return 1
+    if not isinstance(asset_id, int):
+        try:
+            asset_id = int(asset_id)
+        except ValueError:
+            print('ERROR: Please provide the --id args as an integer asset ID')
+            return 1
+
+    # Determine and validate the download directory
+    if args.dest_dir:
+        download_dir = args.dest_dir
+    else:
+        download_dir = os.path.join(os.path.expanduser('~'), 'Downloads')
+    if not os.path.isdir(download_dir):
+        print('ERROR: Download directory not found: {d}'.format(d=download_dir))
+        return 1
+    downloaded_asset = download_asset(asset_id=asset_id, download_dir=download_dir)
+    if not downloaded_asset:
+        print('ERROR: Problem downloading asset ID [{i}] to directory: {d}'.format(i=str(asset_id), d=download_dir))
+        return 2
+    print('Asset ID [{i}] downloaded successfully to: {z}'.format(i=str(asset_id), z=downloaded_asset))
+    return 0
+
+
 def ignore_by_extension(item_path):
     if not os.path.isfile(item_path):
         return False
@@ -862,13 +917,14 @@ def main():
     parser.add_argument('--community', help='Include to retrieve community assets', action='store_true')
     parser.add_argument('--dest_dir', help='Destination directory for the asset zip (default is Downloads)')
     parser.add_argument('--expanded', help='Include to retrieve expanded info on assets', action='store_true')
+    parser.add_argument('--id', help='Asset ID to download')
     parser.add_argument('--keep', help='Include to keep the asset zip file after import/update', action='store_true')
     parser.add_argument('--latest', help='Include to only return the latest with the highest ID', action='store_true')
     parser.add_argument('--name', help='Asset name to filter on')
     parser.add_argument('--visibility', help='Set to the desired visibility')
     args = parser.parse_args()
 
-    valid_commands = ['create', 'import', 'query', 'queryids', 'update', 'validate']
+    valid_commands = ['create', 'download', 'import', 'query', 'queryids', 'update', 'validate']
     valid_commands_str = ','.join(valid_commands)
 
     # Get the command
@@ -938,6 +994,8 @@ def main():
 
     if command == 'create':
         res = create(asset_dir=asset_dir, dest_dir=dest_dir)
+    elif command == 'download':
+        res = download_cli(args)
     elif command == 'import':
         res = import_update(asset_dir=asset_dir, dest_dir=dest_dir, import_only=True, visibility=visibility,
                             log_level='WARNING')

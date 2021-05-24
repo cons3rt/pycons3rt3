@@ -1,5 +1,5 @@
 
-0.0.9
+0.0.9a
 =====
 
 * Removed GPU from template registraiton/subscription to react to CONS3Rt changes
@@ -9,6 +9,7 @@
 * Added the ability to generate STS login tokens with or without MFA when assuming roles in other accounts
 * Added the deployment subcommand: cons3rt deployment list, or cons3rt deployment run list/delete/release
 * Added a module for encryption/decrption with ansible-vault
+* Added the `asset download --id=ASSET_ID` command to easily download assets from the CLI
 
 0.0.8
 =====

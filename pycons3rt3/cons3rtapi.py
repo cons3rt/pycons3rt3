@@ -3586,7 +3586,7 @@ class Cons3rtApi(object):
         :param overwrite (bool) set True to overwrite the existing file
         :param suppress_status: (bool) Set to True to suppress printing download status
         :return: (str) path to the downloaded asset zip
-        :raises: Cons3rtClientError
+        :raises: Cons3rtApiError
         """
         log = logging.getLogger(self.cls_logger + '.download_asset')
         if not dest_dir:
@@ -3603,7 +3603,7 @@ class Cons3rtApi(object):
             )
         except Cons3rtClientError as exc:
             msg = 'Problem downloading asset ID: {a}'.format(a=str(asset_id))
-            raise Cons3rtClientError(msg) from exc
+            raise Cons3rtApiError(msg) from exc
         log.info('Completed download of asset ID {a} to: {d}'.format(a=str(asset_id), d=download_file))
         return asset_zip
 
