@@ -1,5 +1,5 @@
 
-0.0.9a
+0.0.9
 =====
 
 * Removed GPU from template registraiton/subscription to react to CONS3Rt changes
