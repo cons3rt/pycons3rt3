@@ -1,4 +1,12 @@
 
+0.0.10a
+=======
+
+* Fixed a bug reporting errors with servicerunner
+* Added a method to power on multiple runs
+* Optimized queries to retrieve DR details from the multiple run host action workflow
+* Significantly power action delay times, these are handled on the server side
+
 0.0.9
 =====
 
