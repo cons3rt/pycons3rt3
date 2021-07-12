@@ -3694,6 +3694,13 @@ class Cons3rtApi(object):
         except Cons3rtApiError as exc:
             msg = 'Problem retrieving details on this deployment run ID: {i}'.format(i=str(my_run_id))
             raise Cons3rtApiError(msg) from exc
+        if 'deployment' not in run_details.keys():
+            msg = 'deployment data not found in run data: {d}'.format(d=str(run_details))
+            raise Cons3rtApiError(msg)
+        if 'if' not in run_details['deployment'].keys():
+            msg = 'id data not found in deployment data for run ID [{i}]: {d}'.format(
+                i=str(my_run_id), d=str(run_details['deployment']))
+            raise Cons3rtApiError(msg)
         try:
             self.delete_inactive_runs_for_deployment(deployment_id=run_details['deployment']['id'])
         except Cons3rtApiError as exc:
@@ -3723,14 +3730,14 @@ class Cons3rtApi(object):
             except Cons3rtApiError as exc:
                 log.warning('Problem deleting inactive run ID: {i}\n{e}'.format(i=str(inactive_dr['id']), e=str(exc)))
 
-    def list_hosts_in_run(self, dr_id):
-        """Returns a list of host in a deployment run
+    def list_host_ids_in_run(self, dr_id):
+        """Returns a list of host IDs in a deployment run
 
         :param dr_id: (int) ID of the deployment run
-        :return: (list) of host dict data in the provided deployment run ID
+        :return: (list) of host IDs
         :raises: Cons3rtApiError
         """
-        log = logging.getLogger(self.cls_logger + '.list_hosts_in_run')
+        log = logging.getLogger(self.cls_logger + '.list_host_ids_in_run')
 
         # Ensure the dr_id is an int
         if not isinstance(dr_id, int):
@@ -3753,20 +3760,22 @@ class Cons3rtApi(object):
             raise Cons3rtApiError('expected deploymentRunHosts to be a list, found: {t}'.format(
                 t=dr_details['deploymentRunHosts'].__class__.__name__))
 
-        hosts = []
+        host_ids = []
         for run_host in dr_details['deploymentRunHosts']:
             if 'id' not in run_host:
                 log.warning('id not found in run host details: {d}'.format(d=run_host))
                 continue
-            hosts.append(run_host)
-        log.info('Found {n} IDs in DR ID: {i}'.format(n=str(len(hosts)), i=str(dr_id)))
-        return hosts
+            host_ids.append(run_host['id'])
+        log.info('Found {n} host IDs in DR ID: {i}'.format(n=str(len(host_ids)), i=str(dr_id)))
+        return host_ids
 
     def list_detailed_hosts_in_run(self, dr_id):
         """Returns a list of host details in a deployment run
 
         :param dr_id: (int) ID of the deployment run
-        :return: (list) of detailed host dict data in the provided deployment run ID
+        :return: (tuple) host_details_list, dr_details
+            1. A list of detailed host dict data in the provided deployment run ID
+            2. DR dict data
         :raises: Cons3rtApiError
         """
         log = logging.getLogger(self.cls_logger + '.list_detailed_hosts_in_run')
@@ -3806,7 +3815,7 @@ class Cons3rtApi(object):
 
             host_details_list.append(host_details)
         log.info('Retrieved details for {n} hosts in DR ID: {i}'.format(n=str(len(host_details_list)), i=str(dr_id)))
-        return host_details_list
+        return host_details_list, dr_details
 
     def perform_host_action(self, dr_id, dr_host_id, action, cpu=None, ram=None):
         """Performs the provided host action on the host ID
@@ -3873,16 +3882,16 @@ class Cons3rtApi(object):
         :param cloud_type: (str) cloud type
         :return: (int) delay in seconds
         """
-        worst_case_delay_sec = 180
+        worst_case_delay_sec = 5
         cloud_type = cloud_type.lower()
         if cloud_type in ['vcloud', 'vmware']:
             return worst_case_delay_sec
         elif cloud_type == 'openStack':
             return worst_case_delay_sec
         elif cloud_type in ['aws', 'amazon']:
-            return 10
+            return 2
         elif cloud_type == 'azure':
-            return 10
+            return 2
         else:
             return worst_case_delay_sec
 
@@ -3900,15 +3909,9 @@ class Cons3rtApi(object):
         log = logging.getLogger(self.cls_logger + '.perform_host_action_for_run')
         log.info('Getting a list of host IDs in run: {i}'.format(i=str(dr_id)))
         try:
-            hosts = self.list_hosts_in_run(dr_id=dr_id)
+            hosts, dr_info = self.list_detailed_hosts_in_run(dr_id=dr_id)
         except Cons3rtApiError as exc:
             raise Cons3rtApiError('Problem listing hosts in run: {i}'.format(i=str(dr_id))) from exc
-
-        log.info('Retrieving the deployment run details...')
-        try:
-            dr_info = self.retrieve_deployment_run_details(dr_id=dr_id)
-        except Cons3rtApiError as exc:
-            raise Cons3rtApiError('Problem retrieving details of run: {i}'.format(i=str(dr_id))) from exc
 
         # Set the host action delay higher for vCloud and OpenStack
         if not inter_host_action_delay_sec:
@@ -3934,10 +3937,17 @@ class Cons3rtApi(object):
                 continue
             # Skip if the host has an action in progress
             if 'hostActionInProcess' in host:
+                log.info('Found [hostActionInProcess] for host [{h}]: {d}'.format(
+                    h=str(host['id']), d=str(host['hostActionInProcess'])))
                 if host['hostActionInProcess']:
-                    log.info('Skipping DR {d} host with a host action already in progress: {h}'.format(
+                    log.info('Skipping DR [{d}] host with a host action already in progress: {h}'.format(
                         d=str(dr_id), h=str(host['id'])))
                     continue
+                else:
+                    log.info('No host action in progress for DR [{d}] host [{h}]'.format(
+                        d=str(dr_id), h=str(host['id'])))
+            else:
+                log.info('No data returned for [hostActionInProcess] for host [{h}]'.format(h=str(host['id'])))
             total_disk_capacity_mb = 0
             for disk in host['disks']:
                 if 'capacityInMegabytes' not in disk:
@@ -3980,7 +3990,7 @@ class Cons3rtApi(object):
         log.info('Completed host action [{a}] on hosts in run ID: {i}'.format(a=action, i=str(dr_id)))
         return results
 
-    def perform_host_action_for_run_list_with_delay(self, drs, action, inter_run_action_delay_sec=30):
+    def perform_host_action_for_run_list_with_delay(self, drs, action, inter_run_action_delay_sec=5):
         """Attempts to perform the provided action for all hosts in the provided DR list
 
         :param drs: (list) deployment runs dicts of DR data
@@ -4137,10 +4147,35 @@ class Cons3rtApi(object):
                 r=str(drs))) from exc
         return all_results
 
+    def power_on_multiple_runs(self, drs):
+        """Attempts to power on all hosts in the provided DR list
+
+        :param drs: (list) deployment runs dicts of DR data
+        :return: (list) of dict data on request results
+        :raises Cons3rtApiError
+        """
+        log = logging.getLogger(self.cls_logger + '.power_on_multiple_runs')
+        log.info('Powering off multiple runs...')
+        try:
+            all_results = self.perform_host_action_for_run_list(
+                drs=drs,
+                action='POWER_ON'
+            )
+        except Cons3rtApiError as exc:
+            raise Cons3rtApiError('Problem powering on runs from list: {r}'.format(
+                r=str(drs))) from exc
+        return all_results
+
     def perform_host_action_for_run_list(self, drs, action):
         """Attempts to perform the provided action for all hosts in the provided DR list
 
-        :param drs: (list) deployment runs dicts of DR data
+        :param drs: (list) deployment runs dicts of DR data containing at least:
+            {
+                'id',
+                'deploymentRunStatus',
+                'project',
+                'name'
+            }
         :param action: (str) host action to perform
         :return: (list) of dict data on request results
         :raises Cons3rtApiError
@@ -4178,16 +4213,19 @@ class Cons3rtApi(object):
                 log.info('Not including run ID {i} with status {s} on the action DR list'.format(
                     i=str(dr['id']), s=dr['deploymentRunStatus']))
                 continue
-            log.info('Adding DR to list of DRs to take action {a}: {i}'.format(a=action, i=str(dr['id'])))
-            try:
-                dr_details = self.retrieve_deployment_run_details(dr_id=dr['id'])
-            except Cons3rtApiError as exc:
-                log.warning('Problem retrieving details on DR ID {i}\n{e}'.format(i=str(dr['id']), e=str(exc)))
-                action_drs.append(dr)
-            else:
-                action_drs.append(dr_details)
 
-        log.info('Sorting run list by cloud type')
+            # Retrieve DR details if VR data is not included
+            if 'virtualizationRealm' not in dr.keys():
+                log.info('Adding DR to list of DRs to take action {a}: {i}'.format(a=action, i=str(dr['id'])))
+                try:
+                    dr = self.retrieve_deployment_run_details(dr_id=dr['id'])
+                except Cons3rtApiError as exc:
+                    log.warning('Problem retrieving details on DR ID {i}\n{e}'.format(i=str(dr['id']), e=str(exc)))
+
+            log.info('Adding DR to list of DRs to take action {a}: {i}'.format(a=action, i=str(dr['id'])))
+            action_drs.append(dr)
+
+        log.info('Sorting run list by cloud type...')
         vcloud_drs = []
         openstack_drs = []
         aws_drs = []
@@ -4546,12 +4584,7 @@ class Cons3rtApi(object):
                 continue
             log.info('Retrieving details for run ID: {i}'.format(i=str(dr['id'])))
             try:
-                dr_details = self.retrieve_deployment_run_details(dr_id=dr['id'])
-            except Cons3rtApiError as exc:
-                msg = 'Problem retrieving details on run ID: {i}'.format(i=str(dr['id']))
-                raise Cons3rtApiError(msg) from exc
-            try:
-                dr_drh_list = self.list_detailed_hosts_in_run(dr_id=dr['id'])
+                dr_drh_list, dr_details = self.list_detailed_hosts_in_run(dr_id=dr['id'])
             except Cons3rtApiError as exc:
                 msg = 'Problem listing detailed host data for DR ID: {i}'.format(i=str(dr['id']))
                 raise Cons3rtApiError(msg) from exc
@@ -4599,12 +4632,7 @@ class Cons3rtApi(object):
                 continue
             log.info('Retrieving details for run ID: {i}'.format(i=str(dr['id'])))
             try:
-                dr_details = self.retrieve_deployment_run_details(dr_id=dr['id'])
-            except Cons3rtApiError as exc:
-                msg = 'Problem retrieving details on run ID: {i}'.format(i=str(dr['id']))
-                raise Cons3rtApiError(msg) from exc
-            try:
-                dr_drh_list = self.list_detailed_hosts_in_run(dr_id=dr['id'])
+                dr_drh_list, dr_details = self.list_detailed_hosts_in_run(dr_id=dr['id'])
             except Cons3rtApiError as exc:
                 msg = 'Problem listing detailed host data for DR ID: {i}'.format(i=str(dr['id']))
                 raise Cons3rtApiError(msg) from exc
