@@ -178,7 +178,7 @@ class ScriptRunner(threading.Thread):
 
             if 'result' in function_output.keys():
                 if function_output['result'].upper() == 'ERROR':
-                    self.report_fail(msg='Service runner tasks completed with error', content=content)
+                    self.report_fail(msg='Service runner tasks completed with error', content=str(content))
                 else:
                     self.report_success(msg='Completed running service runner tasks successfully', content=str(content))
             else:
