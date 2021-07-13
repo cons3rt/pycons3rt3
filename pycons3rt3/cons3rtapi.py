@@ -336,7 +336,8 @@ class Cons3rtApi(object):
                 found = True
                 break
         if found:
-            log.info('Set project to [{p}] and ReST API token: {t}'.format(p=self.rest_user.project_name, t=self.rest_user.token))
+            log.info('Set project to [{p}] and ReST API token: {t}'.format(p=self.rest_user.project_name,
+                                                                           t=self.rest_user.token))
         else:
             log.warning('Matching ReST User not found for project: {p}'.format(p=project_name))
 
@@ -3876,13 +3877,15 @@ class Cons3rtApi(object):
         log.info('Completed [{a}] on DR ID {r} host ID: {h}'.format(a=action, r=str(dr_id), h=str(dr_host_id)))
 
     @staticmethod
-    def get_inter_host_action_delay_for_cloud_type(cloud_type):
+    def get_inter_host_action_delay_for_cloud_type(cloud_type=None):
         """Returns the ideal delay time between host actions based on cloud type
 
         :param cloud_type: (str) cloud type
         :return: (int) delay in seconds
         """
         worst_case_delay_sec = 5
+        if not cloud_type:
+            return worst_case_delay_sec
         cloud_type = cloud_type.lower()
         if cloud_type in ['vcloud', 'vmware']:
             return worst_case_delay_sec
@@ -3914,13 +3917,18 @@ class Cons3rtApi(object):
             raise Cons3rtApiError('Problem listing hosts in run: {i}'.format(i=str(dr_id))) from exc
 
         # Set the host action delay higher for vCloud and OpenStack
+        vr_type = None
         if not inter_host_action_delay_sec:
-            inter_host_action_delay_sec = 180
             if 'virtualizationRealm' in dr_info:
                 if 'virtualizationRealmType' in dr_info['virtualizationRealm']:
                     vr_type = dr_info['virtualizationRealm']['virtualizationRealmType']
-                    inter_host_action_delay_sec = self.get_inter_host_action_delay_for_cloud_type(cloud_type=vr_type)
                     log.info('Found virtualization realm type: {t}'.format(t=vr_type))
+                else:
+                    log.warning('virtualizationRealmType data not found in DR info: {d}'.format(
+                        d=str(dr_info['virtualizationRealm'])))
+            else:
+                log.warning('virtualizationRealm data not found in DR info: {d}'.format(d=str(dr_info)))
+        inter_host_action_delay_sec = self.get_inter_host_action_delay_for_cloud_type(cloud_type=vr_type)
         log.info('Using inter host action delay: {s} sec'.format(s=str(inter_host_action_delay_sec)))
         results = []
 
