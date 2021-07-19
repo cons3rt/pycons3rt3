@@ -390,7 +390,7 @@ def scp_file(host, src_path, dest_path, put=False, username=None, password=None,
     # String for help with log messages
     action = 'put' if put else 'get'
     dest_host = host if put else 'local'
-    connection_msg = 'connection to host [{h}:{p}] with params (if any): '.format(h=host, p=str(port))
+    connection_msg = 'Connection to host [{h}:{p}] with params (if any): '.format(h=host, p=str(port))
     connection_msg += '\n[Username: ' + username + ']' if username else ''
     connection_msg += '\n[Password included]' if password else ''
     connection_msg += '\n[Private key: ' + key_filename + ']' if key_filename else ''
@@ -427,3 +427,59 @@ def scp_file(host, src_path, dest_path, put=False, username=None, password=None,
             finally:
                 client.close()
     log.info('SCP [{a}] complete to [{h}:{d}]'.format(a=action, h=dest_host, d=dest_path))
+
+
+def read_file_over_ssh(host, file_path, username=None, password=None, key_filename=None, passphrase=None, port=22):
+    """SCP a file from a remote host
+
+    :param host: (str) hostname or IP address to connect to
+    :param file_path: (str) full path of the source file
+    :param username: (str) username to connect as
+    :param password: (str) password to use in the SCP connection
+    :param key_filename: (str) SSH key to use in the connection
+    :param passphrase: (str) SSH key passphrase to use in the SCP connection
+    :param port: (int) SSH port number
+    :return: (str) remote file content
+    :raises: SshConfigError
+    """
+    log = logging.getLogger(mod_logger + '.read_file_over_ssh')
+
+    # Stand up the SSH client with paramiko
+    client = paramiko.SSHClient()
+    client.load_system_host_keys()
+    client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+
+    # String for help with log messages
+    connection_msg = 'Connection to host [{h}:{p}] with params (if any): '.format(h=host, p=str(port))
+    connection_msg += '\n[Username: ' + username + ']' if username else ''
+    connection_msg += '\n[Password included]' if password else ''
+    connection_msg += '\n[Private key: ' + key_filename + ']' if key_filename else ''
+    connection_msg += '\n[Passphrase included]' if passphrase else ''
+    log.info('Making ' + connection_msg)
+
+    # Connect to the remote host using the provided params
+    try:
+        client.connect(hostname=host, port=port, username=username, password=password, key_filename=key_filename,
+                       passphrase=passphrase)
+    except (paramiko.client.SSHException, socket.error) as exc:
+        err_msg = 'SSH problem: ' + connection_msg
+        raise SshConfigError(err_msg) from exc
+
+    log.info('Opening SFTP connection to retrieve file: {f}'.format(f=file_path))
+    sftp_client = client.open_sftp()
+    try:
+        remote_file = sftp_client.open(file_path)
+    except IOError as exc:
+        err_msg = 'SFTP client had a problem opening file {f} on host: {h}'.format(f=file_path, h=host)
+        client.close()
+        raise SshConfigError(err_msg) from exc
+
+    # Collect the file content
+    file_content = ''
+    try:
+        for line in remote_file:
+            file_content += line
+    finally:
+        remote_file.close()
+    log.info('Returning file content for: {f}'.format(f=file_path))
+    return file_content
