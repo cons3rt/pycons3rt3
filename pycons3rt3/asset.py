@@ -222,11 +222,18 @@ class Asset(object):
         :return: None
         """
         print('Adding asset ID [{i}] for site URL: [{u}]'.format(i=str(asset_id), u=site_url))
+
+        # Update these to the most recent update/import
+        self.asset_id = asset_id
+        self.site_url = site_url
+
+        # Update site asset data
         self.generate_site_asset_list()
         if project:
             self.__update_site_asset_id_with_project__(site_url=site_url, asset_id=asset_id, project=project)
         else:
             self.__update_site_asset_id_without_project__(site_url=site_url, asset_id=asset_id)
+
         # Remove and replace the asset data yaml file
         if os.path.isfile(self.asset_yml):
             os.remove(self.asset_yml)
@@ -824,7 +831,7 @@ def import_update(asset_dir, dest_dir, visibility=None, import_only=False, updat
     :param log_level: (str) set the desired log level
     :param config_file: (str) path to a config file to use for the asset import/update
     :param keep_asset_zip: (bool) Set True to not remove the asset zip after import/update
-    :return: (int) 0 = Success, non-zero otherwise
+    :return: (tuple) Asset, (int) 0 = Success, non-zero otherwise
     """
     if log_level:
         Logify.set_log_level(log_level=log_level)
@@ -836,7 +843,7 @@ def import_update(asset_dir, dest_dir, visibility=None, import_only=False, updat
         msg = 'AssetZipCreationError: Problem with asset zip creation\n{e}'.format(e=str(exc))
         print('ERROR: {m}'.format(m=msg))
         traceback.print_exc()
-        return 1
+        return None, 1
 
     # Get the asset CONS3RT site info
     asset_info.generate_site_asset_list()
@@ -858,7 +865,7 @@ def import_update(asset_dir, dest_dir, visibility=None, import_only=False, updat
             print('Imported asset successfully')
         else:
             print('ERROR: Failed to import asset')
-            return 1
+            return asset_info, 1
 
     else:
         # If there is an existing asset ID, update it otherwise import it
@@ -870,8 +877,8 @@ def import_update(asset_dir, dest_dir, visibility=None, import_only=False, updat
             if result:
                 print('Updated asset ID successfully: {i}'.format(i=str(asset_id)))
             else:
-                print('ERROR: Problem udpating asset ID: {i}'.format(i=str(asset_id)))
-                return 1
+                print('ERROR: Problem updating asset ID: {i}'.format(i=str(asset_id)))
+                return asset_info, 1
 
         # If there is not an existing asset ID, import and append the resulting ID
         else:
@@ -882,10 +889,10 @@ def import_update(asset_dir, dest_dir, visibility=None, import_only=False, updat
                     print('Imported asset successfully')
                 else:
                     print('ERROR: Failed to import asset')
-                    return 1
+                    return asset_info, 1
             else:
                 print('--updateonly specified, not importing')
-                return 1
+                return asset_info, 1
 
     # Remove the asset zip file
     if not keep_asset_zip:
@@ -897,7 +904,7 @@ def import_update(asset_dir, dest_dir, visibility=None, import_only=False, updat
     # Exit if no asset data with an ID exists
     if not asset_id:
         print('WARNING: No asset ID available, cannot set visibility')
-        return 0
+        return asset_info, 0
 
     # Attempt to set visibility
     if visibility:
@@ -912,10 +919,10 @@ def import_update(asset_dir, dest_dir, visibility=None, import_only=False, updat
             print('ERROR: Problem setting visibility for asset ID {n} to: {v}\n{e}'.format(
                 n=str(asset_id), v=visibility, e=str(exc)))
             traceback.print_exc()
-            return 1
+            return asset_info, 1
         print('Set visibility for asset ID {i} to: {v}'.format(i=str(asset_id), v=visibility))
     print('Completed import/update for asset ID: {i}'.format(i=str(asset_id)))
-    return 0
+    return asset_info, 0
 
 
 def print_assets(asset_list):
@@ -1197,20 +1204,20 @@ def main():
     elif command == 'download':
         res = download_cli(args)
     elif command == 'import':
-        res = import_update(asset_dir=asset_dir, dest_dir=dest_dir, import_only=True, visibility=visibility,
+        asset, res = import_update(asset_dir=asset_dir, dest_dir=dest_dir, import_only=True, visibility=visibility,
                             log_level='WARNING')
     elif command == 'query':
         res = query_assets_args(args)
     elif command == 'queryids':
         res = query_assets_args(args, id_only=True)
     elif command == 'update':
-        res = import_update(asset_dir=asset_dir, dest_dir=dest_dir, visibility=visibility, log_level='WARNING',
+        asset, res = import_update(asset_dir=asset_dir, dest_dir=dest_dir, visibility=visibility, log_level='WARNING',
                             keep_asset_zip=keep, update_asset_id=asset_id)
     elif command == 'updateonly':
-        res = import_update(asset_dir=asset_dir, dest_dir=dest_dir, visibility=visibility, log_level='WARNING',
+        asset, res = import_update(asset_dir=asset_dir, dest_dir=dest_dir, visibility=visibility, log_level='WARNING',
                             keep_asset_zip=keep, update_only=True, update_asset_id=asset_id)
     elif command == 'validate':
-        res = validate(asset_dir=asset_dir)
+        asset = validate(asset_dir=asset_dir)
     return res
 
 
