@@ -6,6 +6,13 @@
 * Added a method to power on multiple runs
 * Optimized queries to retrieve DR details from the multiple run host action workflow
 * Significantly power action delay times, these are handled on the server side
+* Added the --config CLI arg to specify which config file to use
+* Added the --assets CLI arg to generate team reports for assets used by active DRs
+* Added the "cons3rt team managers" and optionally "--id=ID" to generate a list of team managers
+* Added remoteaccesscontroller.py and a new ractl CLI command for easy execution
+* Added an export/import script to help migrate assets between CONS3RT sites
+* Improved the asset import/update CLI logic, and added the "asset updateonly" subcommand
+* Added the option to pass --id to the "asset update" command (e.g. asset update --id=12345)
 
 0.0.9
 =====

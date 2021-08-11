@@ -33,7 +33,7 @@ valid_commands = setup_command_options + [
 ]
 
 # String representation of valid commands
-valid_commands_str = 'Valid commands: {c}'.format(c=', '.join(valid_commands))
+valid_commands_str = 'Valid commands: {c}'.format(c=', '.join(map(str, valid_commands)))
 
 
 def cloudspace_cli(args, subcommands):
@@ -84,7 +84,9 @@ def main():
     parser.add_argument('subcommands', help='Optional command subtype', nargs='*')
     parser.add_argument('--active', help='Process only active runs', required=False, action='store_true')
     parser.add_argument('--all', help='All action relative to the command provided', action='store_true')
+    parser.add_argument('--assets', help='Specify to run the asset reports', action='store_true')
     parser.add_argument('--clean_all_runs', help='Clean all runs from a cloudspace', action='store_true')
+    parser.add_argument('--config', help='Path to a config file to load', required=False)
     parser.add_argument('--delete', help='Delete action relative to the command provided', action='store_true')
     parser.add_argument('--delete_inactive_runs', help='Delete inactive runs from a cloudspace', action='store_true')
     parser.add_argument('--id', help='ID relative to the command provided', required=False)

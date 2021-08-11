@@ -5,7 +5,7 @@ import traceback
 from .cons3rtapi import Cons3rtApi
 from .exceptions import Cons3rtApiError, Cons3rtReportsError
 from .pycons3rtlibs import HostActionResult
-from .reports import generate_team_report
+from .reports import generate_team_report, generate_team_asset_report
 
 
 class Cons3rtCliError(Exception):
@@ -17,11 +17,14 @@ class Cons3rtCli(object):
     def __init__(self, args, subcommands=None):
         self.subcommands = subcommands
         self.args = args
+        self.config = None
+        if args.config:
+            self.config = args.config
         self.ids = None
         self.names = None
         self.runs = None
         try:
-            self.c5t = Cons3rtApi()
+            self.c5t = Cons3rtApi(config_file=self.config)
         except Cons3rtApiError as exc:
             self.err('Missing or incomplete authentication information, run [cons3rt config] to fix\n{e}'.format(
                 e=str(exc)))
@@ -164,6 +167,26 @@ class Cons3rtCli(object):
                 msg += team['name']
             else:
                 msg += '                '
+            msg += '\n'
+        print(msg)
+
+    @staticmethod
+    def print_team_managers(team_manager_list):
+        msg = 'ID\t\tUserName\t\tEmail\t\t\tTeamIds\t\t\tTeamNames\n'
+        for team_manager in team_manager_list:
+            msg += str(team_manager['id']) + '\t\t' + team_manager['username']
+            if 'email' in team_manager.keys():
+                msg += '\t' + team_manager['email']
+            else:
+                msg += '                           '
+            if 'teamIds' in team_manager.keys():
+                msg += '\t' + ','.join(map(str, team_manager['teamIds']))
+            else:
+                msg += '         '
+            if 'teamNames' in team_manager.keys():
+                msg += '\t\t\t' + ','.join(map(str, team_manager['teamNames']))
+            else:
+                msg += '                      '
             msg += '\n'
         print(msg)
 
@@ -953,6 +976,8 @@ class TeamCli(Cons3rtCli):
     def __init__(self, args, subcommands=None):
         Cons3rtCli.__init__(self, args=args, subcommands=subcommands)
         self.valid_subcommands = [
+            'list',
+            'managers',
             'report'
         ]
 
@@ -981,11 +1006,23 @@ class TeamCli(Cons3rtCli):
                 self.list_teams()
             except Cons3rtCliError:
                 return False
-        elif self.subcommands[0] == 'report':
+        elif self.subcommands[0] == 'managers':
             try:
-                self.generate_reports()
+                self.list_team_managers()
             except Cons3rtCliError:
                 return False
+        elif self.subcommands[0] == 'report':
+            # If --assets was specified, run the asset report, otherwise run the full team report
+            if self.args.assets:
+                try:
+                    self.generate_asset_reports()
+                except Cons3rtCliError:
+                    return False
+            else:
+                try:
+                    self.generate_reports()
+                except Cons3rtCliError:
+                    return False
         return True
 
     def generate_reports(self):
@@ -996,8 +1033,15 @@ class TeamCli(Cons3rtCli):
         for team_id in self.ids:
             self.generate_report(team_id=team_id)
 
-    def generate_report(self, team_id):
+    def generate_asset_reports(self):
+        if not self.ids:
+            msg = '--id or --ids arg required to specify the team ID(s) to generate reports for'
+            self.err(msg)
+            raise Cons3rtCliError(msg)
+        for team_id in self.ids:
+            self.generate_asset_report(team_id=team_id)
 
+    def generate_report(self, team_id):
         load = False
         if self.args.load:
             load = True
@@ -1007,6 +1051,25 @@ class TeamCli(Cons3rtCli):
             msg = 'Problem generating report for team ID: {i}\n{e}'.format(i=str(team_id), e=str(exc))
             self.err(msg)
             raise Cons3rtCliError(msg) from exc
+
+    def generate_asset_report(self, team_id):
+        try:
+            generate_team_asset_report(team_id=team_id)
+        except Cons3rtReportsError as exc:
+            msg = 'Problem generating asset report for team ID: {i}\n{e}'.format(i=str(team_id), e=str(exc))
+            self.err(msg)
+            raise Cons3rtCliError(msg) from exc
+
+    def list_team_managers(self):
+        results = []
+        if not self.ids:
+            # No ids specified, getting a list for all teams
+            results += self.c5t.list_team_managers()
+        else:
+            # Generate a list for each team ID specified
+            for team_id in self.ids:
+                results += self.c5t.list_team_managers_for_team(team_id=team_id)
+        self.print_team_managers(team_manager_list=results)
 
     def list_teams(self):
         teams = []

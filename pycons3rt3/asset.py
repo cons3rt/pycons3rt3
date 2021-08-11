@@ -119,9 +119,209 @@ class Asset(object):
         self.asset_zip_path = asset_zip_path
         self.asset_id = asset_id
         self.site_url = site_url
+        self.site_asset_list = []
+        self.asset_yml = os.path.join(self.asset_dir_path, 'asset_data.yml')
 
     def __str__(self):
-        return str(self.asset_dir_path)
+        return str(self.name + ' @ ' + self.asset_dir_path)
+
+    def get_asset_id_for_url(self, site_url):
+        """Checks
+
+        :param site_url: (str) site API URL
+        :return: (int) asset ID or None
+        """
+        # Generate the site asset list to pull latest info
+        self.generate_site_asset_list()
+
+        # Return the first asset ID found matching the site URL
+        for site_asset_data in self.site_asset_list:
+            if site_asset_data.site_url == site_url:
+                return site_asset_data.asset_id
+
+    def get_asset_id_for_url_and_project(self, site_url, project):
+        """Checks
+
+        :param site_url: (str) site API URL
+        :param project: (str) name of the project
+        :return: (int) asset ID or None
+        """
+        # Generate the site asset list to pull latest info
+        self.generate_site_asset_list()
+
+        # Return the first asset ID found matching the site URL and project
+        for site_asset_data in self.site_asset_list:
+            if site_asset_data.site_url == site_url:
+                if site_asset_data.project:
+                    if site_asset_data.project == project:
+                        return site_asset_data.asset_id
+
+    def generate_site_asset_list(self):
+        """Reads in the asset_data.yml file to generate a list of IDs/site/projects where this
+        asset is imported
+
+        :return: None
+        """
+        # Reset the site asset data list
+        self.site_asset_list = []
+
+        # Read in existing asset data yaml file
+        asset_data_list = []
+        if os.path.isfile(self.asset_yml):
+            try:
+                with open(self.asset_yml, 'r') as f:
+                    loaded_yaml = yaml.load(f, Loader=yaml.FullLoader)
+                    if loaded_yaml:
+                        asset_data_list += loaded_yaml
+            except (OSError, IOError) as exc:
+                print('Invalid yaml file found: {f}\n{e}'.format(f=self.asset_yml, e=str(exc)))
+                traceback.print_exc()
+                return
+
+        # Collect site asset data
+        for site_asset_data in asset_data_list:
+            if 'site_url' not in site_asset_data.keys():
+                continue
+            if 'asset_id' not in site_asset_data.keys():
+                continue
+            try:
+                int(site_asset_data['asset_id'])
+            except ValueError:
+                print('WARNING: Invalid asset ID found: {i}, skipping...'.format(i=str(site_asset_data['asset_id'])))
+                continue
+            msg = 'Found asset ID [{i}] for site [{s}]'.format(
+                i=str(site_asset_data['asset_id']), s=site_asset_data['site_url'])
+            if 'project' in site_asset_data.keys():
+                msg += ' in project [{p}]'.format(p=site_asset_data['project'])
+                self.site_asset_list.append(
+                    SiteAssetData(
+                        asset_id=site_asset_data['asset_id'],
+                        site_url=site_asset_data['site_url'],
+                        project=site_asset_data['project']
+                    )
+                )
+            else:
+                msg += ' in no particular project'
+                self.site_asset_list.append(
+                    SiteAssetData(
+                        asset_id=site_asset_data['asset_id'],
+                        site_url=site_asset_data['site_url']
+                    )
+                )
+            print(msg)
+
+    def update_site_asset_id(self, site_url, asset_id, project=None):
+        """Update or add the site's asset ID for the provided site URL
+
+        * Add if its not already on the list
+        * Include project if provided
+
+        :param site_url: (str) CONS3RT site API URL
+        :param asset_id: (int) ID of the asset to add/update
+        :param project: (str) name of the project to include in the asset data
+        :return: None
+        """
+        print('Adding asset ID [{i}] for site URL: [{u}]'.format(i=str(asset_id), u=site_url))
+        self.generate_site_asset_list()
+        if project:
+            self.__update_site_asset_id_with_project__(site_url=site_url, asset_id=asset_id, project=project)
+        else:
+            self.__update_site_asset_id_without_project__(site_url=site_url, asset_id=asset_id)
+        # Remove and replace the asset data yaml file
+        if os.path.isfile(self.asset_yml):
+            os.remove(self.asset_yml)
+        dump_data = []
+        for site_asset_data in self.site_asset_list:
+            print('Updating site data: {d}'.format(d=str(site_asset_data)))
+            dump_data.append(site_asset_data.yaml_dump)
+        with open(self.asset_yml, 'w') as f:
+            yaml.dump(dump_data, f, sort_keys=True)
+
+    def __update_site_asset_id_with_project__(self, site_url, asset_id, project):
+        """Update or add the provided asset ID for the provided site URL and project
+
+        :param site_url: (str) CONS3RT site API URL
+        :param asset_id: (int) ID of the asset to add/update
+        :param project: (str) name of the project to include in the asset data
+        :return:
+        """
+        updated = False
+        for site_asset_data in self.site_asset_list:
+            if site_asset_data.site_url == site_url:
+                if site_asset_data.project:
+                    if site_asset_data.project == project:
+                        print('Found existing asset ID: [{i}]'.format(i=site_asset_data.asset_id))
+                        print('Updating asset ID to [{i}] for site URL [{u}] and project [{p}]'.format(
+                            i=asset_id, u=site_url, p=project))
+                        site_asset_data.update_asset_id(asset_id=asset_id)
+                        updated = True
+        if not updated:
+            print('Adding asset ID to [{i}] for site URL [{u}] and project [{p}]'.format(
+                i=asset_id, u=site_url, p=project))
+            self.site_asset_list.append(
+                SiteAssetData(
+                    asset_id=asset_id,
+                    site_url=site_url,
+                    project=project
+                ))
+
+    def __update_site_asset_id_without_project__(self, site_url, asset_id):
+        """Update or add the provided asset ID for the provided site URL project-agnostic
+
+        :param site_url: (str) CONS3RT site API URL
+        :param asset_id: (int) ID of the asset to add/update
+        :param project: (str) name of the project to include in the asset data
+        :return:
+        """
+        updated = False
+        for site_asset_data in self.site_asset_list:
+            if site_asset_data.site_url == site_url:
+                print('Found existing asset ID: [{i}]'.format(i=site_asset_data.asset_id))
+                print('Updating asset ID to [{i}] for site URL [{u}] without specifying a project'.format(
+                    i=asset_id, u=site_url))
+                site_asset_data.update_asset_id(asset_id=asset_id)
+                updated = True
+        if not updated:
+            print('Adding asset ID to [{i}] for site URL [{u}] without a project'.format(
+                i=asset_id, u=site_url))
+            self.site_asset_list.append(
+                SiteAssetData(
+                    asset_id=asset_id,
+                    site_url=site_url
+                ))
+
+
+class SiteAssetData(object):
+
+    def __init__(self, asset_id, site_url, project=None):
+        self.asset_id = asset_id
+        self.site_url = site_url
+        self.project = project
+        self.yaml_dump = {
+            'asset_id': asset_id,
+            'site_url': site_url
+        }
+        if project:
+            self.yaml_dump['project']: project
+
+    def __str__(self):
+        msg = 'AssetId: ' + str(self.asset_id) + ', URL: ' + self.site_url
+        if self.project:
+            msg += ', Project: ' + self.project
+        return msg
+
+    def to_yaml(self):
+        yaml_dump = {
+            'asset_id': self.asset_id,
+            'site_url': self.site_url
+        }
+        if self.project:
+            yaml_dump['project']: self.project
+        return yaml_dump
+
+    def update_asset_id(self, asset_id):
+        self.asset_id = asset_id
+        self.yaml_dump['asset_id'] = asset_id
 
 
 def download_asset(asset_id, download_dir):
@@ -530,27 +730,22 @@ def import_asset(cons3rt_api, asset_info):
 
     :param cons3rt_api: Cons3rtApi object
     :param asset_info: (Asset)
-    :return: (dict) asset import data
+    :return: (tuple) Asset, imported_asset_id (int), Success (bool)
     """
-    asset_data = {}
     try:
-        asset_id = cons3rt_api.import_asset(asset_zip_file=asset_info.asset_zip_path)
+        returned_asset_id = cons3rt_api.import_asset(asset_zip_file=asset_info.asset_zip_path)
     except Cons3rtApiError as exc:
         print('ERROR: Importing zip {z} into site: {u}\n{e}'.format(
-            z=asset_info.asset_zip_path, u=cons3rt_api.url_base, e=str(exc)))
+            z=asset_info.asset_zip_path, u=cons3rt_api.rest_user.rest_api_url, e=str(exc)))
         traceback.print_exc()
-        return asset_data
-    asset_data = {
-        'asset_id': asset_id,
-        'site_url': cons3rt_api.url_base,
-        'project': cons3rt_api.project
-    }
+        return asset_info, None, False
+
     print('Imported asset from zip: {z}'.format(z=asset_info.asset_zip_path))
     try:
-        int(asset_id)
+        int(returned_asset_id)
     except ValueError:
-        print('Attempting to determine imported asset ID in 15 seconds...')
-        time.sleep(15)
+        print('Attempting to determine imported asset ID in 10 seconds...')
+        time.sleep(10)
         print('Querying for latest asset with type [{t}], subtype [{s}], and name [{n}]'.format(
             t=asset_info.asset_type, s=asset_info.asset_subtype, n=asset_info.name))
         try:
@@ -568,42 +763,64 @@ def import_asset(cons3rt_api, asset_info):
             print('WARNING: Problem querying for the imported asset ID, will have to be manually added to '
                   'asset.yml\n{e}'.format(e=str(exc)))
             traceback.print_exc()
-            return asset_data
+            return asset_info, None, True
         else:
             if len(filtered_assets) != 1:
                 print('WARNING: Unable to determine the imported asset ID, will have to be manually added to asset.yml')
+                return asset_info, None, True
             else:
-                asset_data['asset_id'] = int(filtered_assets[0]['id'])
-                print('Found asset ID: {n}'.format(n=str(asset_data['asset_id'])))
-    return asset_data
+                discovered_asset_id = int(filtered_assets[0]['id'])
+                print('Discovered the imported asset ID: {n}'.format(n=str(discovered_asset_id)))
+
+                # Update site asset data with the new asset ID
+                asset_info.update_site_asset_id(
+                    asset_id=discovered_asset_id,
+                    site_url=cons3rt_api.rest_user.rest_api_url,
+                    project=cons3rt_api.project
+                )
+                return asset_info, discovered_asset_id, True
+    else:
+        # Update site asset data with the new asset ID
+        print('Imported new asset ID: {n}'.format(n=str(returned_asset_id)))
+        asset_info.update_site_asset_id(
+            asset_id=returned_asset_id,
+            site_url=cons3rt_api.rest_user.rest_api_url,
+            project=cons3rt_api.project
+        )
+        return asset_info, returned_asset_id, True
 
 
-def update_asset(cons3rt_api, asset_info):
+def update_asset(cons3rt_api, asset_info, asset_id):
     """Updates an asset ID with the provided Cons3rtApi object and asset zip
 
     :param cons3rt_api: Cons3rtApi object
     :param asset_info: (Asset)
-    :return: True if success, False otherwise
+    :param asset_id: (int) asset ID to update
+    :return: (tuple) Asset, updated_asset_id (int), Success (bool)
     """
+    print('Attempting to update asset ID: {i}'.format(i=str(asset_id)))
     try:
-        cons3rt_api.update_asset_content(asset_id=asset_info.asset_id, asset_zip_file=asset_info.asset_zip_path)
+        cons3rt_api.update_asset_content(asset_id=asset_id, asset_zip_file=asset_info.asset_zip_path)
     except Cons3rtApiError as exc:
         print('ERROR: Updating asset ID [{a}] zip {z} into site: {u}\n{e}'.format(
-            a=str(asset_info.asset_id), z=asset_info.asset_zip_path, u=cons3rt_api.url_base, e=str(exc)))
+            a=str(asset_id), z=asset_info.asset_zip_path, u=cons3rt_api.rest_user.rest_api_url, e=str(exc)))
         traceback.print_exc()
-        return False
-    print('Updated asset ID: {a}'.format(a=str(asset_info.asset_id)))
-    return True
+        return asset_info, asset_id, False
+    else:
+        print('Updated asset ID: {a}'.format(a=str(asset_id)))
+        return asset_info, asset_id, True
 
 
-def import_update(asset_dir, dest_dir, visibility=None, import_only=False, log_level=None, config_file=None,
-                  keep_asset_zip=False):
+def import_update(asset_dir, dest_dir, visibility=None, import_only=False, update_only=False, update_asset_id=None,
+                  log_level=None, config_file=None, keep_asset_zip=False):
     """Creates an asset zip, and attempts to import/update the asset
 
     :param asset_dir: (str) path to asset directory
-    :param dest_dir: (full path to the destination directory)
+    :param dest_dir: (str) full path to the destination directory of the asset zip
     :param visibility: (str) desired visibility default: OWNER
-    :param import_only: (bool) Whe True, import even if an existing ID is found
+    :param import_only: (bool) When True, import even if an existing ID is found
+    :param update_only: (bool) When True, only process an asset updates, no failover to import if ID is not found
+    :param update_asset_id: (int) When provided, update the provided asset ID
     :param log_level: (str) set the desired log level
     :param config_file: (str) path to a config file to use for the asset import/update
     :param keep_asset_zip: (bool) Set True to not remove the asset zip after import/update
@@ -621,73 +838,54 @@ def import_update(asset_dir, dest_dir, visibility=None, import_only=False, log_l
         traceback.print_exc()
         return 1
 
+    # Get the asset CONS3RT site info
+    asset_info.generate_site_asset_list()
+
     # Create a Cons3rtApi
     c5t = Cons3rtApi(config_file=config_file)
 
-    # Read in existing asset data yaml file
-    asset_yml = os.path.join(asset_dir, 'asset_data.yml')
-    asset_data_list = []
-    if os.path.isfile(asset_yml):
-        with open(asset_yml, 'r') as f:
-            asset_data_list = yaml.load(f, Loader=yaml.FullLoader)
-
-    if not isinstance(asset_data_list, list):
-        print('Invalid yaml file, removing: {f}'.format(f=asset_yml))
-        os.remove(asset_yml)
-        asset_data_list = []
-
-    # Validate asset yaml data
-    valid_site_data = []
-    existing_asset_id = None
-    asset_data = None
-    for site_asset_data in asset_data_list:
-        if 'site_url' not in site_asset_data:
-            continue
-        if 'asset_id' not in site_asset_data:
-            continue
-        try:
-            int(site_asset_data['asset_id'])
-        except ValueError:
-            continue
-        if site_asset_data['site_url'] == c5t.url_base:
-            existing_asset_id = site_asset_data['asset_id']
-        valid_site_data.append(site_asset_data)
+    # Get existing asset ID
+    if update_asset_id:
+        existing_asset_id = update_asset_id
+    else:
+        existing_asset_id = asset_info.get_asset_id_for_url(site_url=c5t.rest_user.rest_api_url)
 
     # If import_only is set, import and update the asset data for the yaml
     if import_only:
         print('Attempting to import asset zip: {f}'.format(f=asset_info.asset_zip_path))
-        asset_data = import_asset(cons3rt_api=c5t, asset_info=asset_info)
+        asset_info, asset_id, result = import_asset(cons3rt_api=c5t, asset_info=asset_info)
+        if result:
+            print('Imported asset successfully')
+        else:
+            print('ERROR: Failed to import asset')
+            return 1
 
-        # If asset data was returned, update existing asset data or append
-        if asset_data != {}:
-            found_existing = False
-            for site_asset_data in valid_site_data:
-                if site_asset_data['site_url'] == c5t.url_base:
-                    found_existing = True
-                    site_asset_data['asset_id'] = asset_data['asset_id']
-            if not found_existing:
-                valid_site_data.append(asset_data)
-
-    # If not import-only, check to see if existing asset
     else:
-        # If there is an existing asset ID, update it
+        # If there is an existing asset ID, update it otherwise import it
         if existing_asset_id:
-            asset_info.asset_id = existing_asset_id
             print('Attempting to update asset ID [{i}] with asset zip: {f}'.format(
-                i=str(asset_info.asset_id), f=asset_info.asset_zip_path))
-            if not update_asset(cons3rt_api=c5t, asset_info=asset_info):
+                i=str(existing_asset_id), f=asset_info.asset_zip_path))
+            asset_info, asset_id, result = update_asset(cons3rt_api=c5t, asset_info=asset_info,
+                                                        asset_id=existing_asset_id)
+            if result:
+                print('Updated asset ID successfully: {i}'.format(i=str(asset_id)))
+            else:
+                print('ERROR: Problem udpating asset ID: {i}'.format(i=str(asset_id)))
                 return 1
-            asset_data = {
-                'site_url': c5t.url_base,
-                'asset_id': existing_asset_id
-            }
 
         # If there is not an existing asset ID, import and append the resulting ID
         else:
-            print('Attempting to import asset zip: {f}'.format(f=asset_info.asset_zip_path))
-            asset_data = import_asset(cons3rt_api=c5t, asset_info=asset_info)
-            if asset_data != {}:
-                valid_site_data.append(asset_data)
+            if not update_only:
+                print('No existing asset ID found, attempting to import asset zip: {f}'.format(f=asset_info.asset_zip_path))
+                asset_info, asset_id, result = import_asset(cons3rt_api=c5t, asset_info=asset_info)
+                if result:
+                    print('Imported asset successfully')
+                else:
+                    print('ERROR: Failed to import asset')
+                    return 1
+            else:
+                print('--updateonly specified, not importing')
+                return 1
 
     # Remove the asset zip file
     if not keep_asset_zip:
@@ -696,34 +894,27 @@ def import_update(asset_dir, dest_dir, visibility=None, import_only=False, log_l
     else:
         print('FYI... keeping asset zip file: {f}'.format(f=asset_info.asset_zip_path))
 
-    # Remove and replace the asset data yaml file
-    if os.path.isfile(asset_yml):
-        os.remove(asset_yml)
-    with open(asset_yml, 'w') as f:
-        yaml.dump(valid_site_data, f, sort_keys=True)
-
     # Exit if no asset data with an ID exists
-    if not asset_data:
-        print('WARNING: No asset data available, cannot set visibility')
+    if not asset_id:
+        print('WARNING: No asset ID available, cannot set visibility')
         return 0
 
     # Attempt to set visibility
     if visibility:
-        print('Attempting to set visibility on asset ID {n} to: {v}'.format(
-            n=str(asset_data['asset_id']), v=visibility))
+        print('Attempting to set visibility on asset ID {n} to: {v}'.format(n=str(asset_id), v=visibility))
         try:
             c5t.update_asset_visibility(
-                asset_id=asset_data['asset_id'],
+                asset_id=asset_id,
                 visibility=visibility,
                 trusted_projects=None
             )
         except Cons3rtApiError as exc:
             print('ERROR: Problem setting visibility for asset ID {n} to: {v}\n{e}'.format(
-                n=str(asset_data['asset_id']), v=visibility, e=str(exc)))
+                n=str(asset_id), v=visibility, e=str(exc)))
             traceback.print_exc()
             return 1
-        print('Set visibility for asset ID {i} to: {v}'.format(i=str(asset_data['asset_id']), v=visibility))
-    print('Completed import/update for asset ID: {i}'.format(i=str(asset_data['asset_id'])))
+        print('Set visibility for asset ID {i} to: {v}'.format(i=str(asset_id), v=visibility))
+    print('Completed import/update for asset ID: {i}'.format(i=str(asset_id)))
     return 0
 
 
@@ -917,14 +1108,14 @@ def main():
     parser.add_argument('--community', help='Include to retrieve community assets', action='store_true')
     parser.add_argument('--dest_dir', help='Destination directory for the asset zip (default is Downloads)')
     parser.add_argument('--expanded', help='Include to retrieve expanded info on assets', action='store_true')
-    parser.add_argument('--id', help='Asset ID to download')
+    parser.add_argument('--id', help='Asset ID to download or update')
     parser.add_argument('--keep', help='Include to keep the asset zip file after import/update', action='store_true')
     parser.add_argument('--latest', help='Include to only return the latest with the highest ID', action='store_true')
     parser.add_argument('--name', help='Asset name to filter on')
     parser.add_argument('--visibility', help='Set to the desired visibility')
     args = parser.parse_args()
 
-    valid_commands = ['create', 'download', 'import', 'query', 'queryids', 'update', 'validate']
+    valid_commands = ['create', 'download', 'import', 'query', 'queryids', 'update', 'updateonly', 'validate']
     valid_commands_str = ','.join(valid_commands)
 
     # Get the command
@@ -989,6 +1180,15 @@ def main():
     if args.keep:
         keep = True
 
+    # Set the ID
+    asset_id = None
+    if args.id:
+        try:
+            asset_id = int(args.id)
+        except ValueError:
+            print('ERROR: Invalid ID: {i}'.format(i=str(args.id)))
+            return 5
+
     # Process the command
     res = 0
 
@@ -1005,7 +1205,10 @@ def main():
         res = query_assets_args(args, id_only=True)
     elif command == 'update':
         res = import_update(asset_dir=asset_dir, dest_dir=dest_dir, visibility=visibility, log_level='WARNING',
-                            keep_asset_zip=keep)
+                            keep_asset_zip=keep, update_asset_id=asset_id)
+    elif command == 'updateonly':
+        res = import_update(asset_dir=asset_dir, dest_dir=dest_dir, visibility=visibility, log_level='WARNING',
+                            keep_asset_zip=keep, update_only=True, update_asset_id=asset_id)
     elif command == 'validate':
         res = validate(asset_dir=asset_dir)
     return res

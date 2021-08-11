@@ -51,6 +51,7 @@ dist = setup(
             's3organizer = pycons3rt3.s3organizer:main',
             'deployment = pycons3rt3.deployment:main',
             'pycons3rt_setup = pycons3rt3.osutil:main',
+            'ractl = pycons3rt3.remoteaccesscontoller:main',
             'slack = pycons3rt3.slack:main'
         ],
     },

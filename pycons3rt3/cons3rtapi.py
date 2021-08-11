@@ -361,6 +361,8 @@ class Cons3rtApi(object):
             target = 'systems'
         elif 'test' in asset_type.lower():
             target = 'testassets'
+        elif 'container' in asset_type.lower():
+            target = 'containers'
         else:
             log.warning('Unable to determine the target from provided asset_type: {t}'.format(t=asset_type))
         return target
@@ -1900,6 +1902,92 @@ class Cons3rtApi(object):
         """
         return self.retrieve_all_users()
 
+    def list_team_managers(self):
+        """Retrieves a list of team managers for all teams
+
+        :return: (list) of team managers:
+            {
+                "id": ID,
+                "username": USERNAME,
+                "email": EMAIL,
+                "teamIds": list of team IDs,
+                "teamNames": list of team names
+            }
+        :raises: Cons3rtApiError
+        """
+        log = logging.getLogger(self.cls_logger + '.list_team_managers')
+        log.info('Attempting to list team managers...')
+
+        # Get a list of teams
+        try:
+            teams = self.list_teams()
+        except Cons3rtApiError as exc:
+            msg = 'Problem getting a list of teams, unable to determine team managers'
+            raise Cons3rtApiError(msg) from exc
+
+        # Get a list of managers from each team
+        team_managers = []
+        for team in teams:
+            # Retrieve team managers from team details
+            try:
+                team_details = self.get_team_details(team_id=team['id'])
+            except Cons3rtApiError as exc:
+                msg = 'Problem getting details for team ID: {i}'.format(i=str(team['id']))
+                raise Cons3rtApiError(msg) from exc
+            if 'teamManagers' not in team_details.keys():
+                log.warning('No team managers found for team ID: {i}'.format(i=str(team['id'])))
+                continue
+
+            # Add team managers to the list if they're not already on it, checking by user ID
+            for team_manager in team_details['teamManagers']:
+                already_on_list = False
+                for existing_team_manager in team_managers:
+                    if existing_team_manager['id'] == team_manager['id']:
+                        already_on_list = True
+                        existing_team_manager['teamIds'] += [team['id']]
+                        existing_team_manager['teamNames'] += [team['name']]
+                if not already_on_list:
+                    log.info('Found team manager with user ID [{i}] and username [{u}]'.format(
+                        i=team_manager['id'], u=team_manager['username']))
+                    team_manager['teamIds'] = [team['id']]
+                    team_manager['teamNames'] = [team['name']]
+                    team_managers.append(team_manager)
+        log.info('Found {n} team managers'.format(n=str(len(team_managers))))
+        return team_managers
+
+    def list_team_managers_for_team(self, team_id):
+        """Returns a list of team managers for a team
+
+        :param team_id: (int) ID of the team
+        :return: (list) of team managers:
+            {
+                "id": ID,
+                "username": USERNAME,
+                "email": EMAIL,
+                "teamIds": list of team IDs,
+                "teamNames": list of team names
+            }
+        :raises: Cons3rtApiError
+        """
+        log = logging.getLogger(self.cls_logger + '.list_team_managers_for_team')
+        team_managers = []
+        # Retrieve team managers from team details
+        try:
+            team_details = self.get_team_details(team_id=team_id)
+        except Cons3rtApiError as exc:
+            msg = 'Problem getting details for team ID: {i}'.format(i=str(team_id))
+            raise Cons3rtApiError(msg) from exc
+        if 'teamManagers' not in team_details.keys():
+            log.warning('No team managers found for team ID: {i}'.format(i=str(team_id)))
+            return team_managers
+        for team_manager in team_details['teamManagers']:
+            log.info('Found team manager with user ID [{i}] and username [{u}]'.format(
+                i=team_manager['id'], u=team_manager['username']))
+            team_manager['teamIds'] = [team_id]
+            team_manager['teamNames'] = [team_details['name']]
+            team_managers.append(team_manager)
+        return team_managers
+
     def create_user_from_json(self, json_file):
         """Creates a single CONS3RT user using data from a JSON file
 
@@ -3405,6 +3493,38 @@ class Cons3rtApi(object):
                 i=str(dr_id))
             raise Cons3rtApiError(msg) from exc
         return result
+
+    def retrieve_container_asset(self, asset_id):
+        """Retrieves details for the container asset
+
+        :param asset_id: (int) asset ID
+        return: (dict) details about the container asset
+        :return:
+        """
+        log = logging.getLogger(self.cls_logger + '.retrieve_container_asset')
+        log.info('Retrieving container asset ID: {i}'.format(i=str(asset_id)))
+        try:
+            container_asset = self.cons3rt_client.retrieve_container_asset(asset_id=asset_id)
+        except Cons3rtClientError as exc:
+            msg = 'Problem container asset ID: {i}'.format(i=str(asset_id))
+            raise Cons3rtApiError(msg) from exc
+        return container_asset
+
+    def retrieve_software_asset(self, asset_id):
+        """Retrieves details for the software asset
+
+        :param asset_id: (int) asset ID
+        return: (dict) details about the software asset
+        :return:
+        """
+        log = logging.getLogger(self.cls_logger + '.retrieve_software_asset')
+        log.info('Retrieving software asset ID: {i}'.format(i=str(asset_id)))
+        try:
+            software_asset = self.cons3rt_client.retrieve_software_asset(asset_id=asset_id)
+        except Cons3rtClientError as exc:
+            msg = 'Problem retrieving software asset ID: {i}'.format(i=str(asset_id))
+            raise Cons3rtApiError(msg) from exc
+        return software_asset
 
     def retrieve_software_assets(self, asset_type=None, community=False, expanded=False, category_ids=None,
                                  max_results=None):

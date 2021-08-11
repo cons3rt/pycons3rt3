@@ -1490,6 +1490,52 @@ class Cons3rtClient:
             print('Found {n} users...'.format(n=str(len(users))))
         return users
 
+    def retrieve_container_asset(self, asset_id):
+        """Retrieves details for the container asset
+
+        :param asset_id: (int) asset ID
+        :return: (dict) details about the container asset
+        :raises: Cons3rtClientError
+        """
+        target = 'containers/{i}'.format(i=str(asset_id))
+        try:
+            response = self.http_client.http_get(
+                rest_user=self.user,
+                target=target
+            )
+        except Cons3rtClientError as exc:
+            raise Cons3rtClientError('Problem retrieving container asset: {i}'.format(i=str(asset_id))) from exc
+        try:
+            result = self.http_client.parse_response(response=response)
+        except Cons3rtClientError as exc:
+            msg = 'The HTTP response contains a bad status code'
+            raise Cons3rtClientError(msg) from exc
+        software_asset = json.loads(result)
+        return software_asset
+
+    def retrieve_software_asset(self, asset_id):
+        """Retrieves details for the software asset
+
+        :param asset_id: (int) asset ID
+        :return: (dict) details about the software asset
+        :raises: Cons3rtClientError
+        """
+        target = 'software/{i}'.format(i=str(asset_id))
+        try:
+            response = self.http_client.http_get(
+                rest_user=self.user,
+                target=target
+            )
+        except Cons3rtClientError as exc:
+            raise Cons3rtClientError('Problem retrieving software asset: {i}'.format(i=str(asset_id))) from exc
+        try:
+            result = self.http_client.parse_response(response=response)
+        except Cons3rtClientError as exc:
+            msg = 'The HTTP response contains a bad status code'
+            raise Cons3rtClientError(msg) from exc
+        software_asset = json.loads(result)
+        return software_asset
+
     def retrieve_software_assets(self, asset_type=None, community=False, category_ids=None, expanded=False,
                                  max_results=40, page_num=0):
         """Get a list of software assets
