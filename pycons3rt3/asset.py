@@ -277,7 +277,6 @@ class Asset(object):
 
         :param site_url: (str) CONS3RT site API URL
         :param asset_id: (int) ID of the asset to add/update
-        :param project: (str) name of the project to include in the asset data
         :return:
         """
         updated = False
@@ -323,7 +322,7 @@ class SiteAssetData(object):
             'site_url': self.site_url
         }
         if self.project:
-            yaml_dump['project']: self.project
+            yaml_dump['project'] = self.project
         return yaml_dump
 
     def update_asset_id(self, asset_id):
@@ -806,6 +805,11 @@ def update_asset(cons3rt_api, asset_info, asset_id):
     :return: (tuple) Asset, updated_asset_id (int), Success (bool)
     """
     print('Attempting to update asset ID: {i}'.format(i=str(asset_id)))
+    asset_info.update_site_asset_id(
+        asset_id=asset_id,
+        site_url=cons3rt_api.rest_user.rest_api_url,
+        project=cons3rt_api.project
+    )
     try:
         cons3rt_api.update_asset_content(asset_id=asset_id, asset_zip_file=asset_info.asset_zip_path)
     except Cons3rtApiError as exc:
@@ -813,9 +817,8 @@ def update_asset(cons3rt_api, asset_info, asset_id):
             a=str(asset_id), z=asset_info.asset_zip_path, u=cons3rt_api.rest_user.rest_api_url, e=str(exc)))
         traceback.print_exc()
         return asset_info, asset_id, False
-    else:
-        print('Updated asset ID: {a}'.format(a=str(asset_id)))
-        return asset_info, asset_id, True
+    print('Updated asset ID: {a}'.format(a=str(asset_id)))
+    return asset_info, asset_id, True
 
 
 def import_update(asset_dir, dest_dir, visibility=None, import_only=False, update_only=False, update_asset_id=None,
