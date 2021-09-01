@@ -551,7 +551,7 @@ class Deployment(object):
                 interface_name = self.get_value(interface_name_prop)
                 if interface_name:
                     network_info['interface_name'] = interface_name
-                external_ip_prop = 'cons3rt.fap.deployment.machine.{r}.{n}.externalIp'.format(
+                external_ip_prop = 'cons3rt.fap.deployment.machine.{r}.{n}.boundaryIp'.format(
                     r=scenario_host, n=network_name)
                 external_ip = self.get_value(external_ip_prop)
                 if external_ip:
