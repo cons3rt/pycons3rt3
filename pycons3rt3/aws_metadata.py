@@ -25,6 +25,16 @@ mod_logger = Logify.get_name() + '.aws_metadata'
 # AWS Meta Data Service URL
 metadata_url = 'http://169.254.169.254/latest/meta-data/'
 
+# Number of seconds to timeout after, AWS should return quickly
+query_timeout_sec = 5
+
+# Number of seconds to retry the query
+retry_time_sec = 3
+
+# number of re-tries before giving up
+max_num_tries = 3
+
+# Character encoding
 character_encoding = 'utf-8'
 
 
@@ -37,8 +47,6 @@ def is_aws():
     log.info('Querying AWS meta data URL to determine if this system is on AWS: {u}'.format(u=metadata_url))
 
     # Re-try logic for checking the AWS meta data URL
-    retry_time_sec = 5
-    max_num_tries = 3
     attempt_num = 1
 
     while True:
@@ -48,9 +56,15 @@ def is_aws():
 
         # Query the AWS meta data URL
         try:
-            response = requests.get(metadata_url)
+            response = requests.get(metadata_url, timeout=query_timeout_sec)
         except(IOError, OSError) as ex:
-            log.info('Unable to query the AWS meta data URL\n{e}'.format(e=str(ex)))
+            log.info('OSError querying the AWS meta data URL\n{e}'.format(e=str(ex)))
+            attempt_num += 1
+            time.sleep(retry_time_sec)
+            continue
+        except requests.exceptions.ConnectTimeout as ex:
+            log.info('Timeout after [{t}] seconds on query the AWS meta data URL\n{e}'.format(
+                t=str(query_timeout_sec), e=str(ex)))
             attempt_num += 1
             time.sleep(retry_time_sec)
             continue
