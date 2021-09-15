@@ -3492,6 +3492,8 @@ class EC2Util(object):
                                      Description='Allow https traffic out'),
                         IpPermission(IpProtocol='tcp', FromPort=4443, ToPort=4443, CidrIp=cons3rt_site_cidr,
                                      Description='Allow messaging traffic to CONS3RT site'),
+                        IpPermission(IpProtocol='tcp', FromPort=5443, ToPort=5443, CidrIp=cons3rt_site_cidr,
+                                     Description='Allow gitlab container registry traffic to CONS3RT site'),
                         IpPermission(IpProtocol='tcp', FromPort=6443, ToPort=6443, CidrIp=cons3rt_site_cidr,
                                      Description='Allow docker registry traffic to CONS3RT site'),
                         IpPermission(IpProtocol='tcp', FromPort=7443, ToPort=7443, CidrIp=cons3rt_site_cidr,
