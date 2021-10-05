@@ -376,6 +376,86 @@ class Cons3rtClient:
         teams = json.loads(content)
         return teams
 
+    def list_project_members(self, project_id, max_results=40, page_num=0, state=None, role=None, username=None):
+        """Queries CONS3RT for a list of members for a project
+
+        :param project_id: (int) ID of the project
+        :param max_results: (int) maximum results to provide in the response
+        :param page_num: (int) page number to return
+        :param state: (str) membership state "REQUESTED" "ACTIVE" "BLOCKED" "DELETED"
+        :param role: (str) membership role "ADMINISTRATOR" "ASSET_RESTORER" "STATUS_READER" "UI_MACHINE" "TEST_TOOL"
+            "MEMBER" "CONSUMER" "STANDARD" "SOFTWARE_DEVELOPER" "TEST_DEVELOPER" "ASSET_SHARER" "ASSET_PROMOTER"
+            "POWER_SCHEDULE_UPDATER" "PROJECT_OWNER" "PROJECT_MANAGER" "PROJECT_MODERATOR" "REMOTE_ACCESS"
+            "MAESTRO_MACHINE" "FAP_MACHINE" "SCHEDULER_MACHINE" "CONS3RT_MACHINE" "SOURCEBUILDER_MACHINE"
+            "SYSTEM_ASSET_IMPORTER" "ASSET_CERTIFIER" "ASSET_UPLOADER"
+        :param username: (str) username to search for
+        :return: (list) of projects
+        :raises: Cons3rtClientError
+        """
+        target = 'projects/{i}/members?maxresults={m}&page={p}'.format(
+            i=str(project_id),
+            m=str(max_results),
+            p=str(page_num)
+        )
+        if state:
+            target += '&membershipState={s}'.format(s=state)
+        if role:
+            target += '&role={r}'.format(r=role)
+        if username:
+            target += '&name={n}'.format(n=username)
+        response = self.http_client.http_get(rest_user=self.user, target=target)
+        content = self.http_client.parse_response(response=response)
+        members = json.loads(content)
+        return members
+
+    def list_all_project_members(self, project_id, state=None, role=None, username=None):
+        """List all project members matching the provided search parameters
+
+        :param project_id: (int) ID of the project
+        :param state: (str) membership state "REQUESTED" "ACTIVE" "BLOCKED" "DELETED"
+        :param role: (str) membership role "ADMINISTRATOR" "ASSET_RESTORER" "STATUS_READER" "UI_MACHINE" "TEST_TOOL"
+            "MEMBER" "CONSUMER" "STANDARD" "SOFTWARE_DEVELOPER" "TEST_DEVELOPER" "ASSET_SHARER" "ASSET_PROMOTER"
+            "POWER_SCHEDULE_UPDATER" "PROJECT_OWNER" "PROJECT_MANAGER" "PROJECT_MODERATOR" "REMOTE_ACCESS"
+            "MAESTRO_MACHINE" "FAP_MACHINE" "SCHEDULER_MACHINE" "CONS3RT_MACHINE" "SOURCEBUILDER_MACHINE"
+            "SYSTEM_ASSET_IMPORTER" "ASSET_CERTIFIER" "ASSET_UPLOADER"
+        :param username: (str) username to search for
+        :return: (list) of projects
+        :raises: Cons3rtClientError
+        """
+        members = []
+        page_num = 0
+        max_results = 40
+        info_msg = 'project [{i}]'.format(i=str(project_id))
+        if state:
+            info_msg += ', membership state [{s}]'.format(s=state)
+        if role:
+            info_msg += ', project role [{r}]'.format(r=role)
+        if username:
+            info_msg += ', username [{n}]'.format(n=username)
+        while True:
+            msg = 'Retrieving members page [{p}]: '.format(p=str(page_num)) + info_msg
+            print(msg)
+            try:
+                page_of_members = self.list_project_members(
+                    project_id=project_id,
+                    max_results=max_results,
+                    page_num=page_num,
+                    state=state,
+                    role=role,
+                    username=username
+                )
+            except Cons3rtClientError as exc:
+                msg = 'Problem getting members page [{p}], max results [{m}] from: {i}'.format(
+                    p=str(page_num), m=str(max_results), i=info_msg)
+                raise Cons3rtClientError(msg) from exc
+            members += page_of_members
+            if len(page_of_members) < max_results:
+                break
+            else:
+                page_num += 1
+            print('Found {n} members in: {i}'.format(n=str(len(members)), i=info_msg))
+        return members
+
     def list_expanded_projects(self, max_results=40, page_num=0):
         """Queries CONS3RT for a list of projects the user is not a member of
 

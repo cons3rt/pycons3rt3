@@ -127,6 +127,39 @@ class Cons3rtCli(object):
         print(msg)
 
     @staticmethod
+    def print_project_members(member_list):
+        msg = 'ID\tUsername\t\tEmail\t\t\t\t\tState\t\t\tRoles\n'
+        for member in member_list:
+            if 'id' in member:
+                msg += str(member['id'])
+            else:
+                msg += '      '
+            msg += '\t'
+            if 'username' in member:
+                msg += member['username']
+            else:
+                msg += '                '
+            msg += '\t\t'
+            if 'email' in member:
+                msg += member['email']
+            else:
+                msg += '                '
+            msg += '\t\t\t'
+            if 'membershipState' in member:
+                msg += member['membershipState']
+            else:
+                msg += '                '
+            msg += '\t\t'
+            if 'roles' in member:
+                for role in member['roles']:
+                    msg += role + ':'
+                msg = msg.rstrip(':')
+            else:
+                msg += '                '
+            msg += '\n'
+        print(msg)
+
+    @staticmethod
     def print_clouds(cloud_list):
         msg = 'ID\tName\t\t\t\tType\n'
         for cloud in cloud_list:
@@ -757,6 +790,7 @@ class ProjectCli(Cons3rtCli):
         Cons3rtCli.__init__(self, args=args, subcommands=subcommands)
         self.valid_subcommands = [
             'list',
+            'members',
             'run'
         ]
 
@@ -780,12 +814,49 @@ class ProjectCli(Cons3rtCli):
                 self.list_projects()
             except Cons3rtCliError:
                 return False
+        if self.subcommands[0] == 'members':
+            try:
+                self.members()
+            except Cons3rtCliError:
+                return False
         if self.subcommands[0] == 'run':
             try:
                 self.run()
             except Cons3rtCliError:
                 return False
         return True
+
+    def members(self):
+        if not self.ids:
+            msg = '--id or --ids arg required to specify the project ID(s)'
+            self.err(msg)
+            raise Cons3rtCliError(msg)
+
+        # Collect args
+        role = None
+        if self.args.role:
+            role = self.args.role
+        state = None
+        if self.args.state:
+            state = self.args.state
+        username = None
+        if self.args.username:
+            username = self.args.username
+
+        # Check the project member command
+        if len(self.subcommands) > 1:
+            member_subcommand = self.subcommands[1]
+
+            # Lists project members according to specified params
+            if member_subcommand == 'list':
+                try:
+                    self.list_project_members(state=state, role=role, username=username)
+                except Cons3rtCliError as exc:
+                    raise Cons3rtCliError from exc
+
+            else:
+                self.err('Unrecognized member command: {c}'.format(c=member_subcommand))
+            return False
 
     def run(self):
         if not self.ids:
@@ -804,7 +875,7 @@ class ProjectCli(Cons3rtCli):
                 self.release_runs()
                 return
             else:
-                self.err('Unrecognized command: {c}'.format(c=project_subcommand))
+                self.err('Unrecognized project command: {c}'.format(c=project_subcommand))
             return False
 
     def list_projects(self):
@@ -827,6 +898,22 @@ class ProjectCli(Cons3rtCli):
             projects = self.sort_by_id(projects)
             self.print_projects(project_list=projects)
         print('Total number of projects found: {n}'.format(n=str(len(projects))))
+
+    def list_project_members(self, state=None, role=None, username=None):
+        members = []
+        for project_id in self.ids:
+            try:
+                members += self.c5t.list_project_members(
+                    project_id=project_id, state=state, role=role, username=username
+                )
+            except Cons3rtApiError as exc:
+                msg = 'Problem listing members in project ID: {i}'.format(i=project_id)
+                self.err(msg)
+                raise Cons3rtCliError(msg) from exc
+        if len(members) > 0:
+            members = self.sort_by_id(members)
+            self.print_project_members(member_list=members)
+        print('Number of project members found: {n}'.format(n=str(len(members))))
 
     def list_runs(self):
         runs = self.list_runs_for_projects()

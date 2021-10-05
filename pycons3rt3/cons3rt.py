@@ -100,10 +100,13 @@ def main():
     parser.add_argument('--names', help='List of names of resources', required=False)
     parser.add_argument('--provider_id', help='Resource provider ID', required=False)
     parser.add_argument('--release_active_runs', help='Release active runs from a cloudspace', action='store_true')
+    parser.add_argument('--role', help='Project role')
     parser.add_argument('--run', help='Run ID relative to the command provided', required=False)
     parser.add_argument('--runs', help='Run ID(s) relative to the command provided', required=False)
     parser.add_argument('--share', help='Share templates', action='store_true')
+    parser.add_argument('--state', help='Project membership state')
     parser.add_argument('--unlock', help='Remove run locks before taking action', action='store_true')
+    parser.add_argument('--username', help='CONS3RT username to process')
     args = parser.parse_args()
 
     # Get the command

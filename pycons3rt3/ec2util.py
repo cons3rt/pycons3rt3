@@ -5234,7 +5234,7 @@ def get_instance(client, instance_id):
     log = logging.getLogger(mod_logger + '.get_instance')
     log.info('Getting info about instance ID: {i}'.format(i=instance_id))
     try:
-        response = client.describe_instances(DryRun=False, SnapshotIds=[instance_id])
+        response = client.describe_instances(DryRun=False, InstanceIds=[instance_id])
     except ClientError as exc:
         msg = 'Unable to describe instance ID: {a}'.format(a=instance_id)
         raise EC2UtilError(msg) from exc

@@ -629,6 +629,77 @@ class Cons3rtApi(object):
         log.info('Found {n} user projects'.format(n=str(len(projects))))
         return projects
 
+    def list_project_members(self, project_id, state=None, role=None, username=None):
+        """Returns a list of members in a project based on the provided query parameters
+
+        :param project_id: (int) ID of the project
+        :param state: (str) membership state "REQUESTED" "ACTIVE" "BLOCKED" "DELETED"
+        :param role: (str) membership role "ADMINISTRATOR" "ASSET_RESTORER" "STATUS_READER" "UI_MACHINE" "TEST_TOOL"
+            "MEMBER" "CONSUMER" "STANDARD" "SOFTWARE_DEVELOPER" "TEST_DEVELOPER" "ASSET_SHARER" "ASSET_PROMOTER"
+            "POWER_SCHEDULE_UPDATER" "PROJECT_OWNER" "PROJECT_MANAGER" "PROJECT_MODERATOR" "REMOTE_ACCESS"
+            "MAESTRO_MACHINE" "FAP_MACHINE" "SCHEDULER_MACHINE" "CONS3RT_MACHINE" "SOURCEBUILDER_MACHINE"
+            "SYSTEM_ASSET_IMPORTER" "ASSET_CERTIFIER" "ASSET_UPLOADER"
+        :param username: (str) username to search for
+        :return: (list) of projects
+        :raises: Cons3rtApiError
+        """
+        log = logging.getLogger(self.cls_logger + '.list_project_members')
+        
+        # Ensure the project_id is an int
+        if not isinstance(project_id, int):
+            try:
+                project_id = int(project_id)
+            except ValueError as exc:
+                msg = 'project_id arg must be an Integer, found: {t}'.format(t=project_id.__class__.__name__)
+                raise Cons3rtApiError(msg) from exc
+        
+        valid_states = ['REQUESTED', 'ACTIVE', 'BLOCKED', 'DELETED']
+        valid_roles = ['ADMINISTRATOR', 'ASSET_RESTORER', 'STATUS_READER', 'UI_MACHINE', 'TEST_TOOL', 'MEMBER',
+                       'CONSUMER', 'STANDARD', 'SOFTWARE_DEVELOPER', 'TEST_DEVELOPER', 'ASSET_SHARER', 'ASSET_PROMOTER',
+                       'POWER_SCHEDULE_UPDATER', 'PROJECT_OWNER', 'PROJECT_MANAGER', 'PROJECT_MODERATOR',
+                       'REMOTE_ACCESS', 'MAESTRO_MACHINE', 'FAP_MACHINE', 'SCHEDULER_MACHINE', 'CONS3RT_MACHINE',
+                       'SOURCEBUILDER_MACHINE', 'SYSTEM_ASSET_IMPORTER', 'ASSET_CERTIFIER', 'ASSET_UPLOADER']
+        
+        # Ensure the args are valid
+        if state:
+            if not isinstance(state, str):
+                msg = 'state arg must be a string, received: {t}'.format(t=state.__class__.__name__)
+                raise Cons3rtApiError(msg)
+            if state not in valid_states:
+                msg = 'state [{s}] invalid, must be one of: {v}'.format(s=state, v=','.join(valid_states))
+                raise Cons3rtApiError(msg)
+        if role:
+            if not isinstance(role, str):
+                msg = 'role arg must be a string, received: {t}'.format(t=role.__class__.__name__)
+                raise Cons3rtApiError(msg)
+            if role not in valid_roles:
+                msg = 'role [{r}] invalid, must be one of: {v}'.format(r=role, v=','.join(valid_roles))
+                raise Cons3rtApiError(msg)
+        if username:
+            if not isinstance(username, str):
+                msg = 'username arg must be a string, received: {t}'.format(t=username.__class__.__name__)
+                raise Cons3rtApiError(msg)
+
+        info_msg = 'project [{i}]'.format(i=str(project_id))
+        if state:
+            info_msg += ', membership state [{s}]'.format(s=state)
+        if role:
+            info_msg += ', project role [{r}]'.format(r=role)
+        if username:
+            info_msg += ', username [{n}]'.format(n=username)
+        log.info('Searching for members: {i}'.format(i=info_msg))
+        try:
+            project_members = self.cons3rt_client.list_all_project_members(
+                project_id=project_id,
+                state=state,
+                role=role,
+                username=username
+            )
+        except Cons3rtClientError as exc:
+            msg = 'Problem listing members in project: {i}'.format(i=info_msg)
+            raise Cons3rtApiError(msg) from exc
+        return project_members
+
     def list_expanded_projects(self):
         """Query CONS3RT to return a list of projects the current user is not a member of
 
@@ -682,7 +753,7 @@ class Cons3rtApi(object):
         """
         log = logging.getLogger(self.cls_logger + '.get_project_details')
 
-        # Ensure the vr_id is an int
+        # Ensure the project_id is an int
         if not isinstance(project_id, int):
             try:
                 project_id = int(project_id)

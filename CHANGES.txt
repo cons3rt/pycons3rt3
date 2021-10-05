@@ -13,6 +13,7 @@
 * Added an export/import script to help migrate assets between CONS3RT sites
 * Improved the asset import/update CLI logic, and added the "asset updateonly" subcommand
 * Added the option to pass --id to the "asset update" command (e.g. asset update --id=12345)
+* Added CLI command to get project members: cons3rt project members list --id=123
 
 0.0.9
 =====
