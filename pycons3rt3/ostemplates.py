@@ -11,23 +11,78 @@ mod_logger = Logify.get_name() + '.ostemplates'
 class OperatingSystemType(object):
 
     operating_system_types = [
-        'AMAZON_LINUX_LATEST_X64', 'AMAZON_LINUX_2_LATEST_X64', 'CENTOS_6_X64', 'CENTOS_6_X86', 'CENTOS_7_X64',
-        'CORE_OS_1221_X64', 'F5_BIGIP_X64', 'FORTISIEM', 'PALO_ALTO_NETWORKS_PAN_OS_X64', 'FEDORA_23_X64',
-        'GENERIC_LINUX_X64', 'GENERIC_WINDOWS_X64', 'KALI_ROLLING_X64', 'ORACLE_LINUX_6_X64', 'ORACLE_LINUX_7_X64',
-        'OS_X_10', 'OS_X_11', 'RASPBIAN', 'RHEL_5_X64', 'RHEL_5_X86', 'RHEL_6_X64', 'RHEL_6_X86',
-        'RHEL_7_ATOMIC_HOST', 'RHEL_7_PPCLE', 'RHEL_7_X64', 'SOLARIS_11_X64', 'UBUNTU_12_X64', 'UBUNTU_14_X64',
-        'UBUNTU_16_X64', 'UBUNTU_18_X64', 'UBUNTU_CORE', 'VYOS_1_1_X64', 'VYOS_1_2_X64', 'VYOS_1_3_X64',
-        'WINDOWS_10_X64', 'WINDOWS_7_X64', 'WINDOWS_7_X86', 'WINDOWS_8_X64', 'WINDOWS_SERVER_2008_R2_X64',
-        'WINDOWS_SERVER_2008_X64', 'WINDOWS_SERVER_2012_R2_X64', 'WINDOWS_SERVER_2012_X64',
-        'WINDOWS_SERVER_2016_X64', 'WINDOWS_SERVER_2019_X64', 'WINDOWS_XP_X86'
+        'AMAZON_LINUX_LATEST_X64',
+        'AMAZON_LINUX_2_LATEST_X64',
+        'CENTOS_6_X64',
+        'CENTOS_6_X86',
+        'CENTOS_7_X64',
+        'CENTOS_8_X64',
+        'CORE_OS_1221_X64',
+        'F5_BIGIP_X64',
+        'FORTISIEM',
+        'PALO_ALTO_NETWORKS_PAN_OS_X64',
+        'FEDORA_23_X64',
+        'GENERIC_LINUX_X64',
+        'GENERIC_WINDOWS_X64',
+        'KALI_ROLLING_X64',
+        'ORACLE_LINUX_6_X64',
+        'ORACLE_LINUX_7_X64',
+        'ORACLE_LINUX_8_X64',
+        'OS_X_10',
+        'OS_X_11',
+        'RASPBIAN',
+        'RHEL_5_X64',
+        'RHEL_5_X86',
+        'RHEL_6_X64',
+        'RHEL_6_X86',
+        'RHEL_7_ATOMIC_HOST',
+        'RHEL_7_PPCLE',
+        'RHEL_7_X64',
+        'RHEL_8_X64',
+        'SOLARIS_11_X64',
+        'UBUNTU_12_X64',
+        'UBUNTU_14_X64',
+        'UBUNTU_16_X64',
+        'UBUNTU_18_X64',
+        'UBUNTU_20_X64',
+        'UBUNTU_CORE',
+        'VYOS_1_1_X64',
+        'VYOS_1_2_X64',
+        'VYOS_1_3_X64',
+        'VYOS_ROLLING_X64',
+        'WINDOWS_10_X64',
+        'WINDOWS_7_X64',
+        'WINDOWS_7_X86',
+        'WINDOWS_8_X64',
+        'WINDOWS_SERVER_2008_R2_X64',
+        'WINDOWS_SERVER_2008_X64',
+        'WINDOWS_SERVER_2012_R2_X64',
+        'WINDOWS_SERVER_2012_X64',
+        'WINDOWS_SERVER_2016_X64',
+        'WINDOWS_SERVER_2019_X64',
+        'WINDOWS_SERVER_2019_CORE_X64',
+        'WINDOWS_XP_X86'
     ]
 
     operating_system_types_str = ','.join(operating_system_types)
 
     yum_package_distros = [
-        'AMAZON_LINUX_LATEST_X64', 'AMAZON_LINUX_2_LATEST_X64', 'CENTOS_6_X64', 'CENTOS_6_X86', 'CENTOS_7_X64',
-        'FEDORA_23_X64', 'ORACLE_LINUX_6_X64', 'ORACLE_LINUX_7_X64', 'RHEL_5_X64', 'RHEL_6_X64', 'RHEL_6_X86',
-        'RHEL_7_PPCLE', 'RHEL_7_X64', 'F5_BIGIP_X64', 'FORTISIEM', 'PALO_ALTO_NETWORKS_PAN_OS_X64'
+        'AMAZON_LINUX_LATEST_X64',
+        'AMAZON_LINUX_2_LATEST_X64',
+        'CENTOS_6_X64',
+        'CENTOS_6_X86',
+        'CENTOS_7_X64',
+        'FEDORA_23_X64',
+        'ORACLE_LINUX_6_X64',
+        'ORACLE_LINUX_7_X64',
+        'RHEL_5_X64',
+        'RHEL_6_X64',
+        'RHEL_6_X86',
+        'RHEL_7_PPCLE',
+        'RHEL_7_X64',
+        'F5_BIGIP_X64',
+        'FORTISIEM',
+        'PALO_ALTO_NETWORKS_PAN_OS_X64'
     ]
 
     docker_package_distros = [
@@ -35,15 +90,25 @@ class OperatingSystemType(object):
     ]
 
     apt_package_distros = [
-        'KALI_ROLLING_X64', 'RASPBIAN', 'UBUNTU_12_X64', 'UBUNTU_14_X64', 'UBUNTU_16_X64', 'UBUNTU_18_X64'
+        'KALI_ROLLING_X64',
+        'RASPBIAN',
+        'UBUNTU_12_X64',
+        'UBUNTU_14_X64',
+        'UBUNTU_16_X64',
+        'UBUNTU_18_X64',
+        'UBUNTU_20_X64'
     ]
 
     dnf_package_distros = [
-        'FEDORA_23_X64'
+        'CENTOS_8_X64',
+        'FEDORA_23_X64',
+        'ORACLE_LINUX_8_X64',
+        'RHEL_8_X64'
     ]
 
     app_store_package_distros = [
-        'OS_X_10', 'OS_X_11'
+        'OS_X_10',
+        'OS_X_11'
     ]
 
     pkgadd_package_distros = [
@@ -55,37 +120,68 @@ class OperatingSystemType(object):
     ]
 
     systemd_service_distros = [
-        'AMAZON_LINUX_2_LATEST_X64', 'CENTOS_7_X64', 'FEDORA_23_X64', 'ORACLE_LINUX_7_X64', 'RASPBIAN', 'RHEL_7_PPCLE',
-        'RHEL_7_X64', 'SOLARIS_11_X64', 'UBUNTU_16_X64', 'UBUNTU_18_X64'
+        'AMAZON_LINUX_2_LATEST_X64',
+        'CENTOS_7_X64',
+        'CENTOS_8_X64',
+        'FEDORA_23_X64',
+        'ORACLE_LINUX_7_X64',
+        'ORACLE_LINUX_8_X64',
+        'RASPBIAN',
+        'RHEL_7_PPCLE',
+        'RHEL_7_X64',
+        'RHEL_8_X64',
+        'SOLARIS_11_X64',
+        'UBUNTU_16_X64',
+        'UBUNTU_18_X64',
+        'UBUNTU_20_X64'
     ]
 
     initd_service_distros = [
-        'AMAZON_LINUX_LATEST_X64', 'CENTOS_6_X64', 'CENTOS_6_X86', 'F5_BIGIP_X64', 'FORTISIEM', 'ORACLE_LINUX_6_X64',
-        'PALO_ALTO_NETWORKS_PAN_OS_X64', 'RHEL_5_X64', 'RHEL_5_X86', 'RHEL_6_X64', 'RHEL_6_X86', 'RHEL_7_ATOMIC_HOST'
+        'AMAZON_LINUX_LATEST_X64',
+        'CENTOS_6_X64',
+        'CENTOS_6_X86',
+        'F5_BIGIP_X64',
+        'FORTISIEM',
+        'ORACLE_LINUX_6_X64',
+        'PALO_ALTO_NETWORKS_PAN_OS_X64',
+        'RHEL_5_X64',
+        'RHEL_5_X86',
+        'RHEL_6_X64',
+        'RHEL_6_X86',
+        'RHEL_7_ATOMIC_HOST'
     ]
 
     upstart_service_distros = [
-        'KALI_ROLLING_X64', 'UBUNTU_14_X64'
+        'KALI_ROLLING_X64',
+        'UBUNTU_14_X64'
     ]
 
     launchd_service_distros = [
-        'OS_X_10', 'OS_X_11'
+        'OS_X_10',
+        'OS_X_11'
     ]
 
     update_rc_service_distros = [
-        'VYOS_1_1_X64', 'VYOS_1_2_X64', 'VYOS_1_3_X64'
+        'VYOS_1_1_X64',
+        'VYOS_1_2_X64',
+        'VYOS_1_3_X64',
+        'VYOS_ROLLING_X64'
     ]
 
     powershell_v1 = [
-        'GENERIC_WINDOWS_X64', 'WINDOWS_SERVER_2008_X64'
+        'GENERIC_WINDOWS_X64',
+        'WINDOWS_SERVER_2008_X64'
     ]
 
     powershell_v2 = [
-        'WINDOWS_7_X64', 'WINDOWS_7_X86', 'WINDOWS_SERVER_2008_R2_X64'
+        'WINDOWS_7_X64',
+        'WINDOWS_7_X86',
+        'WINDOWS_SERVER_2008_R2_X64'
     ]
 
     powershell_v3 = [
-        'WINDOWS_8_X64', 'WINDOWS_SERVER_2012_X64'
+        'WINDOWS_8_X64',
+        'WINDOWS_SERVER_2012_X64'
     ]
 
     powershell_v4 = [
@@ -93,36 +189,124 @@ class OperatingSystemType(object):
     ]
 
     powershell_v5 = [
-        'WINDOWS_10_X64', 'WINDOWS_SERVER_2016_X64', 'WINDOWS_SERVER_2019_X64'
+        'WINDOWS_10_X64',
+        'WINDOWS_SERVER_2016_X64',
+        'WINDOWS_SERVER_2019_X64',
+        'WINDOWS_SERVER_2019_CORE_X64'
     ]
 
     remote_access_rdp = [
-        'WINDOWS_10_X64', 'WINDOWS_7_X64', 'WINDOWS_7_X86', 'WINDOWS_8_X64', 'WINDOWS_SERVER_2008_R2_X64',
-        'WINDOWS_SERVER_2008_X64', 'WINDOWS_SERVER_2012_R2_X64', 'WINDOWS_SERVER_2012_X64',
-        'WINDOWS_SERVER_2016_X64', 'WINDOWS_SERVER_2019_X64', 'WINDOWS_XP_X86', 'GENERIC_WINDOWS_X64'
+        'WINDOWS_10_X64',
+        'WINDOWS_7_X64',
+        'WINDOWS_7_X86',
+        'WINDOWS_8_X64',
+        'WINDOWS_SERVER_2008_R2_X64',
+        'WINDOWS_SERVER_2008_X64',
+        'WINDOWS_SERVER_2012_R2_X64',
+        'WINDOWS_SERVER_2012_X64',
+        'WINDOWS_SERVER_2016_X64',
+        'WINDOWS_SERVER_2019_X64',
+        'WINDOWS_SERVER_2019_CORE_X64',
+        'WINDOWS_XP_X86',
+        'GENERIC_WINDOWS_X64'
     ]
 
     remote_access_ssh = [
-        'AMAZON_LINUX_LATEST_X64', 'AMAZON_LINUX_2_LATEST_X64', 'CENTOS_6_X64', 'CENTOS_6_X86', 'CENTOS_7_X64',
-        'CORE_OS_1221_X64', 'F5_BIGIP_X64', 'FORTISIEM', 'PALO_ALTO_NETWORKS_PAN_OS_X64', 'FEDORA_23_X64',
-        'GENERIC_LINUX_X64', 'KALI_ROLLING_X64', 'ORACLE_LINUX_6_X64', 'ORACLE_LINUX_7_X64',
-        'OS_X_10', 'OS_X_11', 'RASPBIAN', 'RHEL_5_X64', 'RHEL_5_X86', 'RHEL_6_X64', 'RHEL_6_X86',
-        'RHEL_7_ATOMIC_HOST', 'RHEL_7_PPCLE', 'RHEL_7_X64', 'SOLARIS_11_X64', 'UBUNTU_12_X64', 'UBUNTU_14_X64',
-        'UBUNTU_16_X64', 'UBUNTU_18_X64', 'UBUNTU_CORE', 'VYOS_1_1_X64', 'VYOS_1_2_X64', 'VYOS_1_3_X64'
+        'AMAZON_LINUX_LATEST_X64',
+        'AMAZON_LINUX_2_LATEST_X64',
+        'CENTOS_6_X64',
+        'CENTOS_6_X86',
+        'CENTOS_7_X64',
+        'CENTOS_8_X64',
+        'CORE_OS_1221_X64',
+        'F5_BIGIP_X64',
+        'FORTISIEM',
+        'PALO_ALTO_NETWORKS_PAN_OS_X64',
+        'FEDORA_23_X64',
+        'GENERIC_LINUX_X64',
+        'KALI_ROLLING_X64',
+        'ORACLE_LINUX_6_X64',
+        'ORACLE_LINUX_7_X64',
+        'ORACLE_LINUX_8_X64',
+        'OS_X_10',
+        'OS_X_11',
+        'RASPBIAN',
+        'RHEL_5_X64',
+        'RHEL_5_X86',
+        'RHEL_6_X64',
+        'RHEL_6_X86',
+        'RHEL_7_ATOMIC_HOST',
+        'RHEL_7_PPCLE',
+        'RHEL_7_X64',
+        'RHEL_8_X64',
+        'SOLARIS_11_X64',
+        'UBUNTU_12_X64',
+        'UBUNTU_14_X64',
+        'UBUNTU_16_X64',
+        'UBUNTU_18_X64',
+        'UBUNTU_20_X64',
+        'UBUNTU_CORE',
+        'VYOS_1_1_X64',
+        'VYOS_1_2_X64',
+        'VYOS_1_3_X64',
+        'VYOS_ROLLING_X64'
     ]
 
     remote_access_vnc = [
-        'AMAZON_LINUX_LATEST_X64', 'AMAZON_LINUX_2_LATEST_X64', 'CENTOS_6_X64', 'CENTOS_6_X86', 'CENTOS_7_X64',
-        'CORE_OS_1221_X64', 'F5_BIGIP_X64', 'FORTISIEM', 'PALO_ALTO_NETWORKS_PAN_OS_X64', 'FEDORA_23_X64',
-        'GENERIC_LINUX_X64', 'KALI_ROLLING_X64', 'ORACLE_LINUX_6_X64', 'ORACLE_LINUX_7_X64',
-        'OS_X_10', 'OS_X_11', 'RASPBIAN', 'RHEL_5_X64', 'RHEL_5_X86', 'RHEL_6_X64', 'RHEL_6_X86',
-        'RHEL_7_ATOMIC_HOST', 'RHEL_7_PPCLE', 'RHEL_7_X64', 'SOLARIS_11_X64', 'UBUNTU_12_X64', 'UBUNTU_14_X64',
-        'UBUNTU_16_X64', 'UBUNTU_18_X64', 'UBUNTU_CORE', 'VYOS_1_1_X64', 'VYOS_1_2_X64', 'VYOS_1_3_X64'
+        'AMAZON_LINUX_LATEST_X64',
+        'AMAZON_LINUX_2_LATEST_X64',
+        'CENTOS_6_X64',
+        'CENTOS_6_X86',
+        'CENTOS_7_X64',
+        'CENTOS_8_X64',
+        'CORE_OS_1221_X64',
+        'F5_BIGIP_X64',
+        'FORTISIEM',
+        'PALO_ALTO_NETWORKS_PAN_OS_X64',
+        'FEDORA_23_X64',
+        'GENERIC_LINUX_X64',
+        'KALI_ROLLING_X64',
+        'ORACLE_LINUX_6_X64',
+        'ORACLE_LINUX_7_X64',
+        'ORACLE_LINUX_8_X64',
+        'OS_X_10',
+        'OS_X_11',
+        'RASPBIAN',
+        'RHEL_5_X64',
+        'RHEL_5_X86',
+        'RHEL_6_X64',
+        'RHEL_6_X86',
+        'RHEL_7_ATOMIC_HOST',
+        'RHEL_7_PPCLE',
+        'RHEL_7_X64',
+        'RHEL_8_X64',
+        'SOLARIS_11_X64',
+        'UBUNTU_12_X64',
+        'UBUNTU_14_X64',
+        'UBUNTU_16_X64',
+        'UBUNTU_18_X64',
+        'UBUNTU_20_X64',
+        'UBUNTU_CORE',
+        'VYOS_1_1_X64',
+        'VYOS_1_2_X64',
+        'VYOS_1_3_X64',
+        'VYOS_ROLLING_X64'
     ]
 
     container_capable = [
-        'AMAZON_LINUX_LATEST_X64', 'AMAZON_LINUX_2_LATEST_X64', 'CENTOS_7_X64', 'CORE_OS_1221_X64',
-        'ORACLE_LINUX_7_X64', 'RHEL_7_ATOMIC_HOST', 'RHEL_7_PPCLE', 'RHEL_7_X64', 'UBUNTU_16_X64', 'UBUNTU_18_X64'
+        'AMAZON_LINUX_LATEST_X64',
+        'AMAZON_LINUX_2_LATEST_X64',
+        'CENTOS_7_X64',
+        'CENTOS_8_X64',
+        'CORE_OS_1221_X64',
+        'ORACLE_LINUX_7_X64',
+        'RHEL_7_ATOMIC_HOST',
+        'RHEL_7_PPCLE',
+        'RHEL_7_X64',
+        'RHEL_8_X64',
+        'UBUNTU_16_X64',
+        'UBUNTU_18_X64',
+        'UBUNTU_20_X64'
     ]
 
     @staticmethod
@@ -216,74 +400,82 @@ class OperatingSystemType(object):
             return 'FEDORA_23_X64'
         if 'rasp' in template_name:
             return 'RASPBIAN'
-        if 'redhat' in template_name or 'red hat' in template_name or 'red-hat' in template_name:
-            if '5' in template_name:
-                if 'x86' in template_name:
-                    return 'RHEL_5_X86'
-                else:
-                    return 'RHEL_5_X64'
-            if '6' in template_name:
-                if 'x86' in template_name:
-                    return 'RHEL_6_X86'
-                else:
-                    return 'RHEL_6_X64'
-            if '7' in template_name:
-                if 'PPC' in template_name:
-                    return 'RHEL_7_PPCLE'
-                else:
-                    return 'RHEL_7_X64'
-        if 'cent' in template_name:
-            if '6' in template_name:
-                if 'x86' in template_name:
-                    return 'CENTOS_6_X86'
-                else:
-                    return 'CENTOS_6_X64'
-            if '7' in template_name:
-                return 'CENTOS_7_X64'
+        if 'redhat-5' in template_name:
+            return 'RHEL_5_X86'
+        if 'redhat-6' in template_name:
+            if 'x86' in template_name:
+                return 'RHEL_6_X86'
+            else:
+                return 'RHEL_6_X64'
+        if 'redhat-7' in template_name:
+            if 'PPC' in template_name:
+                return 'RHEL_7_PPCLE'
+            else:
+                return 'RHEL_7_X64'
+        if 'redhat-8' in template_name:
+            return 'RHEL_8_X64'
+        if 'centos-6' in template_name:
+            if 'x86' in template_name:
+                return 'CENTOS_6_X86'
+            else:
+                return 'CENTOS_6_X64'
+        if 'CentOS 6' in template_name:
+            return 'CENTOS_6_X64'
+        if 'centos-7' in template_name:
+            return 'CENTOS_7_X64'
+        if 'centos-8' in template_name:
+            return 'CENTOS_8_X64'
+        if 'ubuntu-14' in template_name:
+            return 'UBUNTU_14_X64'
+        if 'ubuntu-16' in template_name:
+            return 'UBUNTU_16_X64'
+        if 'ubuntu-18' in template_name:
+            return 'UBUNTU_18_X64'
+        if 'ubuntu-20' in template_name:
+            return 'UBUNTU_20_X64'
         if 'ubuntu' in template_name:
-            if '14' in template_name:
-                return 'UBUNTU_14_X64'
-            if '16' in template_name:
-                return 'UBUNTU_16_X64'
-            if '18' in template_name:
-                return 'UBUNTU_18_X64'
             if 'core' in template_name:
                 return 'UBUNTU_CORE'
-        if 'oracle' in template_name:
-            if '6' in template_name:
-                return 'ORACLE_LINUX_6_X64'
-            if '7' in template_name:
-                return 'ORACLE_LINUX_7_X64'
-        if 'vyos' in template_name:
-            if '3' in template_name:
-                return 'VYOS_1_3_X64'
-            if '2' in template_name:
-                return 'VYOS_1_2_X64'
-            else:
-                return 'VYOS_1_1_X64'
+        if 'oracle-6' in template_name:
+            return 'ORACLE_LINUX_6_X64'
+        if 'oracle-7' in template_name:
+            return 'ORACLE_LINUX_7_X64'
+        if 'oracle-8' in template_name:
+            return 'ORACLE_LINUX_8_X64'
+        if 'vyos-rolling' in template_name:
+            return 'VYOS_ROLLING_X64'
+        if 'vyos-1.3' in template_name:
+            return 'VYOS_1_3_X64'
+        if 'vyos-1.2' in template_name:
+            return 'VYOS_1_2_X64'
+        if 'vyos-1.1' in template_name:
+            return 'VYOS_1_1_X64'
         if 'windows' in template_name or 'win' in template_name:
             if '2008' in template_name or '2k8' in template_name:
                 if 'r2' in template_name:
                     return 'WINDOWS_SERVER_2008_R2_X64'
                 else:
-                    return 'WINDOWS_SERVER_2008_R2_X64'
+                    return 'WINDOWS_SERVER_2008_X64'
             if '2012' in template_name or '2k12' in template_name:
                 if 'r2' in template_name:
                     return 'WINDOWS_SERVER_2012_R2_X64'
                 else:
-                    return 'WINDOWS_SERVER_2012_R2_X64'
+                    return 'WINDOWS_SERVER_2012_X64'
             if '2016' in template_name or '2k16' in template_name:
                 return 'WINDOWS_SERVER_2016_X64'
             if '2019' in template_name or '2k19' in template_name:
-                return 'WINDOWS_SERVER_2019_X64'
-            if 'win10' in template_name or '10' in template_name:
+                if 'core' in template_name:
+                    return 'WINDOWS_SERVER_2019_CORE_X64'
+                else:
+                    return 'WINDOWS_SERVER_2019_X64'
+            if 'win10' in template_name or 'windows-10' in template_name:
                 return 'WINDOWS_10_X64'
-            if '7' in template_name:
+            if 'win7' in template_name or 'windows-7' in template_name:
                 if 'x86' in template_name:
                     return 'WINDOWS_7_X86'
                 else:
                     return 'WINDOWS_7_X64'
-            if '8' in template_name:
+            if 'win8' in template_name or 'windows-8' in template_name:
                 return 'WINDOWS_8_X64'
             if 'xp' in template_name:
                 return 'WINDOWS_XP_X86'
