@@ -1471,6 +1471,21 @@ class Cons3rtApi(object):
             raise Cons3rtApiError(msg) from exc
         return drh_details
 
+    def list_virtualization_realms(self):
+        """Query CONS3RT to return a list of VRs
+
+        :return: (list) of Virtualization Realm data
+        :raises: Cons3rtApiError
+        """
+        log = logging.getLogger(self.cls_logger + '.list_virtualization_realms')
+        log.info('Attempting to list virtualization realms')
+        try:
+            vrs = self.cons3rt_client.list_all_virtualization_realms()
+        except Cons3rtClientError as exc:
+            msg = 'Unable to query CONS3RT for a list of Virtualization Realms'
+            raise Cons3rtApiError(msg) from exc
+        return vrs
+
     def list_virtualization_realms_for_cloud(self, cloud_id):
         """Query CONS3RT to return a list of VRs for a specified Cloud ID
 

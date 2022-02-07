@@ -652,23 +652,32 @@ class Cons3rtClient:
                 result = vr['id']
         return result
 
-    def list_virtualization_realms_for_cloud(self, cloud_id, max_results=40, page_num=0):
-        """Queries CONS3RT for a list of Virtualization Realms for a specified Cloud ID
+    def list_all_virtualization_realms(self):
+        """Returns a list of virtualization realms
 
-        :param cloud_id: (int) Cloud ID to query
-        :param max_results: (int) maximum number of results to retrieve
-        :param page_num: (int) page number to return
         :return: (list) of virtualization realms
+        :raises: Cons3rtClientError
         """
-        response = self.http_client.http_get(
-            rest_user=self.user,
-            target='clouds/{i}/virtualizationrealms?maxresults={m}&page={p}'.format(
-                i=str(cloud_id),
-                m=str(max_results),
-                p=str(page_num)
-            ))
-        content = self.http_client.parse_response(response=response)
-        vrs = json.loads(content)
+        vrs = []
+        page_num = 0
+        max_results = 40
+        while True:
+            print('Retrieving virtualization realms: page {p}'.format(p=str(page_num)))
+            try:
+                page_of_vrs = self.list_virtualization_realms(
+                    max_results=max_results,
+                    page_num=page_num
+                )
+            except Cons3rtClientError as exc:
+                msg = 'Problem querying CONS3RT for a list of virtualization realms, ' \
+                      'page: {p}, max results: {m}'.format(p=str(page_num), m=str(max_results))
+                raise Cons3rtClientError(msg) from exc
+            vrs += page_of_vrs
+            if len(page_of_vrs) < max_results:
+                break
+            else:
+                page_num += 1
+            print('Found {n} virtualization realms'.format(n=str(len(vrs))))
         return vrs
 
     def list_all_virtualization_realms_for_cloud(self, cloud_id):
@@ -702,25 +711,6 @@ class Cons3rtClient:
             print('Found {n} virtualization realms in cloud {i}...'.format(n=str(len(vrs)), i=str(cloud_id)))
         return vrs
 
-    def list_virtualization_realms_for_project(self, project_id, max_results=40, page_num=0):
-        """Queries CONS3RT for a list of Virtualization Realms for a specified project ID
-
-        :param project_id: (int) project ID to query
-        :param max_results: (int) maximum number of results to retrieve
-        :param page_num: (int) page number to return
-        :return: (list) of virtualization realms
-        """
-        response = self.http_client.http_get(
-            rest_user=self.user,
-            target='projects/{i}/virtualizationrealms?maxresults={m}&page={p}'.format(
-                i=str(project_id),
-                m=str(max_results),
-                p=str(page_num)
-            ))
-        content = self.http_client.parse_response(response=response)
-        vrs = json.loads(content)
-        return vrs
-
     def list_all_virtualization_realms_for_project(self, project_id):
         """Returns a list of virtualization realms in the provided project ID
 
@@ -752,25 +742,6 @@ class Cons3rtClient:
             print('Found {n} virtualization realms in project {i}...'.format(n=str(len(vrs)), i=str(project_id)))
         return vrs
 
-    def list_virtualization_realms_for_team(self, team_id, max_results=40, page_num=0):
-        """Queries CONS3RT for a list of Virtualization Realms for a specified team ID
-
-        :param team_id: (int) project ID to query
-        :param max_results: (int) maximum number of results to retrieve
-        :param page_num: (int) page number to return
-        :return: (list) of virtualization realms
-        """
-        response = self.http_client.http_get(
-            rest_user=self.user,
-            target='teams/{i}/virtualizationrealms?maxresults={m}&page={p}'.format(
-                i=str(team_id),
-                m=str(max_results),
-                p=str(page_num)
-            ))
-        content = self.http_client.parse_response(response=response)
-        vrs = json.loads(content)
-        return vrs
-
     def list_all_virtualization_realms_for_team(self, team_id):
         """Returns a list of virtualization realms in the provided team ID
 
@@ -800,6 +771,80 @@ class Cons3rtClient:
             else:
                 page_num += 1
             print('Found {n} virtualization realms in team {i}...'.format(n=str(len(vrs)), i=str(team_id)))
+        return vrs
+
+    def list_virtualization_realms(self, max_results=40, page_num=0):
+        """Queries CONS3RT for a list of Virtualization Realms for a specified team ID
+
+        :param max_results: (int) maximum number of results to retrieve
+        :param page_num: (int) page number to return
+        :return: (list) of virtualization realms
+        """
+        response = self.http_client.http_get(
+            rest_user=self.user,
+            target='virtualizationrealms?maxresults={m}&page={p}'.format(
+                m=str(max_results),
+                p=str(page_num)
+            ))
+        content = self.http_client.parse_response(response=response)
+        vrs = json.loads(content)
+        return vrs
+
+    def list_virtualization_realms_for_cloud(self, cloud_id, max_results=40, page_num=0):
+        """Queries CONS3RT for a list of Virtualization Realms for a specified Cloud ID
+
+        :param cloud_id: (int) Cloud ID to query
+        :param max_results: (int) maximum number of results to retrieve
+        :param page_num: (int) page number to return
+        :return: (list) of virtualization realms
+        """
+        response = self.http_client.http_get(
+            rest_user=self.user,
+            target='clouds/{i}/virtualizationrealms?maxresults={m}&page={p}'.format(
+                i=str(cloud_id),
+                m=str(max_results),
+                p=str(page_num)
+            ))
+        content = self.http_client.parse_response(response=response)
+        vrs = json.loads(content)
+        return vrs
+
+    def list_virtualization_realms_for_project(self, project_id, max_results=40, page_num=0):
+        """Queries CONS3RT for a list of Virtualization Realms for a specified project ID
+
+        :param project_id: (int) project ID to query
+        :param max_results: (int) maximum number of results to retrieve
+        :param page_num: (int) page number to return
+        :return: (list) of virtualization realms
+        """
+        response = self.http_client.http_get(
+            rest_user=self.user,
+            target='projects/{i}/virtualizationrealms?maxresults={m}&page={p}'.format(
+                i=str(project_id),
+                m=str(max_results),
+                p=str(page_num)
+            ))
+        content = self.http_client.parse_response(response=response)
+        vrs = json.loads(content)
+        return vrs
+
+    def list_virtualization_realms_for_team(self, team_id, max_results=40, page_num=0):
+        """Queries CONS3RT for a list of Virtualization Realms for a specified team ID
+
+        :param team_id: (int) project ID to query
+        :param max_results: (int) maximum number of results to retrieve
+        :param page_num: (int) page number to return
+        :return: (list) of virtualization realms
+        """
+        response = self.http_client.http_get(
+            rest_user=self.user,
+            target='teams/{i}/virtualizationrealms?maxresults={m}&page={p}'.format(
+                i=str(team_id),
+                m=str(max_results),
+                p=str(page_num)
+            ))
+        content = self.http_client.parse_response(response=response)
+        vrs = json.loads(content)
         return vrs
 
     def add_virtualization_realm_admin(self, vr_id, username):

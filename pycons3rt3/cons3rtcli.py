@@ -1,5 +1,6 @@
 #!/usr/bin/env python
 
+import json
 import traceback
 
 from .cons3rtapi import Cons3rtApi
@@ -28,6 +29,20 @@ class Cons3rtCli(object):
         except Cons3rtApiError as exc:
             self.err('Missing or incomplete authentication information, run [cons3rt config] to fix\n{e}'.format(
                 e=str(exc)))
+
+    def process_args(self):
+        if not self.validate_args():
+            return False
+        if not self.process_subcommands():
+            return False
+        return True
+
+    def process_subcommands(self):
+        """
+        This method must be overridden by the child class
+        :return:
+        """
+        return True
 
     def validate_args(self):
         try:
@@ -181,6 +196,32 @@ class Cons3rtCli(object):
         print(msg)
 
     @staticmethod
+    def print_cloudspaces(cloudspaces_list):
+        msg = 'ID\tName\t\t\t\tType\n'
+        for cloudspace in cloudspaces_list:
+            if 'id' in cloudspace:
+                msg += str(cloudspace['id'])
+            else:
+                msg += '      '
+            msg += '\t'
+            if 'name' in cloudspace:
+                msg += cloudspace['name']
+            else:
+                msg += '                '
+            msg += '\t\t\t\t'
+            if 'virtualizationRealmType' in cloudspace:
+                msg += cloudspace['virtualizationRealmType']
+            else:
+                msg += '           '
+            msg += '\t\t'
+            if 'state' in cloudspace:
+                msg += cloudspace['state']
+            else:
+                msg += '           '
+            msg += '\n'
+        print(msg)
+
+    @staticmethod
     def print_host_action_results_list(host_action_results_list):
         msg = HostActionResult.get_host_action_result_header() + '\n'
         for host_action_result in host_action_results_list:
@@ -274,17 +315,12 @@ class CloudCli(Cons3rtCli):
     def __init__(self, args, subcommands=None):
         Cons3rtCli.__init__(self, args=args, subcommands=subcommands)
         self.valid_subcommands = [
+            'create',
             'delete',
             'list',
+            'retrieve',
             'template'
         ]
-
-    def process_args(self):
-        if not self.validate_args():
-            return False
-        if not self.process_subcommands():
-            return False
-        return True
 
     def process_subcommands(self):
         if not self.subcommands:
@@ -294,7 +330,12 @@ class CloudCli(Cons3rtCli):
         if self.subcommands[0] not in self.valid_subcommands:
             self.err('Unrecognized command: {c}'.format(c=self.subcommands[0]))
             return False
-        if self.subcommands[0] == 'delete':
+        if self.subcommands[0] == 'create':
+            try:
+                self.create_cloud()
+            except Cons3rtCliError:
+                return False
+        elif self.subcommands[0] == 'delete':
             try:
                 self.delete_clouds()
             except Cons3rtCliError:
@@ -304,11 +345,91 @@ class CloudCli(Cons3rtCli):
                 self.list_clouds()
             except Cons3rtCliError:
                 return False
+        elif self.subcommands[0] == 'retrieve':
+            try:
+                self.retrieve_clouds()
+            except Cons3rtCliError:
+                return False
         elif self.subcommands[0] == 'template':
             try:
                 self.templates()
             except Cons3rtCliError:
                 return False
+        return True
+
+    def create_cloud(self):
+
+        if not self.args.cloud_ato_consent:
+            msg = '--cloud_ato_consent arg is required for cloud creation, providing this arg implies consent'
+            self.err(msg)
+            raise Cons3rtCliError(msg)
+
+        if self.args.json:
+            return self.create_cloud_from_json()
+        else:
+            return self.create_cloud_from_args()
+
+    def create_cloud_from_args(self):
+        """Creates a cloud using the provided combination of CLI args
+
+        TODO -- This is incomplete
+
+        :return:
+        """
+        # Get the required args
+        if not self.args.name:
+            msg = '--name arg is required for cloud creation'
+            self.err(msg)
+            raise Cons3rtCliError(msg)
+
+        if not self.args.cloud_type:
+            msg = '--cloud_type arg is required for cloud creation (awsCloud, azureCloud, openStackCloud, ' \
+                  'vCloudCloud, vCloudRestCloud)'
+            self.err(msg)
+            raise Cons3rtCliError(msg)
+
+        # Get the optional args
+        owning_team_id = None
+        linux_repo_url = None
+        # vcloud_username = None
+
+        if self.args.owning_team_id:
+            owning_team_id = self.args.owning_team_id
+        if self.args.linux_repo_url:
+            linux_repo_url = self.args.linux_repo_url
+
+        try:
+            self.c5t.create_cloud(
+                cloud_ato_consent=True,
+                name=self.args.name,
+                owning_team_id=owning_team_id,
+                allocation_capable=True,
+                de_allocation_capable=True,
+                linux_repo_url=linux_repo_url,
+            )
+        except Cons3rtApiError as exc:
+            msg = 'Problem creating cloud\n{e}'.format(e=str(exc))
+            self.err(msg)
+            raise Cons3rtCliError(msg) from exc
+
+    def create_cloud_from_json(self):
+        """Creates a cloud using the json file specified with the --json CLI arg
+
+        :return:
+        """
+        if not self.args.json:
+            msg = '--json arg is required to create a cloud from JSON file'
+            self.err(msg)
+            raise Cons3rtCliError(msg)
+        json_path = self.args.json
+
+        try:
+            self.c5t.register_cloud_from_json(json_file=json_path)
+        except Cons3rtApiError as exc:
+            msg = 'Problem creating cloud from JSON file: {f}\n{e}'.format(f=json_path, e=str(exc))
+            self.err(msg)
+            traceback.print_exc()
+            raise Cons3rtCliError(msg) from exc
 
     def delete_clouds(self):
         if not self.ids:
@@ -322,6 +443,42 @@ class CloudCli(Cons3rtCli):
                 msg = 'Problem deleting cloud ID: {c}\n{e}'.format(c=str(cloud_id), e=str(exc))
                 self.err(msg)
                 raise Cons3rtCliError(msg) from exc
+
+    def retrieve_clouds(self):
+        if not self.ids:
+            msg = '--id or --ids arg required to retrieve cloud details'
+            self.err(msg)
+            raise Cons3rtCliError(msg)
+
+        # Store the list of cloud dicts in this list
+        clouds = []
+
+        for cloud_id in self.ids:
+            try:
+                clouds.append(self.c5t.retrieve_cloud_details(cloud_id=cloud_id))
+            except Cons3rtApiError as exc:
+                msg = 'Problem retrieving cloud details for cloud ID: {c}\n{e}'.format(c=str(cloud_id), e=str(exc))
+                self.err(msg)
+                raise Cons3rtCliError(msg) from exc
+
+        # Export the clouds to a JSON file
+        if self.args.json:
+            json_path = self.args.json
+
+            # Create JSON content
+            try:
+                json.dump(clouds, open(json_path, 'w'), sort_keys=True, indent=2, separators=(',', ': '))
+            except SyntaxError as exc:
+                msg = 'Problem converting clouds data to JSON: {d}'.format(d=str(clouds))
+                raise Cons3rtCliError(msg) from exc
+            except (OSError, IOError) as exc:
+                msg = 'Problem creating JSON output file: {f}'.format(f=json_path)
+                raise Cons3rtCliError(msg) from exc
+            print('Created output JSON file containing cloud data: {f}'.format(f=json_path))
+
+        # Output the cloud data to terminal
+        for cloud in clouds:
+            print(str(cloud))
 
     def templates(self):
         if not self.ids:
@@ -372,55 +529,14 @@ class CloudspaceCli(Cons3rtCli):
     def __init__(self, args, subcommands=None):
         Cons3rtCli.__init__(self, args=args, subcommands=subcommands)
         self.valid_subcommands = [
+            'allocate',
             'deallocate',
             'list',
             'template',
+            'register',
+            'retrieve',
             'unregister'
         ]
-
-    def process_args(self):
-        if not self.validate_args():
-            return False
-        sub = self.process_subcommands()
-        if not sub:
-            return False
-        if not self.ids:
-            self.err('No Cloudspace ID(s) provided, use --id=123 or --ids=3,4,5')
-            return False
-        unlock = False
-        if self.args.unlock:
-            unlock = True
-        if self.subcommands:
-            if len(self.subcommands) > 0:
-                if self.subcommands[0] not in self.valid_subcommands:
-                    self.err('Unrecognized command: {c}'.format(c=self.subcommands[0]))
-                    return False
-                if self.subcommands[0] == 'deallocate':
-                    self.deallocate()
-                elif self.subcommands[0] == 'unregister':
-                    self.unregister()
-        else:
-            if self.args.list_active_runs or self.args.list:
-                try:
-                    self.list_active_runs()
-                except Cons3rtCliError:
-                    return False
-            if self.args.release_active_runs:
-                try:
-                    self.release_active_runs()
-                except Cons3rtCliError:
-                    return False
-            if self.args.delete_inactive_runs:
-                try:
-                    self.delete_inactive_runs()
-                except Cons3rtCliError:
-                    return False
-            if self.args.clean_all_runs:
-                try:
-                    self.clean_all_runs(unlock=unlock)
-                except Cons3rtCliError:
-                    return False
-        return True
 
     def process_subcommands(self):
         if not self.subcommands:
@@ -430,12 +546,115 @@ class CloudspaceCli(Cons3rtCli):
         if self.subcommands[0] not in self.valid_subcommands:
             self.err('Unrecognized command: {c}'.format(c=self.subcommands[0]))
             return False
-        if self.subcommands[0] == 'template':
+        if self.subcommands[0] == 'allocate':
+            try:
+                self.allocate_cloudspace()
+            except Cons3rtCliError:
+                return False
+        elif self.subcommands[0] == 'deallocate':
+            try:
+                self.deallocate_cloudspace()
+            except Cons3rtCliError:
+                return False
+        elif self.subcommands[0] == 'list':
+            try:
+                self.list_cloudspace()
+            except Cons3rtCliError:
+                return False
+        elif self.subcommands[0] == 'register':
+            try:
+                self.register_cloudspace()
+            except Cons3rtCliError:
+                return False
+        elif self.subcommands[0] == 'retrieve':
+            try:
+                self.retrieve_cloudspace()
+            except Cons3rtCliError:
+                return False
+        elif self.subcommands[0] == 'template':
             try:
                 self.templates()
             except Cons3rtCliError:
                 return False
+        elif self.subcommands[0] == 'unregister':
+            try:
+                self.unregister_cloudspace()
+            except Cons3rtCliError:
+                return False
         return True
+
+    def allocate_cloudspace(self):
+        if not self.ids:
+            msg = '--id or --ids arg required to specify the cloud ID to allocate a cloudspace under'
+            self.err(msg)
+            raise Cons3rtCliError(msg)
+        if len(self.ids) != 1:
+            msg = '--id or --ids requires 1 ID, found: {n}'.format(n=str(len(self.ids)))
+            self.err(msg)
+            raise Cons3rtCliError(msg)
+        if not self.args.json:
+            msg = '--json arg required to specify the json file to use for cloudspaace allocation data'
+            self.err(msg)
+            raise Cons3rtCliError(msg)
+        cloud_id = self.ids[0]
+        json_path = self.args.json
+        try:
+            self.c5t.allocate_virtualization_realm_to_cloud_from_json(cloud_id=cloud_id, json_file=json_path)
+        except Cons3rtApiError as exc:
+            msg = 'Problem allocating a cloudspace: {i}\n{e}'.format(
+                i=str(cloud_id), e=str(exc))
+            self.err(msg)
+            raise Cons3rtCliError(msg) from exc
+
+    def clean_all_runs(self, unlock):
+        if not self.ids:
+            msg = '--id or --ids arg required to specify the cloudspace ID(s)'
+            self.err(msg)
+            raise Cons3rtCliError(msg)
+        for cloudspace_id in self.ids:
+            self.clean_all_runs_from_cloudspace(cloudspace_id, unlock)
+
+    def clean_all_runs_from_cloudspace(self, cloudspace_id, unlock):
+        try:
+            self.c5t.clean_all_runs_in_virtualization_realm(vr_id=cloudspace_id, unlock=unlock)
+        except Cons3rtApiError as exc:
+            msg = 'There was a problem cleaning all runs from cloudspace ID: {i}\n{e}'.format(
+                i=str(cloudspace_id), e=str(exc))
+            self.err(msg)
+            raise Cons3rtCliError(msg) from exc
+
+    def deallocate_cloudspace(self):
+        if not self.ids:
+            msg = '--id or --ids arg required to specify the cloudspace ID(s)'
+            self.err(msg)
+            raise Cons3rtCliError(msg)
+        for cloudspace_id in self.ids:
+            self.c5t.deallocate_virtualization_realm(vr_id=cloudspace_id)
+
+    def delete_inactive_runs(self):
+        if not self.ids:
+            msg = '--id or --ids arg required to specify the cloudspace ID(s)'
+            self.err(msg)
+            raise Cons3rtCliError(msg)
+        for cloudspace_id in self.ids:
+            self.delete_inactive_runs_from_cloudspace(cloudspace_id)
+
+    def delete_inactive_runs_from_cloudspace(self, cloudspace_id):
+        try:
+            self.c5t.delete_inactive_runs_in_virtualization_realm(vr_id=cloudspace_id)
+        except Cons3rtApiError as exc:
+            msg = 'There was a problem deleting inactive runs from cloudspace ID: {i}\n{e}'.format(
+                i=str(cloudspace_id), e=str(exc))
+            self.err(msg)
+            raise Cons3rtCliError(msg) from exc
+
+    def delete_templates(self):
+        for cloudspace_id in self.ids:
+            if self.args.all:
+                self.c5t.delete_all_template_registrations(vr_id=cloudspace_id)
+            elif self.names:
+                for template_name in self.names:
+                    self.c5t.delete_template_registration(vr_id=cloudspace_id, template_name=template_name)
 
     def list_active_runs(self):
         if not self.ids:
@@ -460,101 +679,85 @@ class CloudspaceCli(Cons3rtCli):
         if len(drs) > 0:
             self.print_drs(dr_list=drs)
 
-    def delete_inactive_runs(self):
+    def list_cloudspace(self):
+        if self.ids:
+            self.list_cloudspace_resources()
+        else:
+            self.list_cloudspaces()
+
+    def list_cloudspace_resources(self):
         if not self.ids:
-            msg = '--id or --ids arg required to specify the cloudspace ID(s)'
+            msg = '--id or --ids arg required to list resources in the specified cloudspace ID(s)'
             self.err(msg)
             raise Cons3rtCliError(msg)
-        for cloudspace_id in self.ids:
-            self.delete_inactive_runs_from_cloudspace(cloudspace_id)
+        unlock = False
+        if self.args.unlock:
+            unlock = True
+        if self.args.list_active_runs:
+            self.list_active_runs()
+        if self.args.release_active_runs:
+            self.release_active_runs()
+        if self.args.delete_inactive_runs:
+            self.delete_inactive_runs()
+        if self.args.clean_all_runs:
+            self.clean_all_runs(unlock=unlock)
 
-    def delete_inactive_runs_from_cloudspace(self, cloudspace_id):
+    def list_cloudspaces(self):
+        cloudspaces = []
         try:
-            self.c5t.delete_inactive_runs_in_virtualization_realm(vr_id=cloudspace_id)
+            cloudspaces += self.c5t.list_virtualization_realms()
         except Cons3rtApiError as exc:
-            msg = 'There was a problem deleting inactive runs from cloudspace ID: {i}\n{e}'.format(
-                i=str(cloudspace_id), e=str(exc))
+            msg = 'There was a problem listing cloudspaces\n{e}'.format(e=str(exc))
             self.err(msg)
             raise Cons3rtCliError(msg) from exc
+        if len(cloudspaces) > 0:
+            cloudspaces = self.sort_by_id(cloudspaces)
+            self.print_cloudspaces(cloudspaces_list=cloudspaces)
+        print('Total number of cloudspaces found: {n}'.format(n=str(len(cloudspaces))))
 
-    def release_active_runs(self):
-        if not self.ids:
-            msg = '--id or --ids arg required to specify the cloudspace ID(s)'
-            self.err(msg)
-            raise Cons3rtCliError(msg)
+    def list_templates(self):
+        templates = []
         for cloudspace_id in self.ids:
-            self.release_active_runs_from_cloudspace(cloudspace_id)
+            templates += self.list_templates_for_cloudspace(cloudspace_id=cloudspace_id)
+        if len(templates) > 0:
+            self.print_templates(template_list=templates)
+        print('Total number of templates found: {n}'.format(n=str(len(templates))))
 
-    def release_active_runs_from_cloudspace(self, cloudspace_id):
+    def list_templates_for_cloudspace(self, cloudspace_id):
         try:
-            self.c5t.release_active_runs_in_virtualization_realm(vr_id=cloudspace_id)
+            templates = self.c5t.list_templates_in_virtualization_realm(
+                vr_id=cloudspace_id,
+                include_subscriptions=True,
+                include_registrations=True,
+            )
         except Cons3rtApiError as exc:
-            msg = 'There was a problem releasing active runs from cloudspace ID: {i}\n{e}'.format(
-                i=str(cloudspace_id), e=str(exc))
+            msg = 'Problem listing templates in cloudspace ID: {i}\n{e}'.format(i=str(cloudspace_id), e=str(exc))
             self.err(msg)
             raise Cons3rtCliError(msg) from exc
+        return templates
 
-    def clean_all_runs(self, unlock):
+    def register_cloudspace(self):
         if not self.ids:
-            msg = '--id or --ids arg required to specify the cloudspace ID(s)'
+            msg = '--id required to specify the cloud ID to register the cloudspace under'
             self.err(msg)
             raise Cons3rtCliError(msg)
-        for cloudspace_id in self.ids:
-            self.clean_all_runs_from_cloudspace(cloudspace_id, unlock)
+        cloud_id = self.ids[0]
 
-    def clean_all_runs_from_cloudspace(self, cloudspace_id, unlock):
+        # Ensure --json was specified for the input file
+        if not self.args.json:
+            msg = '--json required to specify the JSON file to register from'
+            self.err(msg)
+            raise Cons3rtCliError(msg)
+        json_path = self.args.json
+
+        # register the cloudspace
         try:
-            self.c5t.clean_all_runs_in_virtualization_realm(vr_id=cloudspace_id, unlock=unlock)
+            self.c5t.register_virtualization_realm_to_cloud_from_json(cloud_id=cloud_id, json_file=json_path)
         except Cons3rtApiError as exc:
-            msg = 'There was a problem cleaning all runs from cloudspace ID: {i}\n{e}'.format(
-                i=str(cloudspace_id), e=str(exc))
+            msg = 'Problem registering a cloudspace to cloud ID: {c}\n{e}'.format(
+                c=str(cloud_id), e=str(exc))
             self.err(msg)
             raise Cons3rtCliError(msg) from exc
-
-    def deallocate(self):
-        if not self.ids:
-            msg = '--id or --ids arg required to specify the cloudspace ID(s)'
-            self.err(msg)
-            raise Cons3rtCliError(msg)
-        for cloudspace_id in self.ids:
-            self.c5t.deallocate_virtualization_realm(vr_id=cloudspace_id)
-
-    def unregister(self):
-        if not self.ids:
-            msg = '--id or --ids arg required to specify the cloudspace ID(s)'
-            self.err(msg)
-            raise Cons3rtCliError(msg)
-        for cloudspace_id in self.ids:
-            self.c5t.unregister_virtualization_realm(vr_id=cloudspace_id)
-
-    def templates(self):
-        if not self.ids:
-            msg = '--id or --ids arg required to specify the cloudspace ID(s)'
-            self.err(msg)
-            raise Cons3rtCliError(msg)
-        if len(self.subcommands) > 1:
-            template_subcommand = self.subcommands[1]
-
-            if template_subcommand == 'delete':
-                self.delete_templates()
-                return
-            elif template_subcommand == 'list':
-                self.list_templates()
-                return
-            elif template_subcommand == 'register':
-                self.register_templates()
-                return
-            elif template_subcommand == 'share':
-                self.share_template()
-                return
-
-    def delete_templates(self):
-        for cloudspace_id in self.ids:
-            if self.args.all:
-                self.c5t.delete_all_template_registrations(vr_id=cloudspace_id)
-            elif self.names:
-                for template_name in self.names:
-                    self.c5t.delete_template_registration(vr_id=cloudspace_id, template_name=template_name)
 
     def register_templates(self):
         successful_template_registrations = []
@@ -599,26 +802,59 @@ class CloudspaceCli(Cons3rtCli):
                 for fail in cloudspace['registrations']:
                     print(str(cloudspace['cloudspace_id']) + '\t\t\t\t' + fail)
 
-    def list_templates(self):
-        templates = []
+    def release_active_runs(self):
+        if not self.ids:
+            msg = '--id or --ids arg required to specify the cloudspace ID(s)'
+            self.err(msg)
+            raise Cons3rtCliError(msg)
         for cloudspace_id in self.ids:
-            templates += self.list_templates_for_cloudspace(cloudspace_id=cloudspace_id)
-        if len(templates) > 0:
-            self.print_templates(template_list=templates)
-        print('Total number of templates found: {n}'.format(n=str(len(templates))))
+            self.release_active_runs_from_cloudspace(cloudspace_id)
 
-    def list_templates_for_cloudspace(self, cloudspace_id):
+    def release_active_runs_from_cloudspace(self, cloudspace_id):
         try:
-            templates = self.c5t.list_templates_in_virtualization_realm(
-                vr_id=cloudspace_id,
-                include_subscriptions=True,
-                include_registrations=True,
-            )
+            self.c5t.release_active_runs_in_virtualization_realm(vr_id=cloudspace_id)
         except Cons3rtApiError as exc:
-            msg = 'Problem listing templates in cloudspace ID: {i}\n{e}'.format(i=str(cloudspace_id), e=str(exc))
+            msg = 'There was a problem releasing active runs from cloudspace ID: {i}\n{e}'.format(
+                i=str(cloudspace_id), e=str(exc))
             self.err(msg)
             raise Cons3rtCliError(msg) from exc
-        return templates
+
+    def retrieve_cloudspace(self):
+        if not self.ids:
+            msg = '--id or --ids arg required to retrieve cloudspace details'
+            self.err(msg)
+            raise Cons3rtCliError(msg)
+
+        # Store the list of cloudspace dicts in this list
+        cloudspaces = []
+
+        for cloudspace_id in self.ids:
+            try:
+                cloudspaces.append(self.c5t.get_virtualization_realm_details(vr_id=cloudspace_id))
+            except Cons3rtApiError as exc:
+                msg = 'Problem retrieving cloudspace details for cloudspace ID: {c}\n{e}'.format(
+                    c=str(cloudspace_id), e=str(exc))
+                self.err(msg)
+                raise Cons3rtCliError(msg) from exc
+
+        # Export the clouds to a JSON file
+        if self.args.json:
+            json_path = self.args.json
+
+            # Create JSON content
+            try:
+                json.dump(cloudspaces, open(json_path, 'w'), sort_keys=True, indent=2, separators=(',', ': '))
+            except SyntaxError as exc:
+                msg = 'Problem converting clouds data to JSON: {d}'.format(d=str(cloudspaces))
+                raise Cons3rtCliError(msg) from exc
+            except (OSError, IOError) as exc:
+                msg = 'Problem creating JSON output file: {f}'.format(f=json_path)
+                raise Cons3rtCliError(msg) from exc
+            print('Created output JSON file containing cloud data: {f}'.format(f=json_path))
+
+        # Output the cloud data to terminal
+        for cloudspace in cloudspaces:
+            print(str(cloudspace))
 
     def share_template(self):
         if not self.args.provider_id:
@@ -641,6 +877,35 @@ class CloudspaceCli(Cons3rtCli):
                 vr_ids=self.ids
             )
 
+    def templates(self):
+        if not self.ids:
+            msg = '--id or --ids arg required to specify the cloudspace ID(s)'
+            self.err(msg)
+            raise Cons3rtCliError(msg)
+        if len(self.subcommands) > 1:
+            template_subcommand = self.subcommands[1]
+
+            if template_subcommand == 'delete':
+                self.delete_templates()
+                return
+            elif template_subcommand == 'list':
+                self.list_templates()
+                return
+            elif template_subcommand == 'register':
+                self.register_templates()
+                return
+            elif template_subcommand == 'share':
+                self.share_template()
+                return
+
+    def unregister_cloudspace(self):
+        if not self.ids:
+            msg = '--id or --ids arg required to specify the cloudspace ID(s)'
+            self.err(msg)
+            raise Cons3rtCliError(msg)
+        for cloudspace_id in self.ids:
+            self.c5t.unregister_virtualization_realm(vr_id=cloudspace_id)
+
 
 class DeploymentCli(Cons3rtCli):
 
@@ -650,13 +915,6 @@ class DeploymentCli(Cons3rtCli):
             'list',
             'run'
         ]
-
-    def process_args(self):
-        if not self.validate_args():
-            return False
-        if not self.process_subcommands():
-            return False
-        return True
 
     def process_subcommands(self):
         if not self.subcommands:
@@ -793,13 +1051,6 @@ class ProjectCli(Cons3rtCli):
             'members',
             'run'
         ]
-
-    def process_args(self):
-        if not self.validate_args():
-            return False
-        if not self.process_subcommands():
-            return False
-        return True
 
     def process_subcommands(self):
         if not self.subcommands:
@@ -995,13 +1246,6 @@ class RunCli(Cons3rtCli):
             'restore',
             'snapshot'
         ]
-
-    def process_args(self):
-        if not self.validate_args():
-            return False
-        if not self.process_subcommands():
-            return False
-        return True
 
     def process_subcommands(self):
         if not self.subcommands:
