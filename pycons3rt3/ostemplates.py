@@ -400,55 +400,55 @@ class OperatingSystemType(object):
             return 'FEDORA_23_X64'
         if 'rasp' in template_name:
             return 'RASPBIAN'
-        if 'redhat-5' in template_name:
+        if 'redhat-5' in template_name or 'rhel5' in template_name or 'rhel-5' in template_name:
             return 'RHEL_5_X86'
-        if 'redhat-6' in template_name:
+        if 'redhat-6' in template_name or 'rhel6' in template_name or 'rhel-6' in template_name:
             if 'x86' in template_name:
                 return 'RHEL_6_X86'
             else:
                 return 'RHEL_6_X64'
-        if 'redhat-7' in template_name:
-            if 'PPC' in template_name:
+        if 'redhat-7' in template_name or 'rhel7' in template_name or 'rhel-7' in template_name:
+            if 'ppc' in template_name:
                 return 'RHEL_7_PPCLE'
             else:
                 return 'RHEL_7_X64'
-        if 'redhat-8' in template_name:
+        if 'redhat-8' in template_name or 'rhel8' in template_name or 'rhel-8' in template_name:
             return 'RHEL_8_X64'
-        if 'centos-6' in template_name:
+        if 'centos-6' in template_name or 'centos6' in template_name:
             if 'x86' in template_name:
                 return 'CENTOS_6_X86'
             else:
                 return 'CENTOS_6_X64'
         if 'CentOS 6' in template_name:
             return 'CENTOS_6_X64'
-        if 'centos-7' in template_name:
+        if 'centos-7' in template_name or 'centos7' in template_name:
             return 'CENTOS_7_X64'
-        if 'centos-8' in template_name:
+        if 'centos-8' in template_name or 'centos8' in template_name:
             return 'CENTOS_8_X64'
-        if 'ubuntu-14' in template_name:
+        if 'ubuntu-14' in template_name or 'ubuntu14' in template_name:
             return 'UBUNTU_14_X64'
-        if 'ubuntu-16' in template_name:
+        if 'ubuntu-16' in template_name or 'ubuntu16' in template_name:
             return 'UBUNTU_16_X64'
-        if 'ubuntu-18' in template_name:
+        if 'ubuntu-18' in template_name or 'ubuntu18' in template_name:
             return 'UBUNTU_18_X64'
-        if 'ubuntu-20' in template_name:
+        if 'ubuntu-20' in template_name or 'ubuntu20' in template_name:
             return 'UBUNTU_20_X64'
         if 'ubuntu' in template_name:
             if 'core' in template_name:
                 return 'UBUNTU_CORE'
-        if 'oracle-6' in template_name:
+        if 'oracle-6' in template_name or 'oracle6' in template_name:
             return 'ORACLE_LINUX_6_X64'
-        if 'oracle-7' in template_name:
+        if 'oracle-7' in template_name or 'oracle7' in template_name:
             return 'ORACLE_LINUX_7_X64'
-        if 'oracle-8' in template_name:
+        if 'oracle-8' in template_name or 'oracle8' in template_name:
             return 'ORACLE_LINUX_8_X64'
         if 'vyos-rolling' in template_name:
             return 'VYOS_ROLLING_X64'
-        if 'vyos-1.3' in template_name:
+        if 'vyos-1.3' in template_name or 'vyos13' in template_name:
             return 'VYOS_1_3_X64'
-        if 'vyos-1.2' in template_name:
+        if 'vyos-1.2' in template_name or 'vyos12' in template_name:
             return 'VYOS_1_2_X64'
-        if 'vyos-1.1' in template_name:
+        if 'vyos-1.1' in template_name or 'vyos11' in template_name:
             return 'VYOS_1_1_X64'
         if 'windows' in template_name or 'win' in template_name:
             if '2008' in template_name or '2k8' in template_name:
