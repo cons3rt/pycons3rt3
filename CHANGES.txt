@@ -14,6 +14,8 @@
 * Improved the asset import/update CLI logic, and added the "asset updateonly" subcommand
 * Added the option to pass --id to the "asset update" command (e.g. asset update --id=12345)
 * Added CLI command to get project members: cons3rt project members list --id=123
+* Added CLI commands to create cloud and register a cloudspace
+* Updated the template registration auto-discovery
 
 0.0.9
 =====
