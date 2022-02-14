@@ -558,14 +558,94 @@ class Cons3rtClient:
         system_details = json.loads(content)
         return system_details
 
-    def list_scenarios(self):
-        """Queries CONS3RT for a list of all scenarios
+    def list_system_designs(self, max_results=40, page_num=0):
+        """Returns a list of systems
 
+        :param max_results: (int) maximum number of results to retrieve
+        :param page_num: (int) page number to return
         :return: (list) Containing Scenario info
         """
-        response = self.http_client.http_get(rest_user=self.user, target='scenarios?maxresults=0')
+        response = self.http_client.http_get(
+            rest_user=self.user,
+            target='systems?maxresults={m}&page={p}'.format(
+                m=str(max_results),
+                p=str(page_num)
+            ))
+        content = self.http_client.parse_response(response=response)
+        systems = json.loads(content)
+        return systems
+
+    def list_all_system_designs(self):
+        """Returns a list of all system designs
+
+        :return: (list) of system designs
+        :raises: Cons3rtClientError
+        """
+        system_designs = []
+        page_num = 0
+        max_results = 40
+        while True:
+            print('Retrieving system designs: page {p}'.format(p=str(page_num)))
+            try:
+                page_of_system_designs = self.list_system_designs(
+                    max_results=max_results,
+                    page_num=page_num
+                )
+            except Cons3rtClientError as exc:
+                msg = 'Problem querying CONS3RT for a list of system designs, ' \
+                      'page: {p}, max results: {m}'.format(p=str(page_num), m=str(max_results))
+                raise Cons3rtClientError(msg) from exc
+            system_designs += page_of_system_designs
+            if len(page_of_system_designs) < max_results:
+                break
+            else:
+                page_num += 1
+            print('Found {n} system designs'.format(n=str(len(system_designs))))
+        return system_designs
+
+    def list_scenarios(self, max_results=40, page_num=0):
+        """Queries CONS3RT for a list of all scenarios
+
+        :param max_results: (int) maximum number of results to retrieve
+        :param page_num: (int) page number to return
+        :return: (list) Containing Scenario info
+        """
+        response = self.http_client.http_get(
+            rest_user=self.user,
+            target='scenarios?maxresults={m}&page={p}'.format(
+                m=str(max_results),
+                p=str(page_num)
+            ))
         content = self.http_client.parse_response(response=response)
         scenarios = json.loads(content)
+        return scenarios
+
+    def list_all_scenarios(self):
+        """Returns a list of all scenarios
+
+        :return: (list) of scenarios
+        :raises: Cons3rtClientError
+        """
+        scenarios = []
+        page_num = 0
+        max_results = 40
+        while True:
+            print('Retrieving scenarios: page {p}'.format(p=str(page_num)))
+            try:
+                page_of_scenarios = self.list_system_designs(
+                    max_results=max_results,
+                    page_num=page_num
+                )
+            except Cons3rtClientError as exc:
+                msg = 'Problem querying CONS3RT for a list of scenarios, ' \
+                      'page: {p}, max results: {m}'.format(p=str(page_num), m=str(max_results))
+                raise Cons3rtClientError(msg) from exc
+            scenarios += page_of_scenarios
+            if len(page_of_scenarios) < max_results:
+                break
+            else:
+                page_num += 1
+            print('Found {n} scenarios'.format(n=str(len(scenarios))))
         return scenarios
 
     def get_scenario_details(self, scenario_id):

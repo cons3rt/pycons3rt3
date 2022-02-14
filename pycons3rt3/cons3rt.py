@@ -13,7 +13,7 @@ import sys
 import argparse
 
 from .cons3rtconfig import manual_config
-from .cons3rtcli import CloudCli, CloudspaceCli, DeploymentCli, ProjectCli, RunCli, TeamCli
+from .cons3rtcli import CloudCli, CloudspaceCli, DeploymentCli, ProjectCli, RunCli, ScenarioCli, SystemCli, TeamCli
 
 # Commands for setting up the cons3rtapi configuration
 setup_command_options = [
@@ -28,6 +28,8 @@ valid_commands = setup_command_options + [
     'cloudspace',
     'deployment',
     'project',
+    'system',
+    'scenario',
     'run',
     'team'
 ]
@@ -66,6 +68,20 @@ def cloud_cli(args, subcommands):
 
 def run_cli(args, subcommands):
     c = RunCli(args, subcommands)
+    if c.process_args():
+        return 0
+    return 1
+
+
+def scenario_cli(args, subcommands):
+    c = ScenarioCli(args, subcommands)
+    if c.process_args():
+        return 0
+    return 1
+
+
+def system_cli(args, subcommands):
+    c = SystemCli(args, subcommands)
     if c.process_args():
         return 0
     return 1
@@ -141,6 +157,10 @@ def main():
         return project_cli(args, subcommands)
     elif args.command == 'run':
         return run_cli(args, subcommands)
+    elif args.command == 'scenario':
+        return scenario_cli(args, subcommands)
+    elif args.command == 'system':
+        return system_cli(args, subcommands)
     elif args.command == 'team':
         return team_cli(args, subcommands)
     else:

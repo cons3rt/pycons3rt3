@@ -1095,8 +1095,23 @@ class Cons3rtApi(object):
             raise Cons3rtApiError(msg) from exc
         return system_details
 
+    def list_system_designs(self):
+        """Query CONS3RT to return a list of system designs
+
+        :return: (list) of system designs
+        :raises: Cons3rtApiError
+        """
+        log = logging.getLogger(self.cls_logger + '.list_system_designs')
+        log.info('Attempting to get a list of system designs...')
+        try:
+            scenarios = self.cons3rt_client.list_all_system_designs()
+        except Cons3rtClientError as exc:
+            msg = 'Unable to query CONS3RT for a list of system designs'
+            raise Cons3rtApiError(msg) from exc
+        return scenarios
+
     def list_scenarios(self):
-        """Query CONS3RT to return a list of Scenarios
+        """Query CONS3RT to return a list of all scenarios
 
         :return: (list) of Scenario Info
         :raises: Cons3rtApiError
@@ -1104,7 +1119,7 @@ class Cons3rtApi(object):
         log = logging.getLogger(self.cls_logger + '.list_scenarios')
         log.info('Attempting to get a list of scenarios...')
         try:
-            scenarios = self.cons3rt_client.list_scenarios()
+            scenarios = self.cons3rt_client.list_all_scenarios()
         except Cons3rtClientError as exc:
             msg = 'Unable to query CONS3RT for a list of scenarios'
             raise Cons3rtApiError(msg) from exc

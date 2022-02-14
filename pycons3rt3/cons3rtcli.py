@@ -229,6 +229,38 @@ class Cons3rtCli(object):
         print(msg)
 
     @staticmethod
+    def print_scenarios(scenario_list):
+        msg = 'ID\tName\n'
+        for scenario in scenario_list:
+            if 'id' in scenario:
+                msg += str(scenario['id'])
+            else:
+                msg += '      '
+            msg += '\t'
+            if 'name' in scenario:
+                msg += scenario['name']
+            else:
+                msg += '                '
+            msg += '\n'
+        print(msg)
+
+    @staticmethod
+    def print_system_designs(system_design_list):
+        msg = 'ID\tName\n'
+        for system in system_design_list:
+            if 'id' in system:
+                msg += str(system['id'])
+            else:
+                msg += '      '
+            msg += '\t'
+            if 'name' in system:
+                msg += system['name']
+            else:
+                msg += '                '
+            msg += '\n'
+        print(msg)
+
+    @staticmethod
     def print_teams(teams_list):
         msg = 'ID\tName\n'
         for team in teams_list:
@@ -1300,6 +1332,146 @@ class RunCli(Cons3rtCli):
         for run_id in self.ids:
             results += self.c5t.create_run_snapshots(dr_id=run_id)
         self.print_host_action_results_list(results)
+
+
+class ScenarioCli(Cons3rtCli):
+
+    def __init__(self, args, subcommands=None):
+        Cons3rtCli.__init__(self, args=args, subcommands=subcommands)
+        self.valid_subcommands = [
+            'list',
+            'retrieve'
+        ]
+
+    def process_subcommands(self):
+        if not self.subcommands:
+            return True
+        if len(self.subcommands) < 1:
+            return True
+        if self.subcommands[0] not in self.valid_subcommands:
+            self.err('Unrecognized command: {c}'.format(c=self.subcommands[0]))
+            return False
+        if self.subcommands[0] == 'list':
+            try:
+                self.list_scenarios()
+            except Cons3rtCliError:
+                return False
+        if self.subcommands[0] == 'retrieve':
+            try:
+                self.retrieve_scenarios()
+            except Cons3rtCliError:
+                return False
+
+    def list_scenarios(self):
+        scenarios = []
+        try:
+            scenarios += self.c5t.list_scenarios()
+        except Cons3rtApiError as exc:
+            msg = 'There was a problem listing scenarios\n{e}'.format(e=str(exc))
+            self.err(msg)
+            raise Cons3rtCliError(msg) from exc
+        if len(scenarios) > 0:
+            system_designs = self.sort_by_id(scenarios)
+            self.print_scenarios(scenario_list=scenarios)
+        print('Total number of scenarios: {n}'.format(n=str(len(scenarios))))
+
+    def retrieve_scenarios(self):
+        if not self.ids:
+            msg = '--id or --ids arg required to specify the scenario ID(s) to generate reports for'
+            self.err(msg)
+            raise Cons3rtCliError(msg)
+        scenarios = []
+        for scenario_id in self.ids:
+            scenarios.append(self.c5t.get_system_details(system_id=scenario_id))
+
+        # Export the clouds to a JSON file
+        if self.args.json:
+            json_path = self.args.json
+
+            # Create JSON content
+            try:
+                json.dump(scenarios, open(json_path, 'w'), sort_keys=True, indent=2, separators=(',', ': '))
+            except SyntaxError as exc:
+                msg = 'Problem converting scenario data to JSON: {d}'.format(d=str(scenarios))
+                raise Cons3rtCliError(msg) from exc
+            except (OSError, IOError) as exc:
+                msg = 'Problem creating JSON output file: {f}'.format(f=json_path)
+                raise Cons3rtCliError(msg) from exc
+            print('Created output JSON file containing cloud data: {f}'.format(f=json_path))
+
+        # Output the scenario data to terminal
+        for scenario in scenarios:
+            print(str(scenario))
+
+
+class SystemCli(Cons3rtCli):
+
+    def __init__(self, args, subcommands=None):
+        Cons3rtCli.__init__(self, args=args, subcommands=subcommands)
+        self.valid_subcommands = [
+            'list',
+            'retrieve'
+        ]
+
+    def process_subcommands(self):
+        if not self.subcommands:
+            return True
+        if len(self.subcommands) < 1:
+            return True
+        if self.subcommands[0] not in self.valid_subcommands:
+            self.err('Unrecognized command: {c}'.format(c=self.subcommands[0]))
+            return False
+        if self.subcommands[0] == 'list':
+            try:
+                self.list_systems()
+            except Cons3rtCliError:
+                return False
+        if self.subcommands[0] == 'retrieve':
+            try:
+                self.retrieve_system_designs()
+            except Cons3rtCliError:
+                return False
+
+    def list_systems(self):
+        system_designs = []
+        try:
+            system_designs += self.c5t.list_system_designs()
+        except Cons3rtApiError as exc:
+            msg = 'There was a problem listing system designs\n{e}'.format(e=str(exc))
+            self.err(msg)
+            raise Cons3rtCliError(msg) from exc
+        if len(system_designs) > 0:
+            system_designs = self.sort_by_id(system_designs)
+            self.print_system_designs(system_design_list=system_designs)
+        print('Total number of system designs: {n}'.format(n=str(len(system_designs))))
+
+    def retrieve_system_designs(self):
+        if not self.ids:
+            msg = '--id or --ids arg required to specify the system design ID(s) to generate reports for'
+            self.err(msg)
+            raise Cons3rtCliError(msg)
+        system_designs = []
+        for system_design_id in self.ids:
+            system_designs.append(self.c5t.get_system_details(system_id=system_design_id))
+
+        # Export the clouds to a JSON file
+        if self.args.json:
+            json_path = self.args.json
+
+            # Create JSON content
+            try:
+                json.dump(system_designs, open(json_path, 'w'), sort_keys=True, indent=2, separators=(',', ': '))
+            except SyntaxError as exc:
+                msg = 'Problem converting system design data to JSON: {d}'.format(d=str(system_designs))
+                raise Cons3rtCliError(msg) from exc
+            except (OSError, IOError) as exc:
+                msg = 'Problem creating JSON output file: {f}'.format(f=json_path)
+                raise Cons3rtCliError(msg) from exc
+            print('Created output JSON file containing cloud data: {f}'.format(f=json_path))
+
+        # Output the system design data to terminal
+        for system_design in system_designs:
+            print(str(system_design))
 
 
 class TeamCli(Cons3rtCli):
