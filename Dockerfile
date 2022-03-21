@@ -27,7 +27,7 @@ ENTRYPOINT ["/entrypoint.sh"]
 CMD ["python3"]
 
 # Build
-# docker build -t pycons3rt3:v0.0.10 .
+# docker build -t pycons3rt3:v0.0.11a .
 
 # Run and mount your CONS3RT config directory
-# docker run --rm -it -v ~/.cons3rt:/root/.cons3rt pycons3rt3:v0.0.10 cons3rt cloud list
+# docker run --rm -it -v ~/.cons3rt:/root/.cons3rt pycons3rt3:v0.0.11a cons3rt cloud list
