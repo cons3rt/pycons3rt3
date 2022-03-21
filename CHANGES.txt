@@ -1,5 +1,5 @@
 
-0.0.10a
+0.0.10
 =======
 
 * Fixed a bug reporting errors with servicerunner
@@ -16,6 +16,7 @@
 * Added CLI command to get project members: cons3rt project members list --id=123
 * Added CLI commands to create cloud and register a cloudspace
 * Updated the template registration auto-discovery
+* Added force delete for assets
 
 0.0.9
 =====

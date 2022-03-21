@@ -1578,10 +1578,11 @@ class Cons3rtApi(object):
         else:
             log.info('Added Cloud Admin {u} to Cloud: {c}'.format(u=username, c=cloud_id))
 
-    def delete_asset(self, asset_id):
+    def delete_asset(self, asset_id, force=False):
         """Deletes the asset based on a provided asset type
 
         :param asset_id: (int) asset ID
+        :param force: (bool) Set true to force the asset deletion of dependent assets
         :return: None
         :raises: Cons3rtApiError
         """
@@ -1595,9 +1596,14 @@ class Cons3rtApi(object):
                 msg = 'asset_id arg must be an Integer, found: {t}'.format(t=asset_id.__class__.__name__)
                 raise Cons3rtApiError(msg) from exc
 
+        # Ensure the asset_id is an int
+        if not isinstance(force, bool):
+            msg = 'force arg must be a boolean, found: {t}'.format(t=asset_id.__class__.__name__)
+            raise Cons3rtApiError(msg)
+
         # Attempt to delete the target
         try:
-            self.cons3rt_client.delete_asset(asset_id=asset_id)
+            self.cons3rt_client.delete_asset(asset_id=asset_id, force=force)
         except Cons3rtClientError as exc:
             msg = 'Unable to delete asset ID: {i}'.format(
                 i=str(asset_id))

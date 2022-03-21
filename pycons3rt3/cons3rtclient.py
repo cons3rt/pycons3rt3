@@ -1486,10 +1486,14 @@ class Cons3rtClient:
         result = self.http_client.parse_response(response=response)
         return result
 
-    def delete_asset(self, asset_id):
+    def delete_asset(self, asset_id, force=False):
+        if force:
+            force_str = 'true'
+        else:
+            force_str = 'false'
         response = self.http_client.http_delete(
             rest_user=self.user,
-            target='assets/{i}'.format(i=str(asset_id))
+            target='assets/{i}?force={f}'.format(i=str(asset_id), f=force_str)
         )
         result = self.http_client.parse_response(response=response)
         return result
