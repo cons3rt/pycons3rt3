@@ -1829,6 +1829,90 @@ class Cons3rtClient:
         print('Retrieved a total of {n} software assets'.format(n=str(len(software_assets))))
         return software_assets
 
+    def retrieve_test_assets(self, asset_type=None, community=False, category_ids=None, expanded=False,
+                             max_results=40, page_num=0):
+        """Get a list of test assets
+
+        :param asset_type: (str) the test asset type, defaults to null
+        :param community: (bool) the boolean to include community assets
+        :param category_ids: (list) the list of categories to filter by
+        :param expanded: (bool) whether to retrieve expanded info
+        :param max_results: (int) the max number of results desired
+        :param page_num: (int) the page number requested
+        :return: List of test asset IDs
+        """
+        if expanded:
+            target = 'testassets/expanded?'
+        else:
+            target = 'testassets?'
+        if asset_type:
+            target += 'type={t}&'.format(t=type)
+        if community:
+            target += 'community=true'
+        else:
+            target += 'community=false'
+        if category_ids:
+            for category_id in category_ids:
+                target += '&categoryids={c}'.format(c=str(category_id))
+        target += '&maxresults={m}&page={p}'.format(m=str(max_results), p=str(page_num))
+        try:
+            response = self.http_client.http_get(
+                rest_user=self.user,
+                target=target
+            )
+        except Cons3rtClientError as exc:
+            raise Cons3rtClientError('Problem querying for test assets') from exc
+        try:
+            result = self.http_client.parse_response(response=response)
+        except Cons3rtClientError as exc:
+            msg = 'The HTTP response contains a bad status code'
+            raise Cons3rtClientError(msg) from exc
+        test_assets = json.loads(result)
+        return test_assets
+
+    def retrieve_all_test_assets(self, asset_type=None, community=False, category_ids=None, expanded=False,
+                                 max_results=None):
+        """Get a list of test assets with expanded info
+
+        :param asset_type: (str) the software asset type, defaults to null
+        :param community: (bool) the boolean to include community assets
+        :param category_ids: (list) the list of categories to filter by
+        :param expanded: (bool) whether to retrieve expanded info
+        :param max_results: (int) maximum number of results to return
+        :return: List of test asset IDs
+        :raises: Cons3rtClientError
+        """
+        test_assets = []
+        page_num = 0
+        max_results_per_page = 40
+        while True:
+            try:
+                print('Retrieving test assets: page {p}'.format(p=str(page_num)))
+                test_assets_page = self.retrieve_test_assets(
+                    asset_type=asset_type,
+                    community=community,
+                    category_ids=category_ids,
+                    expanded=expanded,
+                    max_results=max_results_per_page,
+                    page_num=page_num
+                )
+            except Cons3rtClientError as exc:
+                msg = 'Problem querying software assets on page: {n}'.format(n=str(page_num))
+                raise Cons3rtClientError(msg) from exc
+            test_assets += test_assets_page
+            if len(test_assets_page) < max_results_per_page:
+                break
+            if max_results:
+                if len(test_assets) >= max_results:
+                    break
+            page_num += 1
+            print('Found {n} test assets...'.format(n=str(len(test_assets))))
+        if max_results:
+            if len(test_assets) > max_results:
+                test_assets = test_assets[:max_results]
+        print('Retrieved a total of {n} test assets'.format(n=str(len(test_assets))))
+        return test_assets
+
     def retrieve_container_assets(self, asset_type=None, community=False, category_ids=None, expanded=False,
                                   max_results=40, page_num=0):
         """Get a list of container assets

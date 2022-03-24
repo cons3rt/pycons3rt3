@@ -2,7 +2,8 @@
 0.0.11a
 =======
 
-* TBD
+* Added queries for listing test assets
+* Added a query for getting dependent assets
 
 0.0.10
 =======
