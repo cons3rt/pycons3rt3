@@ -25,6 +25,7 @@ from threading import Timer
 
 from .logify import Logify
 from .exceptions import CommandError, SystemRebootError, SystemRebootTimeoutError
+from .network import validate_ip_address as network_validate_ip_address
 
 __author__ = 'Joe Yennaco'
 
@@ -182,35 +183,12 @@ def run_command_large_buffer(command, timeout_sec=3600.0):
 
 
 def validate_ip_address(ip_address):
-    """Validate the ip_address
+    """Deprecated, but left here for backwards compatibility
 
-    :param ip_address: (str) IP address
-    :return: (bool) True if the ip_address is valid
+    :param ip_address:
+    :return:
     """
-    # Validate the IP address
-    log = logging.getLogger(mod_logger + '.validate_ip_address')
-    if not isinstance(ip_address, str):
-        log.warning('ip_address argument is not a string')
-        return False
-
-    # Ensure there are 3 dots
-    num_dots = 0
-    for c in ip_address:
-        if c == '.':
-            num_dots += 1
-    if num_dots != 3:
-        log.info('Not a valid IP address: {i}'.format(i=ip_address))
-        return False
-
-    # Use the socket module to test
-    try:
-        socket.inet_aton(ip_address)
-    except socket.error as e:
-        log.info('Not a valid IP address: {i}\n{e}'.format(i=ip_address, e=e))
-        return False
-    else:
-        log.info('Validated IP address: %s', ip_address)
-        return True
+    return network_validate_ip_address(ip_address=ip_address)
 
 
 def ip_addr():

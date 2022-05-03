@@ -16,6 +16,7 @@ import requests
 
 from .bash import get_ip_addresses, validate_ip_address
 from .logify import Logify
+from .network import get_ip_list_for_hostname_list
 from .osutil import get_os, get_pycons3rt_scripts_dir
 from .aws_metadata import is_aws, get_instance_id, get_vpc_id_from_mac_address
 from .awsutil import get_boto3_client, global_regions, gov_regions, us_regions
@@ -1994,6 +1995,65 @@ class EC2Util(object):
                 log.warning('Failed to revoke ingress rule from security group {g}: {r}\n{e}'.format(
                     g=security_group_id, r=str(revoke_rule), e=str(exc)))
 
+    def get_security_group(self, security_group_id):
+        """Gets a list of IpPermission objects from the security group's egress rules
+
+        :param security_group_id: (str) Security Group ID
+        :return: (dict) security group info
+        :raises: AWSAPIError
+        """
+        log = logging.getLogger(self.cls_logger + '.get_security_group')
+        # Validate args
+        if not isinstance(security_group_id, str):
+            raise EC2UtilError('security_group_id argument is not a string')
+        log.info('Getting Security Group ID {g}...'.format(g=security_group_id))
+        try:
+            security_group_info = self.client.describe_security_groups(DryRun=False, GroupIds=[security_group_id])
+        except ClientError as exc:
+            msg = 'Unable to query AWS for Security Group ID: {g}'.format(g=security_group_id)
+            raise AWSAPIError(msg) from exc
+        return security_group_info
+
+    def get_security_group_egress_rules(self, security_group_id):
+        """Gets a list of IpPermission objects from the security group's egress rules
+
+        :param security_group_id: (str) Security Group ID
+        :return: (list) IpPermission objects
+        :raises: AWSAPIError, EC2UtilError
+        """
+        log = logging.getLogger(self.cls_logger + '.configure_security_group_egress')
+        log.info('Getting egress rules for security group: {i}'.format(i=security_group_id))
+        security_group_info = self.get_security_group(security_group_id=security_group_id)
+        try:
+            existing_egress_rules = security_group_info['SecurityGroups'][0]['IpPermissionsEgress']
+        except KeyError as exc:
+            msg = 'Unable to get list of egress rules for Security Group ID: {g}'.format(
+                g=security_group_id)
+            raise AWSAPIError(msg) from exc
+
+        # Parse permissions into comparable IpPermissions objects
+        return parse_ip_permissions(existing_egress_rules)
+
+    def get_security_group_ingress_rules(self, security_group_id):
+        """Gets a list of IpPermission objects from the security group's ingess rules
+
+        :param security_group_id: (str) Security Group ID
+        :return: (list) IpPermission objects
+        :raises: AWSAPIError, EC2UtilError
+        """
+        log = logging.getLogger(self.cls_logger + '.get_security_group_ingress_rules')
+        log.info('Getting egress rules for security group: {i}'.format(i=security_group_id))
+        security_group_info = self.get_security_group(security_group_id=security_group_id)
+        try:
+            existing_ingress_rules = security_group_info['SecurityGroups'][0]['IpPermissions']
+        except KeyError as exc:
+            msg = 'Unable to get list of ingress rules for Security Group ID: {g}'.format(
+                g=security_group_id)
+            raise AWSAPIError(msg) from exc
+
+        # Parse permissions into comparable IpPermissions objects
+        return parse_ip_permissions(existing_ingress_rules)
+
     def configure_security_group_egress(self, security_group_id, desired_egress_rules):
         """Configures the security group ID allowing access
         only to the specified CIDR blocks, for the specified
@@ -2011,22 +2071,8 @@ class EC2Util(object):
         if not isinstance(desired_egress_rules, list):
             raise EC2UtilError('desired_egress_rules argument is not a list')
 
-        log.info('Configuring Security Group ID {g}...'.format(g=security_group_id))
-
-        try:
-            security_group_info = self.client.describe_security_groups(DryRun=False, GroupIds=[security_group_id])
-        except ClientError as exc:
-            msg = 'Unable to query AWS for Security Group ID: {g}'.format(g=security_group_id)
-            raise AWSAPIError(msg) from exc
-        try:
-            existing_egress_rules = security_group_info['SecurityGroups'][0]['IpPermissionsEgress']
-        except KeyError as exc:
-            msg = 'Unable to get list of egress rules for Security Group ID: {g}'.format(
-                    g=security_group_id)
-            raise AWSAPIError(msg) from exc
-
-        # Parse permissions into comparable IpPermissions objects
-        existing_ip_perms = parse_ip_permissions(existing_egress_rules)
+        # Get the security group egress permissions
+        existing_ip_perms = self.get_security_group_egress_rules(security_group_id=security_group_id)
 
         log.info('Existing egress IP permissions:')
         for existing_ip_perm in existing_ip_perms:
@@ -2079,21 +2125,8 @@ class EC2Util(object):
         if not isinstance(desired_ingress_rules, list):
             raise EC2UtilError('desired_egress_rules argument is not a list')
 
-        log.info('Configuring Security Group ID {g}...'.format(g=security_group_id))
-        try:
-            security_group_info = self.client.describe_security_groups(DryRun=False, GroupIds=[security_group_id])
-        except ClientError as exc:
-            msg = 'Unable to query AWS for Security Group ID: {g}'.format(g=security_group_id)
-            raise AWSAPIError(msg) from exc
-        try:
-            existing_ingress_rules = security_group_info['SecurityGroups'][0]['IpPermissions']
-        except KeyError as exc:
-            msg = 'Unable to get list of ingress rules for Security Group ID: {g}'.format(
-                g=security_group_id)
-            raise AWSAPIError(msg) from exc
-
-        # Parse permissions into comparable IpPermissions objects
-        existing_ip_perms = parse_ip_permissions(existing_ingress_rules)
+        # Get the security group ingress permissions
+        existing_ip_perms = self.get_security_group_ingress_rules(security_group_id=security_group_id)
 
         log.info('Existing ingress IP permissions:')
         for existing_ip_perm in existing_ip_perms:
@@ -4897,6 +4930,67 @@ def get_rhui3_server_permissions(regions):
                          Description='RedHat_RHUI3_Server')
         )
     return permissions_list
+
+
+def get_permissions_for_hostnames(hostname_list):
+    """Get a list of IP permissions from hostname list
+
+    :param hostname_list: (str) list of hostnames
+    :return: (list) IPPermission objects
+    """
+    log = logging.getLogger(mod_logger + '.get_permissions_for_hostnames')
+    log.info('Getting IP addresses for hostname list...')
+    hostnames_and_ip_addresses, failed_hostnames = get_ip_list_for_hostname_list(hostname_list=hostname_list)
+    permissions_list = []
+    for hostname_ip_addresses in hostnames_and_ip_addresses:
+        if 'hostname' not in hostname_ip_addresses.keys():
+            continue
+        if 'ip_addresses' not in hostname_ip_addresses.keys():
+            continue
+        hostname = hostname_ip_addresses['hostname']
+        ip_addresses = hostname_ip_addresses['ip_addresses']
+        for ip_address in ip_addresses:
+            permissions_list.append(
+                IpPermission(IpProtocol='-1', CidrIp=ip_address + '/32', Description=hostname)
+            )
+    return permissions_list
+
+
+def merge_permissions_by_description(primary_permission_list, merge_permission_list):
+    """Merges the "merge" permission list into the "primary" permission list, by keeping permissions with matching
+    descriptions.  This allows an existing list of permissions to persist and append into the new list
+
+    :param primary_permission_list: (list) IPPermission objects
+    :param merge_permission_list: (list) IPPermission objects
+    :return: (list) IPPermission objects
+    """
+    log = logging.getLogger(mod_logger + '.merge_permissions_by_description')
+    merged_permission_list = []
+
+    # Loop on the primary permission list
+    for primary_permission in primary_permission_list:
+        # Add all the primary permissions to the list
+        if primary_permission not in merged_permission_list:
+            merged_permission_list.append(primary_permission)
+
+        # Skip merging if the description is blank
+        if not primary_permission.Description:
+            continue
+        elif primary_permission.Description == '':
+            continue
+
+        # Loop through the merge list once for every primary
+        for merge_permission in merge_permission_list:
+            # Skip blank merged permissions
+            if not merge_permission.Description:
+                continue
+            elif merge_permission.Description == '':
+                continue
+            if merge_permission not in merged_permission_list:
+                # If the merge permission description matches, the primary, add it to the list
+                if merge_permission.Description == primary_permission.Description:
+                    merged_permission_list.append(merge_permission)
+    return merged_permission_list
 
 
 def parse_ip_routes(ip_routes):
