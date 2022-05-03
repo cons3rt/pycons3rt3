@@ -1,9 +1,11 @@
 
-0.0.11a
+0.0.11
 =======
 
 * Added queries for listing test assets
 * Added a query for getting dependent assets
+* Added ec2util functions for getting a list of IpPermission objects from domain names
+* Added network.py and new function for getting IPs froma list of hostnames
 
 0.0.10
 =======
