@@ -1874,7 +1874,7 @@ class Cons3rtClient:
                                  max_results=None):
         """Get a list of test assets with expanded info
 
-        :param asset_type: (str) the software asset type, defaults to null
+        :param asset_type: (str) the test asset type, defaults to null
         :param community: (bool) the boolean to include community assets
         :param category_ids: (list) the list of categories to filter by
         :param expanded: (bool) whether to retrieve expanded info
