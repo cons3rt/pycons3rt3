@@ -11,7 +11,7 @@ import time
 from botocore.client import ClientError
 
 from .logify import Logify
-from .ec2util import get_ec2_client, get_image, get_snapshot, list_images, list_snapshots, list_instance_names
+from .ec2util import get_ec2_client, get_image, list_images, list_snapshots, list_instance_names
 from .exceptions import AWSAPIError, EC2UtilError, ImageUtilError
 
 
@@ -221,7 +221,7 @@ class ImageUtil(object):
             raise ImageUtilError(msg)
         if not ami_id:
             ami_id = ami_info['ImageId']
-        log.info('Retrieving the list of snapshots backing AMI ID: {i}'.format(i=ami_id))
+        log.debug('Retrieving the list of snapshots backing AMI ID: {i}'.format(i=ami_id))
 
         # Grab the Snapshot IDs
         snapshot_ids = []
@@ -233,9 +233,11 @@ class ImageUtil(object):
             except KeyError as exc:
                 msg = 'Unable to determine Snapshot ID for AMI ID {a}'.format(a=ami_id)
                 raise ImageUtilError(msg) from exc
-            log.info('Found Snapshot ID of the current image: {s}'.format(s=snapshot_id))
+            log.debug('Found Snapshot ID of the current image: {s}'.format(s=snapshot_id))
             snapshot_ids.append(snapshot_id)
-        log.info('Found {n} snapshot IDs backing AMI ID: {i}'.format(i=ami_id, n=str(len(snapshot_ids))))
+        msg = 'Found {n} snapshot IDs backing AMI ID [{i}]: {s}'.format(
+            i=ami_id, n=str(len(snapshot_ids)), s=','.join(snapshot_ids))
+        log.info(msg)
         return snapshot_ids
 
     def delete_image(self, ami_id):

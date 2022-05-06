@@ -2593,6 +2593,38 @@ class EC2Util(object):
         """
         return list_instances(client=self.client)
 
+    def list_volumes(self):
+        """Describes the EBS volumes
+
+        :return: dict containing EBS volume data
+        :raises EC2UtilError
+        """
+        return list_volumes(client=self.client)
+
+    def list_unattached_volumes(self):
+        """Return a list of unattached EBS volumes
+
+        :return: (list) of EC2
+        :raises EC2UtilError
+        """
+        return list_unattached_volumes(client=self.client)
+
+    def delete_volume(self, volume_id):
+        """Deletes an EBS volume
+
+        :param volume_id: (str) ID of the EBS volume
+        :return: (str) deleted volume ID
+        """
+        return delete_volume(client=self.client, volume_id=volume_id)
+
+    def delete_snapshot(self, snapshot_id):
+        """Deletes an EBS snapshot
+
+        :param snapshot_id: (str) ID of the EBS volume
+        :return: (str) deleted snapshot ID
+        """
+        return delete_snapshot(client=self.client, snapshot_id=snapshot_id)
+
     def get_ebs_volumes(self):
         """Describes the EBS volumes
 
@@ -5355,8 +5387,29 @@ def get_instance(client, instance_id):
 
 
 ############################################################################
-# Methods for retrieving EC2 Snapshots
+# Methods for EC2 EBS Snapshots
 ############################################################################
+
+
+def delete_snapshot(client, snapshot_id):
+    """Deletes an EBS snapshot by ID
+
+    :param client: boto3.client object
+    :param snapshot_id: (str) ID of the snapshot to delete
+    :return: (str) deleted snapshot ID
+    :raises: Ec2UtilError
+    """
+    log = logging.getLogger(mod_logger + '.delete_snapshot')
+    try:
+        client.delete_snapshot(
+            SnapshotId=snapshot_id,
+            DryRun=False
+        )
+    except ClientError as exc:
+        msg = 'Problem deleting EBS snapshot: {i}'.format(i=snapshot_id)
+        raise EC2UtilError(msg) from exc
+    log.info('Deleted EBS snapshot ID: {i}'.format(i=snapshot_id))
+    return snapshot_id
 
 
 def list_snapshots_with_token(client, owner_id, max_results=100, continuation_token=None):
@@ -5456,7 +5509,7 @@ def get_snapshot(client, snapshot_id):
 
 
 def list_images(client, owner_id):
-    """Gets a list of EC2 snapshots in this account/region
+    """Gets a list of EC2 images in this account/region
 
     :param client: boto3.client object
     :param owner_id: (str) ID of the account to search
@@ -5507,8 +5560,28 @@ def get_image(client, ami_id):
 
 
 ############################################################################
-# Methods for retrieving EC2 Volumes
+# Methods for EC2 EBS Volumes
 ############################################################################
+
+def delete_volume(client, volume_id):
+    """Deletes an EBS volume by ID
+
+    :param client: boto3.client object
+    :param volume_id: (str) ID of the volume to delete
+    :return: (str) deleted volume ID
+    :raises: Ec2UtilError
+    """
+    log = logging.getLogger(mod_logger + '.delete_volume')
+    try:
+        client.delete_volume(
+            VolumeId=volume_id,
+            DryRun=False
+        )
+    except ClientError as exc:
+        msg = 'Problem deleing EBS volume: {i}'.format(i=volume_id)
+        raise EC2UtilError(msg) from exc
+    log.info('Deleted EBS volume ID: {i}'.format(i=volume_id))
+    return volume_id
 
 
 def list_volumes_with_token(client, max_results=100, continuation_token=None):
@@ -5533,14 +5606,14 @@ def list_volumes_with_token(client, max_results=100, continuation_token=None):
 
 
 def list_volumes(client):
-    """Gets a list of EC2 volumes in this account/region
+    """Gets a list of EBS volumes in this account/region
 
     :param client: boto3.client object
-    :return: (list)
+    :return: (list) of volumes
     :raises: EC2UtilError
     """
     log = logging.getLogger(mod_logger + '.list_volumes')
-    log.info('Getting a list of EC2 volumes...')
+    log.info('Getting a list of EBS volumes...')
     volumes = []
     continuation_token = None
     next_query = True
@@ -5555,7 +5628,7 @@ def list_volumes(client):
                 continuation_token=continuation_token
             )
         except ClientError as exc:
-            msg = 'Problem querying for EC2 volumes'
+            msg = 'Problem querying for EBS volumes'
             raise EC2UtilError(msg) from exc
         if 'Volumes' not in response.keys():
             log.warning('Volumes not found in response: {r}'.format(r=str(response.keys())))
@@ -5565,8 +5638,32 @@ def list_volumes(client):
         else:
             continuation_token = response['NextToken']
         volumes += response['Volumes']
-    log.info('Found {n} EC2 volumes'.format(n=str(len(volumes))))
+    log.info('Found {n} EBS volumes'.format(n=str(len(volumes))))
     return volumes
+
+
+def list_unattached_volumes(client):
+    """Return a list of volumes not currently attached to EC2 instances
+
+    :param client: boto3.client object
+    :return: (list) of volumes that are unattached
+    """
+    log = logging.getLogger(mod_logger + '.list_unattached_volumes')
+    log.info('Getting a list of unattached EBS volumes...')
+    volumes = list_volumes(client)
+    unattached_volumes = []
+    for volume in volumes:
+        if 'Attachments' not in volume.keys():
+            log.info('Volume has no Attachments data: {v}'.format(v=volume['VolumeId']))
+            unattached_volumes.append(volume)
+        elif len(volume['Attachments']) < 1:
+            log.info('Volume has Attachments data showing less than 1 attachment: {v}'.format(v=volume['VolumeId']))
+            unattached_volumes.append(volume)
+        else:
+            log.info('Found volume with {n} attachments: {v}'.format(
+                n=str(len(volume['Attachments'])), v=volume['VolumeId']))
+    log.info('Found [{n}] unattached volumes'.format(n=str(len(unattached_volumes))))
+    return unattached_volumes
 
 
 def get_volume(client, volume_id):
