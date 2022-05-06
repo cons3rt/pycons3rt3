@@ -1,4 +1,10 @@
 
+0.0.12a
+=======
+
+* Added methods for listing unattached EBS volumes
+* Added methods for deleting EBS volumes and snapshots
+
 0.0.11
 =======
 
