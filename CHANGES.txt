@@ -4,6 +4,11 @@
 
 * Added methods for listing unattached EBS volumes
 * Added methods for deleting EBS volumes and snapshots
+* Added methods for stopping and terminating instances
+* Added methods for waiting for instances to be in various target states
+* Added a method to wait for an AMI to become available after creation
+* Added a method to create a network interface
+* Added a method to launch a VM onto a dedicated host
 
 0.0.11
 =======
