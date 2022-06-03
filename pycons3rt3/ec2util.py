@@ -104,6 +104,8 @@ class EC2Util(object):
                     self.client.describe_vpcs(VpcIds=[resource_id])
                 elif resource_id.startswith('igw-'):
                     self.client.describe_internet_gateways(InternetGatewayIds=[resource_id])
+                elif resource_id.startswith('eni-'):
+                    self.client.describe_network_interfaces(NetworkInterfaceIds=[resource_id])
                 else:
                     log.warning('Resource type not supported for this method: {r}'.format(r=resource_id))
                     return False
@@ -139,6 +141,28 @@ class EC2Util(object):
         except ClientError as exc:
             msg = 'Problem adding tag [{k}={v}] resource ID: {i}\n{e}'.format(
                 k=tag_key, v=tag_value, i=resource_id, e=str(exc))
+            log.error(msg)
+            return False
+        return True
+
+    def create_tags(self, resource_id, tags):
+        """Adds/updates the provided tags as key/value pairs on the resource ID
+
+        :param resource_id: (str) ID of the resource to tag
+        :param tags: (list) of dict key/value tag pairs
+        :return: (bool) True if successful, False otherwise
+        """
+        log = logging.getLogger(self.cls_logger + '.create_tag')
+        log.info('Adding tags [{t}] resource ID: {i}'.format(t=str(tags), i=resource_id))
+        try:
+            self.client.create_tags(
+                DryRun=False,
+                Resources=[resource_id],
+                Tags=tags
+            )
+        except ClientError as exc:
+            msg = 'Problem adding tag [{t}] resource ID: {i}\n{e}'.format(
+                t=str(tags), i=resource_id, e=str(exc))
             log.error(msg)
             return False
         return True
@@ -214,7 +238,7 @@ class EC2Util(object):
         except ClientError as exc:
             msg = 'Problem describing all regions available to this client'
             raise EC2UtilError(msg) from exc
-        if 'Regions' not in response:
+        if 'Regions' not in response.keys():
             raise EC2UtilError('Regions not found in response: {r}'.format(r=str(response)))
         return response['Regions']
 
@@ -1389,6 +1413,22 @@ class EC2Util(object):
                 format(p=public_ip, a=allocation_id)
             raise EC2UtilError(msg)
 
+    def create_network_interface(self, subnet_id, security_group_list, private_ip_address):
+        """Creates a network interface
+
+        :param subnet_id: (str) ID of the subnet
+        :param security_group_list: (list) of security group IDs
+        :param private_ip_address: (str) IP address to assign to the ENI
+        :return: (list)
+        :raises: EC2UtilError
+        """
+        return create_network_interface(
+            client=self.client,
+            subnet_id=subnet_id,
+            security_group_list=security_group_list,
+            private_ip_address=private_ip_address
+        )
+
     def attach_new_eni(self, subnet_name, security_group_ids, device_index=2, allocation_id=None, description=''):
         """Creates a new Elastic Network Interface on the Subnet
         matching the subnet_name, with Security Group identified by
@@ -2420,28 +2460,123 @@ class EC2Util(object):
         }
         return output
 
+    def launch_instance_onto_dedicated_host(self, ami_id, host_id, key_name, instance_type, network_interfaces):
+        """Launches an EC2 instance with the specified parameters, onto a dedicated host
+
+        :param ami_id: (str) ID of the AMI to launch from
+        :param host_id: (str) ID of the dedicated host
+        :param key_name: (str) Name of the key-pair to use
+        :param network_interfaces: (list) Network interfaces
+        :param instance_type: (str) Instance Type (e.g. t2.micro)
+        :return: (dict) Instance info
+        :raises: EC2UtilError
+        """
+        log = logging.getLogger(self.cls_logger + '.launch_instance_onto_dedicated_host')
+        log.info('Launching with AMI ID [{a}] on to host: {h}'.format(a=ami_id, h=host_id))
+        log.info('Launching with Key Pair: {k}'.format(k=key_name))
+
+        if network_interfaces:
+            if not isinstance(network_interfaces, list):
+                raise EC2UtilError('network_interfaces must be a list')
+
+        # Set monitoring
+        monitoring = {'Enabled': False}
+
+        # Configure the placement onto the dedicated host
+        placement = {
+            'HostId': host_id,
+            'Tenancy': 'host'
+        }
+
+        # Launch the instance onto the dedicated host
+        log.info('Attempting to launch the EC2 instance now on to host ID: {h}'.format(h=host_id))
+        try:
+            response = self.client.run_instances(
+                DryRun=False,
+                ImageId=ami_id,
+                MinCount=1,
+                MaxCount=1,
+                KeyName=key_name,
+                InstanceType=instance_type,
+                Monitoring=monitoring,
+                InstanceInitiatedShutdownBehavior='stop',
+                Placement=placement,
+                NetworkInterfaces=network_interfaces
+            )
+        except ClientError as exc:
+            msg = 'Problem launching the EC2 instance\n{e}'.format(e=str(exc))
+            raise EC2UtilError(msg) from exc
+        if 'Instances' not in response.keys():
+            msg = 'Instances not found in response: {r}'.format(r=str(response))
+            raise EC2UtilError(msg)
+        if len(response['Instances']) != 1:
+            msg = 'Expected 1 instance in the response, found {n}: {r}'.format(
+                n=str(len(response['Instances'])), r=str(response['Instances']))
+            raise EC2UtilError(msg)
+        return response['Instances'][0]
+
     def wait_for_instance_running(self, instance_id, timeout_sec=900):
         """Waits until the instance ID is in a running state
 
         :param instance_id: (str) ID of the instance
         :param timeout_sec: (int) Time in seconds before returning False
-        :return: True when available, False if not available by the provided timeout
+        :return: True True when the instance reaches the running state, False if not available by the provided timeout
         :raises: EC2UtilError
         """
-        log = logging.getLogger(self.cls_logger + '.wait_for_instance_running')
+        return self.wait_for_instance_state(
+            instance_id=instance_id,
+            target_state='running',
+            timeout_sec=timeout_sec
+        )
+
+    def wait_for_instance_stopped(self, instance_id, timeout_sec=900):
+        """Waits until the instance ID is in a stopped state
+
+        :param instance_id: (str) ID of the instance
+        :param timeout_sec: (int) Time in seconds before returning False
+        :return: True when the instance reaches the stopped state, False if not available by the provided timeout
+        :raises: EC2UtilError
+        """
+        return self.wait_for_instance_state(
+            instance_id=instance_id,
+            target_state='stopped',
+            timeout_sec=timeout_sec
+        )
+
+    def wait_for_instance_terminated(self, instance_id, timeout_sec=900):
+        """Waits until the instance ID is in a terminated state
+
+        :param instance_id: (str) ID of the instance
+        :param timeout_sec: (int) Time in seconds before returning False
+        :return: True when the instance reaches the terminated state, False if not available by the provided timeout
+        :raises: EC2UtilError
+        """
+        return self.wait_for_instance_state(
+            instance_id=instance_id,
+            target_state='terminated',
+            timeout_sec=timeout_sec
+        )
+
+    def wait_for_instance_state(self, instance_id, target_state, timeout_sec=900):
+        """Waits until the instance ID is in the target state
+
+        :param instance_id: (str) ID of the instance
+        :param target_state: (str) 'pending'|'running'|'shutting-down'|'terminated'|'stopping'|'stopped'
+        :param timeout_sec: (int) Time in seconds before returning False
+        :return: True when the instance reaches the target state, False if not in target state by the provided timeout
+        :raises: EC2UtilError
+        """
+        log = logging.getLogger(self.cls_logger + '.wait_for_instance_state')
         check_interval_sec = 10
         num_checks = timeout_sec // check_interval_sec
         start_time = time.time()
-        log.info('Waiting a maximum of {t} seconds for instance ID [{i}] to reach a running state'.format(
-            t=str(timeout_sec), i=instance_id))
+        log.info('Waiting a maximum of {t} seconds for instance ID [{i}] to reach a target state: {s}'.format(
+            t=str(timeout_sec), i=instance_id, s=target_state))
         for _ in range(0, num_checks*2):
-            log.info('Waiting {t} seconds to check state of instance ID: {i}'.format(
-                t=str(check_interval_sec), i=instance_id))
-            time.sleep(check_interval_sec)
             elapsed_time = round(time.time() - start_time, 1)
             if elapsed_time > timeout_sec:
-                log.warning('Instance ID {i} not running after {t} seconds'.format(
-                    i=instance_id, t=str(timeout_sec)))
+                log.warning('Instance ID {i} not in target state [{s}] after {t} seconds'.format(
+                    i=instance_id, t=str(timeout_sec), s=target_state))
                 return False
             try:
                 response = self.client.describe_instances(DryRun=False, InstanceIds=[instance_id])
@@ -2473,11 +2608,15 @@ class EC2Util(object):
             if 'Name' not in instance['State'].keys():
                 log.warning('Name not found in instance state data: {i}'.format(i=str(instance['State'])))
                 continue
-            if instance['State']['Name'] == 'running':
-                log.info('Instance ID [{i}] state is running, exiting...'.format(i=instance_id))
+            if instance['State']['Name'] == target_state:
+                log.info('Instance ID [{i}] state is in the target state [{t}], exiting...'.format(
+                    i=instance_id, t=target_state))
                 return True
             else:
                 log.info('Instance ID [{i}] is in state: {s}'.format(i=instance_id, s=instance['State']['Name']))
+            log.info('Waiting {t} seconds to check state of instance ID: {i}'.format(
+                t=str(check_interval_sec), i=instance_id))
+            time.sleep(check_interval_sec)
         return False
 
     def wait_for_instance_status_checks(self, instance_id, timeout_sec=900):
@@ -2585,6 +2724,70 @@ class EC2Util(object):
             return False
         return True
 
+    def wait_for_image_available(self, ami_id, timeout_sec=900):
+        """Waits until the AMI ID is available
+
+        :param ami_id: (str) ID of the instance
+        :param timeout_sec: (int) Time in seconds before returning False
+        :return: True when the AMI is available, False if not in available by the provided timeout
+        :raises: EC2UtilError
+        """
+        log = logging.getLogger(self.cls_logger + '.wait_for_image_available')
+        check_interval_sec = 10
+        num_checks = timeout_sec // check_interval_sec
+        start_time = time.time()
+        log.info('Waiting a maximum of {t} seconds for image ID [{i}] to become available'.format(
+            t=str(timeout_sec), i=ami_id))
+        for _ in range(0, num_checks*2):
+            log.info('Waiting {t} seconds to check state of AMI ID: {i}'.format(
+                t=str(check_interval_sec), i=ami_id))
+            time.sleep(check_interval_sec)
+            elapsed_time = round(time.time() - start_time, 1)
+            if elapsed_time > timeout_sec:
+                log.warning('AMI ID {i} not in target state [available] after {t} seconds'.format(
+                    i=ami_id, t=str(timeout_sec)))
+                return False
+            try:
+                response = self.get_image(ami_id=ami_id)
+            except ClientError as exc:
+                log.warning('Problem getting details for AMI ID: {i}\n{e}'.format(i=ami_id, e=str(exc)))
+                continue
+            if 'State' not in response.keys():
+                log.warning('State not found in instance data: {i}'.format(i=str(response)))
+                continue
+            if response['State'] == 'available':
+                log.info('AMI ID [{i}] state is in the target state [available], exiting...'.format(i=ami_id))
+                return True
+            else:
+                log.info('AMI ID [{i}] is in state: {s}'.format(i=ami_id, s=response['State']))
+        return False
+
+    def get_instance(self, instance_id):
+        """Gets into for a single EC2 instance
+
+        :param instance_id: (str) ID of the instance
+        :return: dict containing EC2 instance data
+        :raises: EC2UtilError
+        """
+        return get_instance(client=self.client, instance_id=instance_id)
+
+    def get_ec2_instance(self, instance_id):
+        """Gets into for a single EC2 instance
+
+        :param instance_id: (str) ID of the instance
+        :return: dict containing EC2 instance data
+        :raises: EC2UtilError
+        """
+        return get_instance(client=self.client, instance_id=instance_id)
+
+    def get_instances(self):
+        """Describes the EC2 instances
+
+        :return: dict containing EC2 instance data
+        :raises: EC2UtilError
+        """
+        return list_instances(client=self.client)
+
     def get_ec2_instances(self):
         """Describes the EC2 instances
 
@@ -2592,6 +2795,49 @@ class EC2Util(object):
         :raises: EC2UtilError
         """
         return list_instances(client=self.client)
+
+    def stop_instance(self, instance_id):
+        """Stops the provided instance
+
+        :return: (tuple) instance ID, current state, and previous state
+        :raises: EC2UtilError
+        """
+        return stop_instance(client=self.client, instance_id=instance_id)
+
+    def terminate_instance(self, instance_id):
+        """Terminates the provided instance
+
+        :return: (tuple) instance ID, current state, and previous state
+        :raises: EC2UtilError
+        """
+        return terminate_instance(client=self.client, instance_id=instance_id)
+
+    def create_image(self, instance_id, image_name, image_description='', no_reboot=False):
+        """Creates an EC2 image from the provided parameters
+
+        :param instance_id: (str) ID of the instance
+        :param image_name: (str) name of the image to create
+        :param image_description: (str) description of the image
+        :param no_reboot: (bool) Set True to prevent AWS from rebooting the image as part of the creation process
+        :return: (str) image ID
+        :raises: EC2UtilError
+        """
+        return create_image(
+            client=self.client,
+            instance_id=instance_id,
+            image_name=image_name,
+            image_description=image_description,
+            no_reboot=no_reboot
+        )
+
+    def get_image(self, ami_id):
+        """Return details about the provided AMI ID
+
+        :param ami_id: (str) ID of the AMI
+        :return: (dict) data about the AMI
+        :raises: EC2UtilError
+        """
+        return get_image(client=self.client, ami_id=ami_id)
 
     def list_volumes(self):
         """Describes the EBS volumes
@@ -5353,7 +5599,7 @@ def get_instance(client, instance_id):
     """Returns detailed info about the instance ID
 
     :param client: boto3.client object
-    :param instance_id: (str) ID of the snapshot to retrieve
+    :param instance_id: (str) ID of the instance to retrieve
     :return: (dict) data about the snapshot (see boto3 docs)
     :raises: EC2UtilError
     """
@@ -5384,6 +5630,72 @@ def get_instance(client, instance_id):
         msg = 'Expected to find 1 instance, found: {n}'.format(n=str(len(instances)))
         raise EC2UtilError(msg)
     return instances[0]
+
+
+def stop_instance(client, instance_id):
+    """Stops the provided instance ID
+
+    :param client: boto3.client object
+    :param instance_id: (str) ID of instance
+    :return: (tuple) instance ID, current state, and previous state
+    """
+    log = logging.getLogger(mod_logger + '.stop_instance')
+    try:
+        response = client.stop_instances(
+            InstanceIds=[instance_id],
+            DryRun=False,
+            Hibernate=False,
+            Force=False
+        )
+    except ClientError as exc:
+        msg = 'Problem stopping instance: {i}'.format(i=instance_id)
+        raise EC2UtilError(msg) from exc
+    if 'StoppingInstances' not in response.keys():
+        msg = 'StoppingInstances data not found in response: {r}'.format(r=str(response))
+        raise EC2UtilError(msg)
+    for stopping_instance in response['StoppingInstances']:
+        if 'InstanceId' not in stopping_instance or 'CurrentState' not in stopping_instance \
+        or 'PreviousState' not in stopping_instance:
+            msg = 'InstanceId, CurrentState, or PreviousState data not found in response: {r}'.format(
+                r=str(stopping_instance))
+            raise EC2UtilError(msg)
+        if stopping_instance['InstanceId'] == instance_id:
+            return stopping_instance['InstanceId'], stopping_instance['CurrentState']['Name'], \
+                   stopping_instance['PreviousState']['Name']
+    log.info('Stopped instance ID: {i}'.format(i=instance_id))
+    return instance_id, 'UNKNOWN', 'UNKNOWN'
+
+
+def terminate_instance(client, instance_id):
+    """Terminates the provided instance ID
+
+    :param client: boto3.client object
+    :param instance_id: (str) ID of instance
+    :return: (tuple) instance ID, current state, and previous state
+    """
+    log = logging.getLogger(mod_logger + '.terminate_instance')
+    try:
+        response = client.terminate_instances(
+            InstanceIds=[instance_id],
+            DryRun=False
+        )
+    except ClientError as exc:
+        msg = 'Problem terminating instance: {i}'.format(i=instance_id)
+        raise EC2UtilError(msg) from exc
+    if 'TerminatingInstances' not in response.keys():
+        msg = 'TerminatingInstances data not found in response: {r}'.format(r=str(response))
+        raise EC2UtilError(msg)
+    for terminating_instance in response['TerminatingInstances']:
+        if 'InstanceId' not in terminating_instance or 'CurrentState' not in terminating_instance \
+                or 'PreviousState' not in terminating_instance:
+            msg = 'InstanceId, CurrentState, or PreviousState data not found in response: {r}'.format(
+                r=str(terminating_instance))
+            raise EC2UtilError(msg)
+        if terminating_instance['InstanceId'] == instance_id:
+            return terminating_instance['InstanceId'], terminating_instance['CurrentState']['Name'], \
+                   terminating_instance['PreviousState']['Name']
+    log.info('Stopped instance ID: {i}'.format(i=instance_id))
+    return instance_id, 'UNKNOWN', 'UNKNOWN'
 
 
 ############################################################################
@@ -5490,7 +5802,7 @@ def get_snapshot(client, snapshot_id):
     except ClientError as exc:
         msg = 'Unable to describe snapshot ID: {a}'.format(a=snapshot_id)
         raise EC2UtilError(msg) from exc
-    if 'Snapshots' not in response:
+    if 'Snapshots' not in response.keys():
         msg = 'Snapshots not found in response: {r}'.format(r=str(response))
         raise EC2UtilError(msg)
     snapshots = response['Snapshots']
@@ -5506,6 +5818,39 @@ def get_snapshot(client, snapshot_id):
 ############################################################################
 # Methods for retrieving EC2 AMIs / Images
 ############################################################################
+
+def create_image(client, instance_id, image_name, image_description='', no_reboot=False):
+    """Creates an EC2 image from the provided instance ID
+
+    :param client: boto3.client object
+    :param instance_id: (str) ID of the instance
+    :param image_name: (str) name of the image to create
+    :param image_description: (str) description of the image
+    :param no_reboot: (bool) Set True to prevent AWS from rebooting the image as part of the creation process
+    :return: (str) Image ID
+    :raises EC2UtilError
+    """
+    log = logging.getLogger(mod_logger + '.create_image')
+    # Create the new image
+    log.info('Creating new image from instance ID: {i}'.format(i=instance_id))
+    try:
+        response = client.create_image(
+            DryRun=False,
+            InstanceId=instance_id,
+            Name=image_name,
+            Description=image_description,
+            NoReboot=no_reboot
+        )
+    except ClientError as exc:
+        msg = 'There was a problem creating an image named [{m}] for image ID: {i}'.format(
+            m=image_name, i=instance_id)
+        raise EC2UtilError(msg) from exc
+    if 'ImageId' not in response.keys():
+        msg = 'ImageId not found in response: {r}'.format(r=str(response.keys()))
+        raise EC2UtilError(msg)
+    image_id = response['ImageId']
+    log.info('Created image ID [{a}] from instance ID [{i}]'.format(a=image_id, i=instance_id))
+    return image_id
 
 
 def list_images(client, owner_id):
@@ -5549,7 +5894,7 @@ def get_image(client, ami_id):
     except ClientError as exc:
         msg = 'Unable to describe image ID: {a}'.format(a=ami_id)
         raise EC2UtilError(msg) from exc
-    if 'Images' not in response:
+    if 'Images' not in response.keys():
         msg = 'Images not found in response: {r}'.format(r=str(response))
         raise EC2UtilError(msg)
     if len(response['Images']) != 1:
@@ -5681,7 +6026,7 @@ def get_volume(client, volume_id):
     except ClientError as exc:
         msg = 'Unable to describe volume ID: {a}'.format(a=volume_id)
         raise EC2UtilError(msg) from exc
-    if 'Volumes' not in response:
+    if 'Volumes' not in response.keys():
         msg = 'Volumes not found in response: {r}'.format(r=str(response))
         raise EC2UtilError(msg)
     volumes = response['Volumes']
@@ -5755,3 +6100,41 @@ def list_internet_gateways(client):
         internet_gateways += response['InternetGateways']
     log.info('Found {n} internet gateways'.format(n=str(len(internet_gateways))))
     return internet_gateways
+
+
+############################################################################
+# Methods for network interfaces
+############################################################################
+
+
+def create_network_interface(client, subnet_id, security_group_list, private_ip_address):
+    """Creates a network interface
+
+    :param client: boto3.client object
+    :param subnet_id: (str) ID of the subnet
+    :param security_group_list: (list) of security group IDs
+    :param private_ip_address: (str) IP address to assign to the ENI
+    :return: (list)
+    :raises: EC2UtilError
+    """
+    log = logging.getLogger(mod_logger + '.create_network_interface')
+    log.info('Creating a new ENI on subnet [{s}], with Security Groups [{g}] and private IP: {i}'.format(
+        s=subnet_id, g=str(security_group_list), i=private_ip_address))
+    try:
+        response = client.create_network_interface(
+            DryRun=False,
+            SubnetId=subnet_id,
+            Groups=security_group_list,
+            PrivateIpAddress=private_ip_address
+        )
+    except ClientError as exc:
+        msg = 'Problem creating and ENI on Subnet {s} using Security Groups {g} and private IP address: {i}'.format(
+            s=subnet_id, g=security_group_list, i=private_ip_address)
+        raise EC2UtilError(msg) from exc
+    if 'NetworkInterface' not in response.keys():
+        msg = 'NetworkInterface not found in response: {r}'.format(r=str(response))
+        raise EC2UtilError(msg)
+    if 'NetworkInterfaceId' not in response['NetworkInterface'].keys():
+        msg = 'NetworkInterfaceId not found in network interface data: {r}'.format(r=str(response['NetworkInterface']))
+        raise EC2UtilError(msg)
+    return response['NetworkInterface']

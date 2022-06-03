@@ -33,7 +33,7 @@ def generate_team_report(team_id, load=False):
 
     :param team_id: (int) ID of the team
     :param load: (bool) Set True to load CONS3RT data from the local cons3rt_data_file, False to generate new data
-    :return: None
+    :return: (list) of CONS3RT deployment run host data
     :raises: Cons3rtReportsError
     """
     log = logging.getLogger(mod_logger + '.generate_team_report')
@@ -61,6 +61,7 @@ def generate_team_report(team_id, load=False):
     # Generate the output
     generate_cons3rt_output(team_id=team_id, cons3rt_data=cons3rt_vm_data)
     log.info('Completed team VM tally for team ID: {i}'.format(i=team_id))
+    return cons3rt_vm_data
 
 
 def generate_team_asset_report(team_id):
