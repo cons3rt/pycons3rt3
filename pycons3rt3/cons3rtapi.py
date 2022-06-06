@@ -4731,11 +4731,12 @@ class Cons3rtApi(object):
             try:
                 vr_drs = self.list_active_deployment_runs_in_virtualization_realm(vr_id=vr['id'])
             except Cons3rtApiError as exc:
-                msg = 'Problem listing active DRs from VR ID: {i}'.format(i=str(vr['id']))
-                raise Cons3rtApiError(msg) from exc
-            log.info('Found {n} DRs in VR ID: {i}'.format(n=str(len(vr_drs)), i=str(vr['id'])))
-            for vr_dr in vr_drs:
-                drs.append(vr_dr)
+                msg = 'Problem listing active DRs from VR ID: {i}\n{e}'.format(i=str(vr['id']), e=str(exc))
+                log.warning(msg)
+            else:
+                log.info('Found {n} DRs in VR ID: {i}'.format(n=str(len(vr_drs)), i=str(vr['id'])))
+                for vr_dr in vr_drs:
+                    drs.append(vr_dr)
         log.info('Found {n} active deployment runs in team ID: {i}'.format(i=str(team_id), n=str(len(drs))))
         return drs
 
