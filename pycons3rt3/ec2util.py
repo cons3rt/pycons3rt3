@@ -106,6 +106,8 @@ class EC2Util(object):
                     self.client.describe_internet_gateways(InternetGatewayIds=[resource_id])
                 elif resource_id.startswith('eni-'):
                     self.client.describe_network_interfaces(NetworkInterfaceIds=[resource_id])
+                elif resource_id.startswith('h-'):
+                    self.client.describe_hosts(HostIds=[resource_id])
                 else:
                     log.warning('Resource type not supported for this method: {r}'.format(r=resource_id))
                     return False
