@@ -9,6 +9,7 @@
 * Added a method to wait for an AMI to become available after creation
 * Added a method to create a network interface
 * Added a method to launch a VM onto a dedicated host
+* Added a setup script
 
 0.0.11
 =======
