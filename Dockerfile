@@ -1,4 +1,4 @@
-FROM jyennaco/python3:v3.10.3
+FROM jyennaco/python3:v3.10.4
 
 ENV srcDir="/usr/local/src/pycons3rt3"
 
