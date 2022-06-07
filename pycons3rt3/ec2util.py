@@ -312,6 +312,9 @@ class EC2Util(object):
             subnets += response['Subnets']
         return subnets
 
+    def get_subnet(self, subnet_id):
+        return self.retrieve_subnet(subnet_id=subnet_id)
+
     def retrieve_subnet(self, subnet_id):
         """Gets details of the specified subnet ID
 
@@ -2763,6 +2766,15 @@ class EC2Util(object):
             else:
                 log.info('AMI ID [{i}] is in state: {s}'.format(i=ami_id, s=response['State']))
         return False
+
+    def get_host(self, host_id):
+        """Gets into for a single host
+
+        :param host_id: (str) ID of the host
+        :return: dict containing host data
+        :raises: EC2UtilError
+        """
+        return get_host(client=self.client, host_id=host_id)
 
     def get_instance(self, instance_id):
         """Gets into for a single EC2 instance
@@ -5602,7 +5614,7 @@ def get_instance(client, instance_id):
 
     :param client: boto3.client object
     :param instance_id: (str) ID of the instance to retrieve
-    :return: (dict) data about the snapshot (see boto3 docs)
+    :return: (dict) data about the instance (see boto3 docs)
     :raises: EC2UtilError
     """
     log = logging.getLogger(mod_logger + '.get_instance')
@@ -6140,3 +6152,36 @@ def create_network_interface(client, subnet_id, security_group_list, private_ip_
         msg = 'NetworkInterfaceId not found in network interface data: {r}'.format(r=str(response['NetworkInterface']))
         raise EC2UtilError(msg)
     return response['NetworkInterface']
+
+
+############################################################################
+# Methods for dedicated hosts
+############################################################################
+
+
+def get_host(client, host_id):
+    """Returns detailed info about the dedicated host
+
+    :param client: boto3.client object
+    :param host_id: (str) ID of the host to retrieve
+    :return: (dict) data about the host (see boto3 docs)
+    :raises: EC2UtilError
+    """
+    log = logging.getLogger(mod_logger + '.get_host')
+    log.info('Getting info about host ID: {i}'.format(i=get_host))
+    try:
+        response = client.describe_hosts(DryRun=False, HostIds=[host_id])
+    except ClientError as exc:
+        msg = 'Unable to describe host ID: {a}'.format(a=host_id)
+        raise EC2UtilError(msg) from exc
+    if 'Hosts' not in response.keys():
+        msg = 'Hosts not found in response: {r}'.format(r=str(response))
+        raise EC2UtilError(msg)
+    hosts = response['Hosts']
+    if not isinstance(hosts, list):
+        msg = 'Expected Hosts to be a list, found: {t}'.format(t=hosts.__class__.__name__)
+        raise EC2UtilError(msg)
+    if len(hosts) != 1:
+        msg = 'Expected to find 1 host, found: {n}'.format(n=str(len(hosts)))
+        raise EC2UtilError(msg)
+    return hosts[0]
