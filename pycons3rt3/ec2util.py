@@ -6168,9 +6168,9 @@ def get_host(client, host_id):
     :raises: EC2UtilError
     """
     log = logging.getLogger(mod_logger + '.get_host')
-    log.info('Getting info about host ID: {i}'.format(i=get_host))
+    log.info('Getting info about host ID: {i}'.format(i=host_id))
     try:
-        response = client.describe_hosts(DryRun=False, HostIds=[host_id])
+        response = client.describe_hosts(HostIds=[host_id])
     except ClientError as exc:
         msg = 'Unable to describe host ID: {a}'.format(a=host_id)
         raise EC2UtilError(msg) from exc
