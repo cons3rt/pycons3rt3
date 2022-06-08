@@ -52,9 +52,14 @@ class RunMonitor(object):
         self.thread_monitor_interval_sec = 30
         self.thread_monitor_warn_time_sec = 3600
         self.run_release_time_sec = 600
+
         # Directories and files
         self.runner_dir = runner_dir
         self.results_dir = os.path.join(self.runner_dir, 'results')
+
+        # Slack messages
+        self.slack_msg = None
+        self.timestamp = datetime.datetime.now().strftime('%Y%m%d_%H%M%S')
 
         # Marker files
         self.go_marker_file = os.path.join(self.runner_dir, 'GO')
@@ -71,6 +76,19 @@ class RunMonitor(object):
         :return: None
         """
         log = logging.getLogger(self.cls_logger + '.monitor')
+
+        if all([slack_webhook_url, slack_channel_monitor, slack_channel_alert, slack_text]):
+            self.slack_msg = SlackMessage(
+                slack_webhook_url,
+                channel=slack_channel_monitor,
+                text=self.timestamp + ': ' + slack_text
+            )
+
+        if self.slack_msg:
+            msg = 'Starting servicerunner monitor...'
+            attachment = SlackAttachment(fallback=msg, text=msg, color='good')
+            self.slack_msg.add_attachment(attachment)
+            self.slack_msg.send()
 
         log.info('Starting monitor...')
         while not self.stop_monitoring:
@@ -110,6 +128,12 @@ class RunMonitor(object):
                             t=str(elapsed_time_sec)))
                     time.sleep(self.thread_monitor_interval_sec)
             time.sleep(self.check_interval_sec)
+
+        if self.slack_msg:
+            msg = 'servicerunner monitor stopped'
+            attachment = SlackAttachment(fallback=msg, text=msg, color='good')
+            self.slack_msg.add_attachment(attachment)
+            self.slack_msg.send()
 
 
 class ScriptRunner(threading.Thread):
@@ -162,6 +186,9 @@ class ScriptRunner(threading.Thread):
         if not self.verify_prereqs():
             self.report_fail(msg='Missing prerequisite')
             return
+
+        # Slack messages that execution of tasks is starting
+        self.report_success(msg='Starting task execution...')
 
         # Run the Service deployment
         log.info('Running the service runner function tasks...')
