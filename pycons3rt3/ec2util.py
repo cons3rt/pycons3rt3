@@ -2776,6 +2776,16 @@ class EC2Util(object):
         """
         return get_host(client=self.client, host_id=host_id)
 
+    def get_host_capacity_for_instance_type(self, host_id, instance_type):
+        """Gets into for a single host
+
+        :param host_id: (str) ID of the host
+        :param instance_type: (str) instance type
+        :return: dict containing host data
+        :raises: EC2UtilError
+        """
+        return get_host_capacity_for_instance_type(client=self.client, host_id=host_id, instance_type=instance_type)
+
     def get_instance(self, instance_id):
         """Gets into for a single EC2 instance
 
@@ -6185,3 +6195,49 @@ def get_host(client, host_id):
         msg = 'Expected to find 1 host, found: {n}'.format(n=str(len(hosts)))
         raise EC2UtilError(msg)
     return hosts[0]
+
+
+def get_host_capacity_for_instance_type(client, host_id, instance_type):
+    """Returns detailed info about the dedicated host
+
+    :param client: boto3.client object
+    :param host_id: (str) ID of the host to retrieve
+    :param instance_type: (str) AWS instance type
+    :return: (dict) data about the host (see boto3 docs)
+    :raises: EC2UtilError
+    """
+    log = logging.getLogger(mod_logger + '.get_host_capacity_for_instance_type')
+    log.info('Getting info about host ID: {i}'.format(i=host_id))
+    try:
+        host = get_host(client=client, host_id=host_id)
+    except ClientError as exc:
+        msg = 'Unable to get details of host: {a}'.format(a=host_id)
+        raise EC2UtilError(msg) from exc
+    if 'AvailableCapacity' not in host.keys():
+        msg = 'AvailableCapacity not found in host data: {r}'.format(r=str(host))
+        raise EC2UtilError(msg)
+    if 'AvailableInstanceCapacity' not in host['AvailableCapacity'].keys():
+        msg = 'AvailableInstanceCapacity not found in host AvailableCapacity data: {r}'.format(
+            r=str(host['AvailableCapacity']))
+        raise EC2UtilError(msg)
+    available_instance_capacity = host['AvailableCapacity']['AvailableInstanceCapacity']
+    log.info('Checking for capacity of instance type [{t}] on host: {h}'.format(t=instance_type, h=host_id))
+    for instance_type_capacity in available_instance_capacity:
+        if 'InstanceType' not in instance_type_capacity.keys():
+            log.warning('InstanceType not found in data: {d}'.format(d=str(instance_type_capacity)))
+            continue
+        if instance_type_capacity['InstanceType'] == instance_type:
+            if 'AvailableCapacity' not in instance_type_capacity.keys():
+                msg = 'AvailableCapacity not found in instance capacity data: {d}'.format(d=str(instance_type_capacity))
+                raise EC2UtilError(msg)
+            available_capacity = instance_type_capacity['AvailableCapacity']
+            try:
+                available_capacity = int(available_capacity)
+            except ValueError:
+                msg = 'Found available capacity data but it was not an integer: {c}'.format(c=available_capacity)
+                raise EC2UtilError(msg)
+            log.info('Found available capacity for instance type [{t}] on host [{h}]: {c}'.format(
+                t=instance_type, h=host_id, c=str(available_capacity)))
+            return available_capacity
+    log.info('Available capacity not found for instance type [{t}] on host: {h}'.format(t=instance_type, h=host_id))
+    return 0

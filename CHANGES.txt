@@ -10,6 +10,7 @@
 * Added a method to create a network interface
 * Added a method to launch a VM onto a dedicated host
 * Added a setup script
+* Added the migrate CLI command, and a method to check capacity of a specific instance type on a dedicated host
 
 0.0.11
 =======

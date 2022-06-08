@@ -48,10 +48,11 @@ dist = setup(
         'console_scripts': [
             'asset = pycons3rt3.asset:main',
             'cons3rt = pycons3rt3.cons3rt:main',
-            's3organizer = pycons3rt3.s3organizer:main',
             'deployment = pycons3rt3.deployment:main',
+            'migrate = pycons3rt3.hostmigration:main',
             'pycons3rt_setup = pycons3rt3.osutil:main',
             'ractl = pycons3rt3.remoteaccesscontoller:main',
+            's3organizer = pycons3rt3.s3organizer:main',
             'slack = pycons3rt3.slack:main'
         ],
     },
