@@ -2465,7 +2465,8 @@ class EC2Util(object):
         }
         return output
 
-    def launch_instance_onto_dedicated_host(self, ami_id, host_id, key_name, instance_type, network_interfaces):
+    def launch_instance_onto_dedicated_host(self, ami_id, host_id, key_name, instance_type, network_interfaces,
+                                            os_type):
         """Launches an EC2 instance with the specified parameters, onto a dedicated host
 
         :param ami_id: (str) ID of the AMI to launch from
@@ -2473,6 +2474,7 @@ class EC2Util(object):
         :param key_name: (str) Name of the key-pair to use
         :param network_interfaces: (list) Network interfaces
         :param instance_type: (str) Instance Type (e.g. t2.micro)
+        :param os_type: (str) windows or linux
         :return: (dict) Instance info
         :raises: EC2UtilError
         """
@@ -2484,6 +2486,15 @@ class EC2Util(object):
             if not isinstance(network_interfaces, list):
                 raise EC2UtilError('network_interfaces must be a list')
 
+        if not os_type:
+            raise EC2UtilError('Required param: os_type, please set to windows or linux')
+
+        if not isinstance(os_type, str):
+            raise EC2UtilError('os_type arg must be a string, found: {t}'.format(t=os_type.__class__.__name__))
+
+        if os_type not in ['linux', 'windows']:
+            raise EC2UtilError('os_type args must be set to windows or linux, found: {t}'.format(t=os_type))
+
         # Set monitoring
         monitoring = {'Enabled': False}
 
@@ -2493,8 +2504,29 @@ class EC2Util(object):
             'Tenancy': 'host'
         }
 
+        # Determine the user data script by os type
+        if os_type == 'windows':
+            user_data = 'echo "Running Windows instance with pycons3rt3..."'
+        elif os_type == 'linux':
+            user_data = 'echo "Running Linux instance with pycons3rt3..."'
+            user_data += '\nsed -i \'/PubkeyAuthentication/d\' /etc/ssh/sshd_config'
+            user_data += '\nsed -i \'/PermitRootLogin/d\' /etc/ssh/sshd_config'
+            user_data += '\nsed -i \'/PasswordAuthentication/d\' /etc/ssh/sshd_config'
+            user_data += '\necho -e "PubkeyAuthentication yes" >> /etc/ssh/sshd_config'
+            user_data += '\necho >> /etc/ssh/sshd_config'
+            user_data += '\necho -e "PermitRootLogin yes" >> /etc/ssh/sshd_config'
+            user_data += '\necho >> /etc/ssh/sshd_config'
+            user_data += '\necho -e "PasswordAuthentication yes" >> /etc/ssh/sshd_config'
+            user_data += '\necho >> /etc/ssh/sshd_config'
+            user_data += '\nsystemctl restart sshd.service'
+            user_data += '\nexit $?'
+            user_data += '\n'
+        else:
+            user_data = 'echo "Running unknown OS type instance with pycons3rt3..."'
+
         # Launch the instance onto the dedicated host
         log.info('Attempting to launch the EC2 instance now on to host ID: {h}'.format(h=host_id))
+        log.info('Executing with user-data script:\n{s}'.format(s=user_data))
         try:
             response = self.client.run_instances(
                 DryRun=False,
@@ -2506,7 +2538,8 @@ class EC2Util(object):
                 Monitoring=monitoring,
                 InstanceInitiatedShutdownBehavior='stop',
                 Placement=placement,
-                NetworkInterfaces=network_interfaces
+                NetworkInterfaces=network_interfaces,
+                UserData=user_data
             )
         except ClientError as exc:
             msg = 'Problem launching the EC2 instance\n{e}'.format(e=str(exc))

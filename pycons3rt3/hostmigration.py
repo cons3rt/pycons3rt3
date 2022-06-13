@@ -28,13 +28,14 @@ __author__ = 'Joe Yennaco'
 mod_logger = Logify.get_name() + '.hostmigration'
 
 
-def migrate_ec2_instance_to_host(ec2, instance_id, host_details, size):
+def migrate_ec2_instance_to_host(ec2, instance_id, host_details, size, os_type=None):
     """Migrates a DR to a dedicated host
 
     :param ec2: boto3 EC2 client
     :param instance_id: (str) instance ID of the VM
     :param host_details: (str) dedicated host data
     :param size: (str) instance type for the instance on the host
+    :param os_type: (str) windows or linux
     :return: (bool) True if successful, False otherwise
     """
     log = logging.getLogger(mod_logger + '.migrate_ec2_instance_to_host')
@@ -63,6 +64,30 @@ def migrate_ec2_instance_to_host(ec2, instance_id, host_details, size):
     except EC2UtilError as exc:
         msg = 'Problem getting EC2 instance data: {i}\n{e}'.format(i=instance_id, e=str(exc))
         log.error(msg)
+        return False
+
+    # Check for platform data
+    platform = None
+    if 'Platform' in instance_info.keys():
+        platform = instance_info['Platform']
+    else:
+        log.info('Platform not found in instance data: {d}'.format(d=str(instance_info)))
+
+    # If platform data was found, use that for os_type
+    if platform:
+        if 'windows' in platform.lower():
+            os_type = 'windows'
+            log.info('Found Windows platform in instance data [{p}], using OS type: {t}'.format(p=platform, t=os_type))
+        elif 'nix' in platform.lower():
+            os_type = 'linux'
+            log.info('Found Linux platform in instance data [{p}], using OS type: {t}'.format(p=platform, t=os_type))
+    elif os_type:
+        # If not platform data found, use the user-provided os_type
+        log.info('Platform not found in instance data, using provided OS type: {t}'.format(t=os_type))
+
+    # Exit if no os_type found
+    if not os_type:
+        log.error('Unable to determine the OS type')
         return False
 
     # Ensure required data was found
@@ -260,7 +285,8 @@ def migrate_ec2_instance_to_host(ec2, instance_id, host_details, size):
             host_id=host_id,
             key_name=key_name,
             instance_type=size,
-            network_interfaces=attach_nics
+            network_interfaces=attach_nics,
+            os_type=os_type
         )
     except EC2UtilError as exc:
         msg = 'Problem launching instance from image [{i}] on to dedicated host: {h}\n{e}'.format(
@@ -292,15 +318,28 @@ def migrate_ec2_instance_to_host(ec2, instance_id, host_details, size):
     return True
 
 
-def migrate_ec2_instances_to_host(instance_ids, host_id, size):
+def migrate_ec2_instances_to_host(instance_ids, host_id, size, os_type=None):
     """Migrate a list of instance IDs to a specific host
 
     :param instance_ids: (list) of string instance IDs
     :param host_id: (str) host ID
     :param size: (str) instance type for the instance on the host
+    :param os_type: (str) windows or linux
     :return: (bool) True if all instances migrated successfully, False otherwise
     """
     log = logging.getLogger(mod_logger + '.migrate_ec2_instances_to_host')
+
+    if os_type:
+        if not isinstance(os_type, str):
+            log.error('os_type arg must be a string, found: {t}'.format(t=os_type.__class__.__name__))
+            return False
+
+        if os_type not in ['linux', 'windows']:
+            log.error('os_type args must be set to windows or linux, found: {t}'.format(t=os_type))
+            return False
+        log.info('Using provided OS type: {t}'.format(t=os_type))
+    else:
+        log.info('OS type not provided, will determine it from instance data')
 
     # Get an EC2Util object for querying AWS
     ec2 = EC2Util(skip_is_aws=True)
@@ -346,7 +385,8 @@ def migrate_ec2_instances_to_host(instance_ids, host_id, size):
                 ec2=ec2,
                 instance_id=instance_id,
                 host_details=host_details,
-                size=size
+                size=size,
+                os_type=os_type
         ):
             log.error('Failed to migrate instance ID {i} on to host: {h}'.format(i=instance_id, h=host_id))
             fail_count += 1
@@ -371,6 +411,7 @@ def main():
     parser.add_argument('--host', help='Process only active runs', required=False)
     parser.add_argument('--id', help='ID relative to the command provided', required=False)
     parser.add_argument('--ids', help='List of IDs relative to the command provided', required=False)
+    parser.add_argument('--ostype', help='Type of OS: [windows or linux]', required=False)
     parser.add_argument('--size', help='Instance type to use for the instance on the host', required=False)
     args = parser.parse_args()
 
@@ -402,6 +443,15 @@ def main():
     # Ensure the cloud type was specified
     if not cloud_type:
         print('ERROR: Please specify --cloudtype: aws, azure, or vcloud')
+
+    # Get the OS type
+    os_type = None
+    if args.ostype:
+        os_type = args.ostype
+
+    # Ensure the cloud type was specified
+    if not os_type:
+        print('ERROR: Please specify --ostype: windows or linux')
 
     # Collect instance IDs from the args
     instance_ids = []
@@ -441,7 +491,8 @@ def main():
             print('The --size arg is required to move an instance on to the host')
             return 5
         if cloud_type == 'aws':
-            if not migrate_ec2_instances_to_host(instance_ids=instance_ids, host_id=host_id, size=size):
+            if not migrate_ec2_instances_to_host(instance_ids=instance_ids, host_id=host_id, size=size,
+                                                 os_type=os_type):
                 return 6
     elif args.command == 'off':
         print('Migration off the dedicated host is not yet supported')
