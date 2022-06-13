@@ -158,6 +158,10 @@ class ImageUtilError(Exception):
     """There was a problem with an AWS EC2 AMI/snapshot/volume operation"""
 
 
+class KmsUtilError(Exception):
+    """There was a problem with a AWS KMS operation"""
+
+
 class RdsUtilError(Exception):
     """There was a problem with an AWS RDS operation"""
 
