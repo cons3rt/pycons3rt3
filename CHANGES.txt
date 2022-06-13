@@ -12,6 +12,8 @@
 * Added a setup script
 * Added the migrate CLI command, and a method to check capacity of a specific instance type on a dedicated host
 * Added kmsutil.py to integrate with AWS KMS
+* Added functionality to the S3Util to handle encryping objects in place in a bucket with the provided KMS key
+* Updated host migration methods to use OS type and run a user-data script to configure sshd
 
 0.0.11
 =======

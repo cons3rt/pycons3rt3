@@ -29,7 +29,8 @@ from s3transfer.exceptions import RetriesExceededError
 
 from .awsutil import get_boto3_client
 from .logify import Logify
-from .exceptions import S3UtilError
+from .exceptions import KmsUtilError, S3UtilError
+from .kmsutil import get_kms_client, get_kms_key
 
 __author__ = 'Joe Yennaco'
 
@@ -68,14 +69,20 @@ class S3Util(object):
         s3resource (boto3.resource): High level AWS S3 resource
         bucket (Bucket): S3 Bucket object for performing Bucket operations
     """
-    def __init__(self, _bucket_name, region_name=None, aws_access_key_id=None, aws_secret_access_key=None):
+    def __init__(self, _bucket_name=None, bucket_name=None, region_name=None, aws_access_key_id=None,
+                 aws_secret_access_key=None):
         self.cls_logger = mod_logger + '.S3Util'
         log = logging.getLogger(self.cls_logger + '.__init__')
-        self.bucket_name = _bucket_name
+
+        # Set the bucket name, keep "_bucket_name" for backwards compatibility
+        self.bucket_name = None
+        if _bucket_name:
+            self.bucket_name = _bucket_name
+        elif bucket_name:
+            self.bucket_name = bucket_name
 
         log.debug('Configuring S3 client with AWS Access key ID {k} and region {r}'.format(
             k=aws_access_key_id, r=region_name))
-
         self.s3resource = boto3.resource('s3', region_name=region_name, aws_access_key_id=aws_access_key_id,
                                          aws_secret_access_key=aws_secret_access_key)
         try:
@@ -85,8 +92,29 @@ class S3Util(object):
             msg = 'There was a problem connecting to S3, please check AWS configuration or credentials provided, ' \
                   'ensure credentials and region are set appropriately.'
             raise S3UtilError(msg) from exc
-        self.validate_bucket()
-        self.bucket = self.s3resource.Bucket(self.bucket_name)
+        if self.bucket_name:
+            self.validate_bucket()
+            self.bucket = self.s3resource.Bucket(self.bucket_name)
+
+    def set_bucket(self, bucket_name):
+        """Sets the bucket name for this S3Util
+
+        :param bucket_name: (str) name of the S3 bucket
+        :return: None
+        :raises: S3UtilError
+        """
+        log = logging.getLogger(self.cls_logger + '.set_bucket')
+        log.info('Setting bucket name: {b}'.format(b=bucket_name))
+        self.bucket_name = bucket_name
+        return self.validate_bucket()
+
+    def list_buckets(self):
+        """Returns a list of S3 bucket objects as a dict
+
+        :return: (list) os dict S3 buckets (see boto3 docs)
+        :raises: S3UtilError
+        """
+        return list_buckets(client=self.s3client)
 
     def validate_bucket(self):
         """Verify the specified bucket exists
@@ -462,6 +490,24 @@ class S3Util(object):
         log.debug('Successfully copied key [{k}] to bucket {b}: {n}'.format(k=current_key, b=target_bucket, n=new_key))
         return True
 
+    def enable_bucket_encryption(self, kms_id=None):
+        """Enable default encryption on the S3 bucket, optionally provide a KMS Key ID to configure encryption to use
+        the KMS key ID
+
+        :param kms_id: (str) ID of the KMS key
+        :return: None
+        :raises: S3UtilError
+        """
+        return enable_bucket_encryption(client=self.s3client, kms_id=kms_id)
+
+    def enable_bucket_encryption_for_all_buckets(self, kms_id=None):
+        """Enable default bucket encryption on all buckets
+
+        :param kms_id: (str) ID of the KMS key
+        :return:
+        """
+        return enable_bucket_encryption_for_all_buckets(client=self.s3client, kms_id=kms_id)
+
 
 ############################################################################
 # Methods for blocking public access
@@ -470,7 +516,7 @@ class S3Util(object):
 
 def block_public_access(client, bucket_name, block_public_acls=True, ignore_public_acls=True, block_public_policy=True,
                         restrict_public_buckets=True):
-    """Enabled bucket encryption
+    """Block public access to this S3 bucket
 
     :param client: boto3.client
     :param bucket_name: (str) bucket name
@@ -686,18 +732,29 @@ def enable_bucket_encryption(client, bucket_name, kms_id=None):
     log = logging.getLogger(mod_logger + '.enable_bucket_encryption')
 
     if kms_id:
+        # Ensure the encryption key exists
+        log.info('Getting KMS key: {i}'.format(i=kms_id))
+        try:
+            kms_client = get_kms_client()
+            kms_key = get_kms_key(client=kms_client, key_id=kms_id)
+        except KmsUtilError as exc:
+            msg = 'KMS key not found: {i}'.format(i=kms_id)
+            raise S3UtilError(msg) from exc
+        log.info('Found KMS key: {k}'.format(k=kms_key['KeyId']))
         rule = {
             'ApplyServerSideEncryptionByDefault': {
                 'SSEAlgorithm': 'aws:kms',
                 'KMSMasterKeyID': kms_id
-            }
+            },
+            'BucketKeyEnabled': True
         }
-        msg = 'Enabling default encryption on [{n}] with KMS ID  [{k}]'.format(n=bucket_name, k=kms_id)
+        msg = 'Enabling default encryption on [{n}] with KMS ID: [{k}]'.format(n=bucket_name, k=kms_id)
     else:
         rule = {
             'ApplyServerSideEncryptionByDefault': {
                 'SSEAlgorithm': 'AES256',
-            }
+            },
+            'BucketKeyEnabled': True
         }
         msg = 'Enabling default encryption on [{n}] with AES256'.format(n=bucket_name)
     rules = [rule]
@@ -710,6 +767,42 @@ def enable_bucket_encryption(client, bucket_name, kms_id=None):
     except ClientError as exc:
         msg = 'Problem enabling bucket encryption on [{n}]'.format(n=bucket_name)
         raise S3UtilError(msg) from exc
+
+
+def enable_bucket_encryption_for_all_buckets(client, kms_id=None):
+    """Enables bucket encryption for all S3 buckets
+
+    :param client: boto3 client
+    :param kms_id: (str) ID of the KMS key
+    :return: None
+    :raises" S3UtilError
+    """
+    log = logging.getLogger(mod_logger + '.enable_bucket_encryption_for_all_buckets')
+
+    # Get a list of S3 buckets
+    try:
+        buckets = list_buckets(client=client)
+    except S3UtilError as exc:
+        msg = 'Problem listing S3 buckets'
+        raise S3UtilError(msg) from exc
+
+    # Set the default encryption for each bucket
+    log.info('Enabling encryption on {n} S3 buckets'.format(n=str(len(buckets))))
+    for bucket in buckets:
+        # Ensure the bucket name is found
+        if 'Name' not in bucket.keys():
+            msg = 'Name not found in bucket data: {d}'.format(d=str(bucket))
+            raise S3UtilError(msg)
+        bucket_name = bucket['Name']
+
+        # Set the encryption for the bucket
+        log.info('Enabling encryption on bucket: {b}'.format(b=bucket_name))
+        try:
+            enable_bucket_encryption(client=client, bucket_name=bucket_name, kms_id=kms_id)
+        except S3UtilError as exc:
+            msg = 'Problem enabling encryption on bucket: {b}'.format(b=bucket_name)
+            raise S3UtilError(msg) from exc
+    log.info('Completed enabling encryption on {n} S3 buckets'.format(n=str(len(buckets))))
 
 
 ############################################################################
@@ -931,7 +1024,7 @@ def list_buckets(client):
     """Returns a list of S3 buckets
 
     :param client: boto3.client
-    :return: (list) of (dict) S3 buckets (see boto3 docs
+    :return: (list) of (dict) S3 buckets (see boto3 docs)
     """
     log = logging.getLogger(mod_logger + '.list_buckets')
     log.info('Attempting to list S3 buckets...')
@@ -943,6 +1036,7 @@ def list_buckets(client):
     if 'Buckets' not in response.keys():
         msg = 'Buckets not found in response: {d}'.format(d=str(response))
         raise S3UtilError(msg)
+    log.info('Found {n} S3 buckets'.format(n=str(len(response['Buckets']))))
     return response['Buckets']
 
 
