@@ -653,7 +653,11 @@ def make_asset_zip(asset_dir_path, destination_directory=None):
                     zip_w.write(file_path, archive_name)
     except Exception as exc:
         raise AssetZipCreationError('Unable to create zip file: {f}'.format(f=asset_info.asset_zip_path)) from exc
-    shutil.rmtree(staging_directory)
+    try:
+        shutil.rmtree(staging_directory)
+    except Exception as exc:
+        log.warning('Error when cleaning up the staging directory, manually clean up: {d}\n{e}'.format(
+            d=staging_directory, e=str(exc)))
     log.info('Successfully created asset zip file: {f}'.format(f=asset_info.asset_zip_path))
     print('Created asset zip file: {f}'.format(f=asset_info.asset_zip_path))
     return asset_info
