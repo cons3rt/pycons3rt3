@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Use this 'migrate' CLI command to migrate VMs on and off dedcated hosts.
+Use this 'migrate' CLI command to migrate VMs on and off dedicated hosts.
 
 Notes:
     - Currently only --cloudtype aws is supported
@@ -28,7 +28,7 @@ __author__ = 'Joe Yennaco'
 mod_logger = Logify.get_name() + '.hostmigration'
 
 
-def migrate_ec2_instance_to_host(ec2, instance_id, host_details, size, os_type=None):
+def migrate_ec2_instance_to_host(ec2, instance_id, host_details, size, os_type=None, ami_id=None):
     """Migrates a DR to a dedicated host
 
     :param ec2: boto3 EC2 client
@@ -36,6 +36,7 @@ def migrate_ec2_instance_to_host(ec2, instance_id, host_details, size, os_type=N
     :param host_details: (str) dedicated host data
     :param size: (str) instance type for the instance on the host
     :param os_type: (str) windows or linux
+    :param ami_id: (str) ID of the AMI
     :return: (bool) True if successful, False otherwise
     """
     log = logging.getLogger(mod_logger + '.migrate_ec2_instance_to_host')
@@ -171,25 +172,29 @@ def migrate_ec2_instance_to_host(ec2, instance_id, host_details, size, os_type=N
     time.sleep(5)
 
     # Create the image
-    image_name = '{i}_migration_{t}'.format(i=instance_id, t=timestamp)
-    log.info('Creating the image for instance ID [{i}] with name: {n}'.format(i=instance_id, n=image_name))
-    try:
-        image_id = ec2.create_image(instance_id=instance_id, image_name=image_name)
-    except EC2UtilError as exc:
-        msg = 'Problem creating image for instance ID [{i}] with name[{n}]\n{e}'.format(
-            i=instance_id, n=image_name, e=str(exc))
-        log.error(msg)
-        return False
+    if not ami_id:
+        image_name = '{i}_migration_{t}'.format(i=instance_id, t=timestamp)
+        log.info('Creating the image for instance ID [{i}] with name: {n}'.format(i=instance_id, n=image_name))
+        try:
+            image_id = ec2.create_image(instance_id=instance_id, image_name=image_name)
+        except EC2UtilError as exc:
+            msg = 'Problem creating image for instance ID [{i}] with name[{n}]\n{e}'.format(
+                i=instance_id, n=image_name, e=str(exc))
+            log.error(msg)
+            return False
 
-    # Wait for the image to create
-    log.info('Waiting for the image ID {w} to become available...'.format(w=image_id))
-    if not ec2.wait_for_image_available(ami_id=image_id, timeout_sec=3600):
-        log.error('AMI ID [{i}] did not reach the available state'.format(i=image_id))
-        return False
+        # Wait for the image to create
+        log.info('Waiting for the image ID {w} to become available...'.format(w=image_id))
+        if not ec2.wait_for_image_available(ami_id=image_id, timeout_sec=3600):
+            log.error('AMI ID [{i}] did not reach the available state'.format(i=image_id))
+            return False
 
-    # Wait 5 seconds
-    log.info('Waiting 5 seconds....')
-    time.sleep(5)
+        # Wait 5 seconds
+        log.info('Waiting 5 seconds....')
+        time.sleep(5)
+    else:
+        image_id = ami_id
+        log.info('Using user-provided AMI ID: {i}'.format(i=image_id))
 
     # Terminate the original instance
     log.info('Terminating instance ID: {i}'.format(i=instance_id))
@@ -296,7 +301,7 @@ def migrate_ec2_instance_to_host(ec2, instance_id, host_details, size, os_type=N
     if 'InstanceId' not in new_instance.keys():
         msg = 'InstanceId not found in instance data: {d}'.format(d=str(new_instance))
         log.error(msg)
-        return  False
+        return False
     new_instance_id = new_instance['InstanceId']
     log.info('Created new instance ID: {i}'.format(i=new_instance_id))
 
@@ -309,8 +314,8 @@ def migrate_ec2_instance_to_host(ec2, instance_id, host_details, size, os_type=N
     try:
         ec2.create_tags(resource_id=new_instance_id, tags=tags)
     except EC2UtilError as exc:
-        msg = 'There was a problem adding tags to the new image ID: {i}\n\nTags: {t}'.format(
-            i=new_instance_id, t=tags)
+        msg = 'There was a problem adding tags to the new image ID: {i}\n{e}\n\nTags: {t}'.format(
+            i=new_instance_id, s=str(exc), t=tags)
         log.error(msg)
         return False
 
@@ -318,13 +323,14 @@ def migrate_ec2_instance_to_host(ec2, instance_id, host_details, size, os_type=N
     return True
 
 
-def migrate_ec2_instances_to_host(instance_ids, host_id, size, os_type=None):
+def migrate_ec2_instances_to_host(instance_ids, host_id, size, os_type=None, ami_id=None):
     """Migrate a list of instance IDs to a specific host
 
     :param instance_ids: (list) of string instance IDs
     :param host_id: (str) host ID
     :param size: (str) instance type for the instance on the host
     :param os_type: (str) windows or linux
+    :param ami_id: (str) ID of the AMI
     :return: (bool) True if all instances migrated successfully, False otherwise
     """
     log = logging.getLogger(mod_logger + '.migrate_ec2_instances_to_host')
@@ -386,7 +392,8 @@ def migrate_ec2_instances_to_host(instance_ids, host_id, size, os_type=None):
                 instance_id=instance_id,
                 host_details=host_details,
                 size=size,
-                os_type=os_type
+                os_type=os_type,
+                ami_id=ami_id
         ):
             log.error('Failed to migrate instance ID {i} on to host: {h}'.format(i=instance_id, h=host_id))
             fail_count += 1
@@ -407,6 +414,7 @@ def main():
     parser = argparse.ArgumentParser(description='CONS3RT command line interface (CLI)')
     parser.add_argument('command', help='Command for the cons3rt CLI')
     parser.add_argument('subcommands', help='Optional command subtype', nargs='*')
+    parser.add_argument('--ami', help='ID of the AMI to use in the restoration', required=True)
     parser.add_argument('--cloudtype', help='Type of cloud: [aws, azure, or vcloud]', required=True)
     parser.add_argument('--host', help='Process only active runs', required=False)
     parser.add_argument('--id', help='ID relative to the command provided', required=False)
@@ -434,6 +442,11 @@ def main():
         subcommands = args.subcommands
     else:
         subcommands = None
+
+    # Get the AMI ID
+    ami_id = None
+    if args.ami:
+        ami_id = args.ami
 
     # Get the cloud type
     cloud_type = None
@@ -492,7 +505,7 @@ def main():
             return 5
         if cloud_type == 'aws':
             if not migrate_ec2_instances_to_host(instance_ids=instance_ids, host_id=host_id, size=size,
-                                                 os_type=os_type):
+                                                 os_type=os_type, ami_id=ami_id):
                 return 6
     elif args.command == 'off':
         print('Migration off the dedicated host is not yet supported')
