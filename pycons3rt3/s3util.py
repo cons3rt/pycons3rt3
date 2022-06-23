@@ -498,7 +498,7 @@ class S3Util(object):
         :return: None
         :raises: S3UtilError
         """
-        return enable_bucket_encryption(client=self.s3client, kms_id=kms_id)
+        return enable_bucket_encryption(client=self.s3client, kms_id=kms_id, bucket_name=self.bucket_name)
 
     def enable_bucket_encryption_for_all_buckets(self, kms_id=None):
         """Enable default bucket encryption on all buckets
