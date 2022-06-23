@@ -460,7 +460,11 @@ class S3Util(object):
             'Key': current_key
         }
         try:
-            self.s3client.copy(copy_source, self.bucket_name, new_key)
+            self.s3client.copy_object(
+                CopySource=copy_source,
+                Bucket=self.bucket_name,
+                Key=new_key
+            )
         except ClientError as exc:
             log.debug('Unable to copy key [{k}] to: {n}\n{e}'.format(k=current_key, n=new_key, e=str(exc)))
             return False
