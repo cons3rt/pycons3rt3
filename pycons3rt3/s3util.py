@@ -454,7 +454,8 @@ class S3Util(object):
         """
         log = logging.getLogger(self.cls_logger + '.copy_object_in_same_bucket')
 
-        log.info('Attempting to copy key [{k}] to: {n}'.format(k=current_key, n=new_key))
+        log.info('Copying bucket [{b}] key [{k}] to same bucket with key: [{n}]'.format(
+            b=self.bucket_name, k=current_key, n=new_key))
         copy_source = {
             'Bucket': self.bucket_name,
             'Key': current_key
@@ -466,9 +467,9 @@ class S3Util(object):
                 Key=new_key
             )
         except ClientError as exc:
-            log.debug('Unable to copy key [{k}] to: {n}\n{e}'.format(k=current_key, n=new_key, e=str(exc)))
+            log.warning('Problem copying bucket [{b}] key [{k}] to the same bucket with key: [{n}]\n{e}'.format(
+                b=self.bucket_name, k=current_key, n=new_key, e=str(exc)))
             return False
-        log.debug('Successfully copied key [{k}] to: {n}'.format(k=current_key, n=new_key))
         return True
 
     def copy_object_to_another_bucket(self, current_key, target_bucket, new_key):
@@ -481,7 +482,8 @@ class S3Util(object):
         """
         log = logging.getLogger(self.cls_logger + '.copy_object_to_another_bucket')
 
-        log.info('Attempting to copy key [{k}] to bucket {b}: {n}'.format(k=current_key, b=target_bucket, n=new_key))
+        log.info('Attempting to copy key [{k}] from bucket [{o}] to bucket [{b}] with new key: [{n}]'.format(
+            k=current_key, o=self.bucket_name, b=target_bucket, n=new_key))
         copy_source = {
             'Bucket': self.bucket_name,
             'Key': current_key
@@ -489,9 +491,9 @@ class S3Util(object):
         try:
             self.s3client.copy(copy_source, target_bucket, new_key)
         except ClientError as exc:
-            log.debug('Unable to copy key [{k}] to bucket: {b}\n{e}'.format(k=current_key, b=target_bucket, e=str(exc)))
+            log.warning('Unable copy key [{k}] from bucket [{o}] to bucket [{b}] with new key: [{n}]\n{e}'.format(
+                k=current_key, o=self.bucket_name, b=target_bucket, n=new_key, e=str(exc)))
             return False
-        log.debug('Successfully copied key [{k}] to bucket {b}: {n}'.format(k=current_key, b=target_bucket, n=new_key))
         return True
 
     def enable_bucket_encryption(self, kms_id=None):
