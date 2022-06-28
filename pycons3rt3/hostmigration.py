@@ -28,7 +28,7 @@ __author__ = 'Joe Yennaco'
 mod_logger = Logify.get_name() + '.hostmigration'
 
 
-def migrate_ec2_instance_to_host(ec2, instance_id, host_details, size, os_type=None, ami_id=None):
+def migrate_ec2_instance_to_host(ec2, instance_id, host_details, size, os_type=None, ami_id=None, nat=False):
     """Migrates a DR to a dedicated host
 
     :param ec2: boto3 EC2 client
@@ -37,6 +37,7 @@ def migrate_ec2_instance_to_host(ec2, instance_id, host_details, size, os_type=N
     :param size: (str) instance type for the instance on the host
     :param os_type: (str) windows or linux
     :param ami_id: (str) ID of the AMI
+    :param nat: (bool) Set True when migrating a NAT box
     :return: (bool) True if successful, False otherwise
     """
     log = logging.getLogger(mod_logger + '.migrate_ec2_instance_to_host')
@@ -122,6 +123,20 @@ def migrate_ec2_instance_to_host(ec2, instance_id, host_details, size, os_type=N
     tags = instance_info['Tags']
     subnet_id = instance_info['SubnetId']
     security_groups = instance_info['SecurityGroups']
+
+    # Get the instance name
+    instance_name = None
+    for tag in tags:
+        if tag['Key'] == 'Name':
+            instance_name = tag['Value']
+            break
+
+    # Check for nat in the name
+    if instance_name:
+        if not nat:
+            if 'nat' in instance_name:
+                log.info('This name tag appears to be for a nat box: {n}'.format(n=instance_name))
+                nat = True
 
     # Get the subnet details
     try:
@@ -291,7 +306,8 @@ def migrate_ec2_instance_to_host(ec2, instance_id, host_details, size, os_type=N
             key_name=key_name,
             instance_type=size,
             network_interfaces=attach_nics,
-            os_type=os_type
+            os_type=os_type,
+            nat=nat
         )
     except EC2UtilError as exc:
         msg = 'Problem launching instance from image [{i}] on to dedicated host: {h}\n{e}'.format(
@@ -315,15 +331,32 @@ def migrate_ec2_instance_to_host(ec2, instance_id, host_details, size, os_type=N
         ec2.create_tags(resource_id=new_instance_id, tags=tags)
     except EC2UtilError as exc:
         msg = 'There was a problem adding tags to the new image ID: {i}\n{e}\n\nTags: {t}'.format(
-            i=new_instance_id, s=str(exc), t=tags)
+            i=new_instance_id, e=str(exc), t=tags)
         log.error(msg)
         return False
 
-    log.info('Completed migrating new instance ID {i} to host ID: {h}'.format(i=new_instance_id, h=host_id))
+    # Wait for instance availability
+    if not ec2.wait_for_instance_availability(instance_id=new_instance_id):
+        msg = 'Instance did not become available: {i}'.format(i=new_instance_id)
+        raise EC2UtilError(msg)
+    log.info('NAT instance ID [{i}] is available and passed all checks'.format(i=new_instance_id))
+
+    # Set the source/dest checks to disabled/False for NAT instances only
+    if nat:
+        log.info('Disabling the source/destination checks for a NAT host')
+        try:
+            ec2.set_instance_source_dest_check(instance_id=new_instance_id, source_dest_check=False)
+        except EC2UtilError as exc:
+            msg = 'Problem setting NAT instance ID [{i}] source/destination check to disabled'.format(i=new_instance_id)
+            raise EC2UtilError(msg) from exc
+        log.info('Set NAT instance ID [{i}] source/destination check to disabled'.format(i=new_instance_id))
+
+    log.info('Completed migrating instance ID [{s}] to new instance ID [{i}] to host ID: {h}'.format(
+        s=instance_id, i=new_instance_id, h=host_id))
     return True
 
 
-def migrate_ec2_instances_to_host(instance_ids, host_id, size, os_type=None, ami_id=None):
+def migrate_ec2_instances_to_host(instance_ids, host_id, size, os_type=None, ami_id=None, nat=False):
     """Migrate a list of instance IDs to a specific host
 
     :param instance_ids: (list) of string instance IDs
@@ -331,6 +364,7 @@ def migrate_ec2_instances_to_host(instance_ids, host_id, size, os_type=None, ami
     :param size: (str) instance type for the instance on the host
     :param os_type: (str) windows or linux
     :param ami_id: (str) ID of the AMI
+    :param nat: (bool) Set True when migrating a NAT box
     :return: (bool) True if all instances migrated successfully, False otherwise
     """
     log = logging.getLogger(mod_logger + '.migrate_ec2_instances_to_host')
@@ -393,7 +427,8 @@ def migrate_ec2_instances_to_host(instance_ids, host_id, size, os_type=None, ami
                 host_details=host_details,
                 size=size,
                 os_type=os_type,
-                ami_id=ami_id
+                ami_id=ami_id,
+                nat=nat
         ):
             log.error('Failed to migrate instance ID {i} on to host: {h}'.format(i=instance_id, h=host_id))
             fail_count += 1
@@ -414,11 +449,12 @@ def main():
     parser = argparse.ArgumentParser(description='CONS3RT command line interface (CLI)')
     parser.add_argument('command', help='Command for the cons3rt CLI')
     parser.add_argument('subcommands', help='Optional command subtype', nargs='*')
-    parser.add_argument('--ami', help='ID of the AMI to use in the restoration', required=True)
+    parser.add_argument('--ami', help='ID of the AMI to use in the restoration', required=False)
     parser.add_argument('--cloudtype', help='Type of cloud: [aws, azure, or vcloud]', required=True)
     parser.add_argument('--host', help='Process only active runs', required=False)
     parser.add_argument('--id', help='ID relative to the command provided', required=False)
     parser.add_argument('--ids', help='List of IDs relative to the command provided', required=False)
+    parser.add_argument('--nat', help='Identifies the instance as a NAT box', required=False, action='store_true')
     parser.add_argument('--ostype', help='Type of OS: [windows or linux]', required=False)
     parser.add_argument('--size', help='Instance type to use for the instance on the host', required=False)
     args = parser.parse_args()
@@ -483,6 +519,11 @@ def main():
     if args.size:
         size = args.size
 
+    # Get whether this is a NAT box
+    nat = False
+    if args.nat:
+        nat = True
+
     # Ensure host ID is valid
     if cloud_type == 'aws':
         if host_id:
@@ -505,7 +546,7 @@ def main():
             return 5
         if cloud_type == 'aws':
             if not migrate_ec2_instances_to_host(instance_ids=instance_ids, host_id=host_id, size=size,
-                                                 os_type=os_type, ami_id=ami_id):
+                                                 os_type=os_type, ami_id=ami_id, nat=nat):
                 return 6
     elif args.command == 'off':
         print('Migration off the dedicated host is not yet supported')

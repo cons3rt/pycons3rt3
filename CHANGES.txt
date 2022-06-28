@@ -14,6 +14,8 @@
 * Added kmsutil.py to integrate with AWS KMS
 * Added functionality to the S3Util to handle encryping objects in place in a bucket with the provided KMS key
 * Updated host migration methods to use OS type and run a user-data script to configure sshd
+* Added the ability to migrate a deployment run to a dedicated host
+* Codified Linux user-data scripts for bringing a NAT instance online, and for migrating a Linux VM
 
 0.0.11
 =======

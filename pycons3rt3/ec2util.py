@@ -14,13 +14,14 @@ import traceback
 from botocore.client import ClientError
 import requests
 
+from .aws_metadata import is_aws, get_instance_id, get_vpc_id_from_mac_address
+from .awsutil import get_boto3_client, get_linux_migration_user_data_script_contents, \
+    get_linux_nat_config_user_data_script_contents, global_regions, gov_regions, us_regions
 from .bash import get_ip_addresses, validate_ip_address
+from .exceptions import AWSAPIError, AwsTransitGatewayError, EC2UtilError
 from .logify import Logify
 from .network import get_ip_list_for_hostname_list
 from .osutil import get_os, get_pycons3rt_scripts_dir
-from .aws_metadata import is_aws, get_instance_id, get_vpc_id_from_mac_address
-from .awsutil import get_boto3_client, global_regions, gov_regions, us_regions
-from .exceptions import AWSAPIError, AwsTransitGatewayError, EC2UtilError
 
 __author__ = 'Joe Yennaco'
 
@@ -38,8 +39,7 @@ nat_vm_ami = {
     'us-west-2': 'ami-0fcc6101b7f2370b9'
 }
 
-nat_user_data_script_path = os.path.join(get_pycons3rt_scripts_dir(), 'linux-nat-config.sh')
-
+# Default size of a NAT instance
 nat_default_size = 't3.micro'
 
 
@@ -2392,8 +2392,8 @@ class EC2Util(object):
         return True
 
     def launch_instance(self, ami_id, key_name, subnet_id, security_group_id=None, security_group_list=None,
-                        user_data_script_path=None, instance_type='t3.small', root_volume_location='/dev/xvda',
-                        root_volume_size_gb=100):
+                        user_data_script_path=None, user_data_script_contents=None, instance_type='t3.small',
+                        root_volume_location='/dev/xvda', root_volume_size_gb=100):
         """Launches an EC2 instance with the specified parameters, intended to launch
         an instance for creation of a CONS3RT template.
 
@@ -2404,6 +2404,7 @@ class EC2Util(object):
                 appended to security_group_list if provided
         :param security_group_list: (list) of IDs of the security group, if not provided the default will be applied
         :param user_data_script_path: (str) Path to the user-data script to run
+        :param user_data_script_contents: (str) contents of the user-data script to run
         :param instance_type: (str) Instance Type (e.g. t2.micro)
         :param root_volume_location: (str) The device name for the root volume
         :param root_volume_size_gb: (int) Size of the root volume in GB
@@ -2424,10 +2425,12 @@ class EC2Util(object):
             security_group_list = [security_group_id]
             log.info('Launching with security group list: {s}'.format(s=security_group_list))
         user_data = None
-        if user_data_script_path is not None:
+        if user_data_script_path:
             if os.path.isfile(user_data_script_path):
                 with open(user_data_script_path, 'r') as f:
                     user_data = f.read()
+        elif user_data_script_contents:
+            user_data = user_data_script_contents
         monitoring = {'Enabled': False}
         block_device_mappings = [
             {
@@ -2466,7 +2469,7 @@ class EC2Util(object):
         return output
 
     def launch_instance_onto_dedicated_host(self, ami_id, host_id, key_name, instance_type, network_interfaces,
-                                            os_type):
+                                            os_type, nat=False):
         """Launches an EC2 instance with the specified parameters, onto a dedicated host
 
         :param ami_id: (str) ID of the AMI to launch from
@@ -2475,6 +2478,7 @@ class EC2Util(object):
         :param network_interfaces: (list) Network interfaces
         :param instance_type: (str) Instance Type (e.g. t2.micro)
         :param os_type: (str) windows or linux
+        :param nat: (bool) Set True when migrating a NAT box
         :return: (dict) Instance info
         :raises: EC2UtilError
         """
@@ -2508,19 +2512,11 @@ class EC2Util(object):
         if os_type == 'windows':
             user_data = 'echo "Running Windows instance with pycons3rt3..."'
         elif os_type == 'linux':
-            user_data = 'echo "Running Linux instance with pycons3rt3..."'
-            user_data += '\nsed -i \'/PubkeyAuthentication/d\' /etc/ssh/sshd_config'
-            user_data += '\nsed -i \'/PermitRootLogin/d\' /etc/ssh/sshd_config'
-            user_data += '\nsed -i \'/PasswordAuthentication/d\' /etc/ssh/sshd_config'
-            user_data += '\necho -e "PubkeyAuthentication yes" >> /etc/ssh/sshd_config'
-            user_data += '\necho >> /etc/ssh/sshd_config'
-            user_data += '\necho -e "PermitRootLogin yes" >> /etc/ssh/sshd_config'
-            user_data += '\necho >> /etc/ssh/sshd_config'
-            user_data += '\necho -e "PasswordAuthentication yes" >> /etc/ssh/sshd_config'
-            user_data += '\necho >> /etc/ssh/sshd_config'
-            user_data += '\nsystemctl restart sshd.service'
-            user_data += '\nexit $?'
-            user_data += '\n'
+            if nat:
+                log.info('NAT boxes do not need user-data, using an echo statement...')
+                user_data = 'echo "Migrating NAT box onto dedicated host with pycons3rt3..."'
+            else:
+                user_data = get_linux_migration_user_data_script_contents()
         else:
             user_data = 'echo "Running unknown OS type instance with pycons3rt3..."'
 
@@ -3604,11 +3600,6 @@ class EC2Util(object):
         """
         log = logging.getLogger(self.cls_logger + '.launch_nat_instance_for_cons3rt')
 
-        # Ensure the user-data skeleton script exists
-        if not os.path.isfile(nat_user_data_script_path):
-            msg = 'NAT user-data script not found: {f}'.format(f=nat_user_data_script_path)
-            raise EC2UtilError(msg)
-
         # Ensure the RA server is a valid IP
         if not validate_ip_address(remote_access_internal_ip):
             msg = 'Provided remote access IP is not valid: {r}'.format(r=remote_access_internal_ip)
@@ -3629,9 +3620,8 @@ class EC2Util(object):
             msg = 'AMI ID for region [{r}] not found in NAT AMI data: {d}'.format(r=region, d=str(nat_vm_ami))
             raise EC2UtilError(msg)
 
-        # Read in the user-data script
-        with open(nat_user_data_script_path, 'r') as f:
-            user_data_script_contents = f.read()
+        # Read in the user-data script contents from the awsutil variable
+        user_data_script_contents = get_linux_nat_config_user_data_script_contents()
 
         # Replace the guac server IP, port, and virt tech
         user_data_script_contents = user_data_script_contents.replace(
@@ -3663,11 +3653,6 @@ class EC2Util(object):
         user_data_script_contents = user_data_script_contents.replace(
             'CODE_ADD_IPTABLES_SNAT_RULES_HERE', snat_rule)
 
-        # Write the updated user-data script
-        user_data_script_path = os.path.join(get_pycons3rt_scripts_dir(), 'temp_user_data_script.sh')
-        with open(user_data_script_path, 'w') as f:
-            f.write(user_data_script_contents)
-
         # Launch the NAT VM
         log.info('Attempting to launch the NAT VM...')
         try:
@@ -3676,7 +3661,7 @@ class EC2Util(object):
                 key_name=key_name,
                 subnet_id=nat_subnet_id,
                 security_group_id=nat_security_group_id,
-                user_data_script_path=user_data_script_path,
+                user_data_script_contents=user_data_script_contents,
                 instance_type=nat_default_size,
                 root_volume_location='/dev/xvda',
                 root_volume_size_gb=8
