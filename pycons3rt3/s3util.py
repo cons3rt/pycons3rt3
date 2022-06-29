@@ -467,8 +467,16 @@ class S3Util(object):
                 Key=new_key
             )
         except ClientError as exc:
-            log.warning('Problem copying bucket [{b}] key [{k}] to the same bucket with key: [{n}]\n{e}'.format(
-                b=self.bucket_name, k=current_key, n=new_key, e=str(exc)))
+            log.warning('Caught ClientError copying bucket [{b}] key [{k}] to the same bucket with '
+                        'key: [{n}]\n{e}'.format(b=self.bucket_name, k=current_key, n=new_key, e=str(exc)))
+            return False
+        except EndpointConnectionError as exc:
+            log.warning('Caught EndpointConnectionError copying bucket [{b}] key [{k}] to the same bucket with '
+                        'key: [{n}]\n{e}'.format(b=self.bucket_name, k=current_key, n=new_key, e=str(exc)))
+            return False
+        except socket.gaierror as exc:
+            log.warning('Caught socket.gaierror copying bucket [{b}] key [{k}] to the same bucket with '
+                        'key: [{n}]\n{e}'.format(b=self.bucket_name, k=current_key, n=new_key, e=str(exc)))
             return False
         return True
 
@@ -491,8 +499,16 @@ class S3Util(object):
         try:
             self.s3client.copy(copy_source, target_bucket, new_key)
         except ClientError as exc:
-            log.warning('Unable copy key [{k}] from bucket [{o}] to bucket [{b}] with new key: [{n}]\n{e}'.format(
-                k=current_key, o=self.bucket_name, b=target_bucket, n=new_key, e=str(exc)))
+            log.warning('Caught ClientError copying bucket [{b}] key [{k}] to the same bucket with '
+                        'key: [{n}]\n{e}'.format(b=self.bucket_name, k=current_key, n=new_key, e=str(exc)))
+            return False
+        except EndpointConnectionError as exc:
+            log.warning('Caught EndpointConnectionError copying bucket [{b}] key [{k}] to the same bucket with '
+                        'key: [{n}]\n{e}'.format(b=self.bucket_name, k=current_key, n=new_key, e=str(exc)))
+            return False
+        except socket.gaierror as exc:
+            log.warning('Caught socket.gaierror copying bucket [{b}] key [{k}] to the same bucket with '
+                        'key: [{n}]\n{e}'.format(b=self.bucket_name, k=current_key, n=new_key, e=str(exc)))
             return False
         return True
 
