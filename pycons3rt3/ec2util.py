@@ -21,7 +21,7 @@ from .bash import get_ip_addresses, validate_ip_address
 from .exceptions import AWSAPIError, AwsTransitGatewayError, EC2UtilError
 from .logify import Logify
 from .network import get_ip_list_for_hostname_list
-from .osutil import get_os, get_pycons3rt_scripts_dir
+from .osutil import get_os
 
 __author__ = 'Joe Yennaco'
 
