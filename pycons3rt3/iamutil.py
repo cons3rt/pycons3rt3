@@ -6,7 +6,6 @@ This module provides utilities for interacting AWS IAM
 import json
 import logging
 import os
-from datetime import datetime
 
 from botocore.client import ClientError
 
@@ -20,6 +19,103 @@ __author__ = 'Joe Yennaco'
 
 # Set up logger name for this module
 mod_logger = Logify.get_name() + '.iamutil'
+
+
+class IamUtil(object):
+    """Utility for interacting with the AWS IAM API
+    """
+    def __init__(self, region_name=None, aws_access_key_id=None, aws_secret_access_key=None, aws_session_token=None):
+        self.cls_logger = mod_logger + '.IamUtil'
+        try:
+            self.client = get_iam_client(region_name=region_name, aws_access_key_id=aws_access_key_id,
+                                         aws_secret_access_key=aws_secret_access_key,
+                                         aws_session_token=aws_session_token)
+        except ClientError as exc:
+            msg = 'Unable to create an IAM client'
+            raise IamUtilError(msg) from exc
+        self.region = self.client.meta.region_name
+
+    def add_policy_statement(self, policy_arn, statement):
+        return add_policy_statement(client=self.client, policy_arn=policy_arn, statement=statement)
+
+    def attach_policy_to_group(self, group_name, policy_arn):
+        return attach_policy_to_group(client=self.client, group_name=group_name, policy_arn=policy_arn)
+
+    def attach_policy_to_role(self, role_name, policy_arn):
+        return attach_policy_to_role(client=self.client, role_name=role_name, policy_arn=policy_arn)
+
+    def create_default_policy_version(self, policy_arn, json_policy_data):
+        return create_default_policy_version(client=self.client, policy_arn=policy_arn,
+                                             json_policy_data=json_policy_data)
+
+    def create_group(self, group_name, path='/'):
+        return create_group(client=self.client, group_name=group_name, path=path)
+
+    def create_or_update_policy(self, policy_name, policy_document=None, policy_content=None, path='/', description=''):
+        return create_or_update_policy(client=self.client, policy_name=policy_name, policy_document=policy_document,
+                                       policy_content=policy_content, path=path, description=description)
+
+    def create_or_update_role(self, role_name, role_policy, path='/', description='', max_session_duration_sec=43200):
+        return create_or_update_role(client=self.client, role_name=role_name, role_policy=role_policy, path=path,
+                                     description=description, max_session_duration_sec=max_session_duration_sec)
+
+    def create_policy(self, policy_name, policy_document, path='/', description=''):
+        return create_policy(client=self.client, policy_name=policy_name, policy_document=policy_document, path=path,
+                             description=description)
+
+    def create_role(self, role_name, role_policy, path='/', description='', max_session_duration_sec=43200):
+        return create_role(client=self.client, role_name=role_name, role_policy=role_policy, path=path,
+                           description=description, max_session_duration_sec=max_session_duration_sec)
+
+    def delete_oldest_policy_version(self, policy_arn):
+        return delete_oldest_policy_version(client=self.client, policy_arn=policy_arn)
+
+    def get_default_policy_document(self, policy_arn):
+        return get_default_policy_document(client=self.client, policy_arn=policy_arn)
+
+    def get_default_policy_version(self, policy_arn):
+        return get_default_policy_version(client=self.client, policy_arn=policy_arn)
+
+    def get_policy_version(self, policy_arn, version_id):
+        return get_policy_version(client=self.client, policy_arn=policy_arn, version_id=version_id)
+
+    def list_groups(self, path_prefix='/'):
+        return list_groups(client=self.client, path_prefix=path_prefix)
+
+    def list_policies(self, scope='Local', only_attached=False, path_prefix='/',
+                      policy_usage_filter='PermissionsPolicy', name_contains=None):
+        return list_policies(client=self.client, scope=scope, only_attached=only_attached, path_prefix=path_prefix,
+                             policy_usage_filter=policy_usage_filter, name_contains=name_contains)
+
+    def list_policy_versions(self, policy_arn):
+        return list_policy_versions(client=self.client, policy_arn=policy_arn)
+
+    def list_roles(self, path_prefix='/'):
+        return list_roles(client=self.client, path_prefix=path_prefix)
+
+    def update_account_password_policy(self, min_password_len=14, symbols=True, numbers=True, uppers=True,
+                                       lowers=True, allow_change=True, max_age=90, previous_password_prevention=24,
+                                       hard_expiry=False):
+        return update_account_password_policy(client=self.client, min_password_len=min_password_len, symbols=symbols,
+                                              numbers=numbers, uppers=uppers, lowers=lowers, allow_change=allow_change,
+                                              max_age=max_age,
+                                              previous_password_prevention=previous_password_prevention,
+                                              hard_expiry=hard_expiry)
+
+    def update_policy(self, policy_name, policy_document, path='/', description=''):
+        return update_policy(client=self.client, policy_name=policy_name, policy_document=policy_document, path=path,
+                             description=description)
+
+    def update_role(self, role_name, role_policy, path='/', description='', max_session_duration_sec=43200):
+        return update_role(client=self.client, role_name=role_name, role_policy=role_policy, path=path,
+                           description=description, max_session_duration_sec=max_session_duration_sec)
+
+    def update_role_description_and_session(self, role_name, description='', max_session_duration_sec=43200):
+        return update_role_description_and_session(client=self.client, role_name=role_name, description=description,
+                                                   max_session_duration_sec=max_session_duration_sec)
+
+    def update_role_trust_policy(self, role_name, role_policy):
+        return update_role_trust_policy(client=self.client, role_name=role_name, role_policy=role_policy)
 
 
 ############################################################################
@@ -150,15 +246,15 @@ def create_default_policy_version(client, policy_arn, json_policy_data):
     return response['PolicyVersion']
 
 
-def create_or_update_policy(client, policy_name, policy_document, path='/', description=''):
-    """
-    Creates the specified policy, if it already exists updates it with a new version
+def create_or_update_policy(client, policy_name, policy_document=None, policy_content=None, path='/', description=''):
+    """Creates the specified policy, if it already exists updates it with a new version
 
     Permissions boundary ARN not supported yet.
 
     :param client: boto3.client object
     :param policy_name: (str) policy name
     :param policy_document: (str) path to JSON policy file
+    :param policy_content: (dict) policy content data
     :param path: (str) path to the policy
     :param description: (str) description of the policy
     :return: (dict) role data (specified in boto3)
@@ -168,32 +264,24 @@ def create_or_update_policy(client, policy_name, policy_document, path='/', desc
     log.info('Attempting to create/update policy [{n}] with policy document: {p}'.format(
         n=policy_name, p=policy_document))
 
-    # Ensure the file exists
-    if not os.path.isfile(policy_document):
-        raise IamUtilError('Policy document not found: {f}'.format(f=policy_document))
-    try:
-        with open(policy_document, 'r') as f:
-            policy_document_data = json.load(f)
-    except(OSError, IOError) as exc:
-        raise IamUtilError('Unable to read policy file: {f}'.format(f=policy_document)) from exc
-    log.info('Loading policy from file: {f}'.format(f=policy_document))
-    json_policy_data = json.dumps(policy_document_data)
+    if policy_document:
+        # Ensure the file exists
+        if not os.path.isfile(policy_document):
+            raise IamUtilError('Policy document not found: {f}'.format(f=policy_document))
+        try:
+            with open(policy_document, 'r') as f:
+                policy_content = json.load(f)
+        except(OSError, IOError) as exc:
+            raise IamUtilError('Unable to read policy file: {f}'.format(f=policy_document)) from exc
+        log.info('Loading policy from file: {f}'.format(f=policy_document))
+    elif policy_content:
+        log.info('Using the provided policy content data')
+
+    # Get JSON formatted policy content data
+    json_policy_data = json.dumps(policy_content)
 
     # Checking for existing policy
-    policy_data = None
-    existing_policies = list_policies(client=client, path_prefix=path)
-    for existing_policy in existing_policies:
-        if 'PolicyName' not in existing_policy.keys():
-            log.warning('PolicyName not found in policy: {r}'.format(r=str(existing_policy)))
-            continue
-        if 'Path' not in existing_policy.keys():
-            log.warning('Path not found in policy: {r}'.format(r=str(existing_policy)))
-            continue
-        if 'Arn' not in existing_policy.keys():
-            log.warning('Arn not found in policy: {r}'.format(r=str(existing_policy)))
-            continue
-        if policy_name == existing_policy['PolicyName'] and path == existing_policy['Path']:
-            policy_data = existing_policy
+    policy_data = get_policy_by_name(client=client, policy_name=policy_name, path_prefix=path)
 
     if policy_data:
         log.info('Found existing policy name [{n}] at path [{p}]'.format(n=policy_name, p=path))
@@ -221,8 +309,7 @@ def create_or_update_policy(client, policy_name, policy_document, path='/', desc
 
 
 def create_policy(client, policy_name, policy_document, path='/', description=''):
-    """
-    Creates the specified policy, if it already exists updates it with a new version
+    """Creates the specified policy, if it already exists updates it with a new version
 
     Permissions boundary ARN not supported yet.
 
@@ -502,7 +589,7 @@ def list_policies_with_marker(client, scope='Local', only_attached=False, path_p
 
 
 def list_policies(client, scope='Local', only_attached=False, path_prefix='/',
-                  policy_usage_filter='PermissionsPolicy'):
+                  policy_usage_filter='PermissionsPolicy', name_contains=None):
     """Lists policies in IAM
 
     :param client: boto3.client object
@@ -510,6 +597,7 @@ def list_policies(client, scope='Local', only_attached=False, path_prefix='/',
     :param only_attached: (bool) Set True to return only attached policies
     :param path_prefix: (str) IAM policy path prefix
     :param policy_usage_filter: (str) PermissionsPolicy | PermissionsBoundary
+    :param name_contains: (str) Filters the returned list of policies if this string is contained in the name
     :return: (list) of policies (dict)
     :raises: IamUtilError
     """
@@ -536,8 +624,24 @@ def list_policies(client, scope='Local', only_attached=False, path_prefix='/',
             next_query = False
         else:
             marker = response['Marker']
-    log.info('Found {n} IAM policies'.format(n=str(len(policy_list))))
-    return policy_list
+
+    # Filter the policy list based on name_contains
+    filtered_policy_list = []
+    if name_contains:
+        log.info('Filtering the list of [{n}] policies that contain the string: {s}'.format(
+            n=str(len(policy_list)), s=name_contains))
+        for policy in policy_list:
+            if 'PolicyName' not in policy.keys():
+                log.warning('PolicyName not found in policy: {p}'.format(p=str(policy)))
+                continue
+            if name_contains in policy['PolicyName']:
+                filtered_policy_list.append(policy)
+    else:
+        log.info('Not filtering the list of [{n}] policies by name'.format(n=str(len(policy_list))))
+        filtered_policy_list = list(policy_list)
+
+    log.info('Found {n} IAM policies'.format(n=str(len(filtered_policy_list))))
+    return filtered_policy_list
 
 
 def list_policy_versions_with_marker(client, policy_arn, marker=None, max_results=100):
@@ -593,6 +697,134 @@ def list_policy_versions(client, policy_arn):
             marker = response['Marker']
     log.info('Found {n} IAM policy versions'.format(n=str(len(policy_version_list))))
     return policy_version_list
+
+
+def get_policy_by_arn(client, policy_arn):
+    """Searching through the list of policies by name
+
+    :param client: boto3.client object
+    :param policy_arn: (str) ARN of the policy to search for
+    :return: (dict) policy data (see boto3 docs)
+    :raise: IamUtilError
+    """
+    log = logging.getLogger(mod_logger + '.get_policy_by_arn')
+    # Checking for existing policy
+    existing_policies = list_policies(client=client)
+    for existing_policy in existing_policies:
+        if 'PolicyName' not in existing_policy.keys():
+            log.warning('PolicyName not found in policy: {r}'.format(r=str(existing_policy)))
+            continue
+        if 'Arn' not in existing_policy.keys():
+            log.warning('Arn not found in policy: {r}'.format(r=str(existing_policy)))
+            continue
+        if policy_arn == existing_policy['Arn']:
+            return existing_policy
+
+
+def get_policy_by_name(client, policy_name, path_prefix='/'):
+    """Searching through the list of policies by name
+
+    :param client: boto3.client object
+    :param policy_name: (str) name of the policy to search for
+    :param path_prefix: (str) IAM policy path prefix
+    :return: (dict) policy data (see boto3 docs)
+    :raise: IamUtilError
+    """
+    log = logging.getLogger(mod_logger + '.get_policy_by_name')
+    # Checking for existing policy
+    existing_policies = list_policies(client=client, path_prefix=path_prefix)
+    for existing_policy in existing_policies:
+        if 'PolicyName' not in existing_policy.keys():
+            log.warning('PolicyName not found in policy: {r}'.format(r=str(existing_policy)))
+            continue
+        if 'Path' not in existing_policy.keys():
+            log.warning('Path not found in policy: {r}'.format(r=str(existing_policy)))
+            continue
+        if 'Arn' not in existing_policy.keys():
+            log.warning('Arn not found in policy: {r}'.format(r=str(existing_policy)))
+            continue
+        if policy_name == existing_policy['PolicyName'] and path_prefix == existing_policy['Path']:
+            return existing_policy
+
+
+def get_default_policy_version(client, policy_arn):
+    """Returns the default policy object
+
+    :param client: boto3.client object
+    :param policy_arn: (str) ARN of the policy
+    :return: (dict) policy object (see boto3)
+    :raises: IamUtilError
+    """
+    log = logging.getLogger(mod_logger + '.get_default_policy_version')
+
+    log.info('Getting the default policy version for policy ARN: {p}'.format(p=policy_arn))
+    policy_versions = list_policy_versions(client=client, policy_arn=policy_arn)
+
+    # Check each version for the default
+    for policy_version in policy_versions:
+        if 'IsDefaultVersion' not in policy_version.keys():
+            log.warning('IsDefaultVersion not found in policy version data: {d}'.format(d=str(policy_version)))
+            continue
+        if 'VersionId' not in policy_version.keys():
+            log.warning('VersionId not found in policy version data: {d}'.format(d=str(policy_version)))
+            continue
+        if policy_version['IsDefaultVersion']:
+            version_id = policy_version['VersionId']
+            log.info('Found default policy version ID: {i}'.format(i=version_id))
+            return policy_version
+    raise IamUtilError('Default policy version not found for policy ARN: {p}'.format(p=policy_arn))
+
+
+def get_policy_version(client, policy_arn, version_id):
+    """Returns the specified policy by ARN and version ID
+
+    :param client: boto3.client object
+    :param policy_arn: (str) ARN of the policy
+    :param version_id: (str) ID of the policy version
+    :return: (dict) policy object with document (see boto3)
+    :raises: IamUtilError
+    """
+    log = logging.getLogger(mod_logger + '.get_policy_version')
+    log.info('Getting policy ARN [{a}] with version ID: {v}'.format(a=policy_arn, v=version_id))
+    try:
+        response = client.get_policy_version(
+            PolicyArn=policy_arn,
+            VersionId=version_id
+        )
+    except ClientError as exc:
+        msg = 'Problem getting policy verison [{v}] from policy: [{p}]'.format(v=version_id, p=policy_arn)
+        raise IamUtilError(msg) from exc
+    if 'PolicyVersion' not in response.keys():
+        msg = 'PolicyVersion not found in response: {r}'.format(r=str(response))
+        raise IamUtilError(msg)
+    policy_version = response['PolicyVersion']
+    return policy_version
+
+
+def get_default_policy_document(client, policy_arn):
+    """Returns the policy document for the default policy of the provided policy ARN
+
+    :param client: boto3.client object
+    :param policy_arn: (str) ARN of the policy
+    :return: (dict) policy document
+    :raises: IamUtilError
+    """
+    log = logging.getLogger(mod_logger + '.get_default_policy_document')
+    log.info('Getting the default policy document for ARN: {p}'.format(p=policy_arn))
+    default_policy_version = get_default_policy_version(client=client, policy_arn=policy_arn)
+    if 'VersionId' not in default_policy_version.keys():
+        msg = 'VersionId not found in version data: {d}'.format(d=str(default_policy_version))
+        raise IamUtilError(msg)
+    default_version_id = default_policy_version['VersionId']
+    policy_data = get_policy_version(client=client, policy_arn=policy_arn, version_id=default_version_id)
+    if 'Document' not in policy_data.keys():
+        msg = 'Document not found in policy data: {p}'.format(p=str(policy_data))
+        raise IamUtilError(msg)
+    policy_document = policy_data['Document']
+    if not isinstance(policy_document, dict):
+        msg = 'Expected policy document of type dict, found: {t}'.format(t=policy_document.__class__.__name__)
+        raise IamUtilError(msg)
+    return policy_document
 
 
 ############################################################################
@@ -716,19 +948,19 @@ def update_account_password_policy(client, min_password_len=14, symbols=True, nu
 
 
 ############################################################################
-# Update an existing role
+# Update an existing policy
 ############################################################################
 
 
-def update_policy(client, policy_name, policy_document, path='/', description=''):
-    """
-    Updates the specified policy, create new if it does not exist
+def update_policy(client, policy_name, policy_document=None, policy_content=None, path='/', description=''):
+    """Updates the specified policy, create new if it does not exist
 
     Permissions boundary ARN not supported yet.
 
     :param client: boto3.client object
     :param policy_name: (str) policy name
     :param policy_document: (str) path to JSON policy file
+    :param policy_content: (dict) policy content data
     :param path: (str) path to the role
     :param description: (str) description of the role
     :return: (dict) role data (specified in boto3)
@@ -737,8 +969,74 @@ def update_policy(client, policy_name, policy_document, path='/', description=''
     log = logging.getLogger(mod_logger + '.update_policy')
     log.info('Attempting to update policy [{n}] with policy document: {p}'.format(
         n=policy_name, p=policy_document))
-    return create_or_update_policy(client=client, policy_name=policy_name, policy_document=policy_document, path=path,
-                                   description=description)
+    return create_or_update_policy(client=client, policy_name=policy_name, policy_document=policy_document,
+                                   policy_content=policy_content, path=path, description=description)
+
+
+def add_policy_statement(client, policy_arn, statement):
+    """Adds the provided statement to the policy.  The statement will match on the SID provided in the statement.
+    If the SID exists, the statement is not added.
+
+    :param client: boto3.client object
+    :param policy_arn: (str) policy ARN
+    :param statement: (dict) to add to existing policy
+    :return: (bool) True if successful, False otherwise
+    :raises: IamUtilError
+    """
+    log = logging.getLogger(mod_logger + '.add_policy_statement')
+
+    # Ensure the statement is a dict
+    if not isinstance(statement, dict):
+        msg = 'statement expected to be type dict, found: {t}'.format(t=statement.__class__.__name__)
+        raise IamUtilError(msg)
+
+    # Check for the matching SID
+    if 'Sid' not in statement:
+        msg = 'Sid is required in the provided statement: {s}'.format(s=str(statement))
+        raise IamUtilError(msg)
+    statement_sid = statement['Sid']
+
+    # Checking for existing policy
+    policy_data = get_policy_by_arn(client=client, policy_arn=policy_arn)
+    if 'PolicyName' not in policy_data.keys():
+        msg = 'PolicyName not found in policy data: {p}'.format(p=str(policy_data))
+        raise IamUtilError(msg)
+    policy_name = policy_data['PolicyName']
+
+    log.info('Adding policy statement to the default version of policy ARN {p}: {s}'.format(p=policy_arn, s=statement))
+
+    # Get the policy document
+    policy_document = get_default_policy_document(client=client, policy_arn=policy_arn)
+
+    # Ensure Statements exist
+    if 'Statement' not in policy_document.keys():
+        log.info('The default version policy document has no statements: {d}'.format(d=str(policy_document)))
+        statements = []
+    else:
+        statements = list(policy_document['Statement'])
+    log.info('Found {n} existing policy statements'.format(n=str(len(statements))))
+
+    # Check if the SID already exists on this policy
+    for existing_statement in statements:
+        if 'Sid' not in existing_statement.keys():
+            log.warning('Sid not found in existing statement: {s}'.format(s=str(existing_statement)))
+            continue
+        if existing_statement['Sid'] == statement_sid:
+            log.info('Found SID already exists in this policy: {s}'.format(s=statement_sid))
+            return True
+
+    # Add the statement to the policy
+    statements.append(statement)
+    policy_document['Statement'] = list(statements)
+
+    # update the policy with the new document
+    log.info('Updating policy [{n}] with new policy document: {d}'.format(n=policy_name, d=str(policy_document)))
+    try:
+        update_policy(client=client, policy_name=policy_name, policy_content=policy_document)
+    except IamUtilError as exc:
+        msg = 'Problem updating policy {n}'.format(n=policy_name)
+        raise IamUtilError(msg) from exc
+    return True
 
 
 ############################################################################
