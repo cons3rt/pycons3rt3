@@ -244,8 +244,47 @@ class EC2Util(object):
             raise EC2UtilError('Regions not found in response: {r}'.format(r=str(response)))
         return response['Regions']
 
+    def get_rhui_servers_all_versions(self, all_available=False):
+        return self.get_rhui1_servers(all_available=all_available) + \
+               self.get_rhui2_servers(all_available=all_available) + \
+               self.get_rhui3_servers(all_available=all_available)
+
+    def get_rhui1_servers(self, all_available=False):
+        """Returns a list of RHUI1 servers for my region
+
+        :return: (list) of RHUI1 server IP addresses
+        """
+        log = logging.getLogger(self.cls_logger + '.get_rhui1_servers')
+        rhui_regions = []
+        if all_available:
+            log.info('Getting RHUI1 servers for all available regions...')
+            region_list = self.list_available_regions()
+            for region in region_list:
+                rhui_regions.append(region['RegionName'])
+        else:
+            log.info('Getting RHUI1 servers for just my current region: {r}'.format(r=self.region))
+            rhui_regions = [self.region]
+        return get_aws_rhui1_ips(regions=rhui_regions)
+
+    def get_rhui2_servers(self, all_available=False):
+        """Returns a list of RHUI2 servers for my region
+
+        :return: (list) of RHUI2 server IP addresses
+        """
+        log = logging.getLogger(self.cls_logger + '.get_rhui2_servers')
+        rhui_regions = []
+        if all_available:
+            log.info('Getting RHUI2 servers for all available regions...')
+            region_list = self.list_available_regions()
+            for region in region_list:
+                rhui_regions.append(region['RegionName'])
+        else:
+            log.info('Getting RHUI2 servers for just my current region: {r}'.format(r=self.region))
+            rhui_regions = [self.region]
+        return get_aws_rhui2_ips(regions=rhui_regions)
+
     def get_rhui3_servers(self, all_available=False):
-        """Returns a list of RHUI servers for my region
+        """Returns a list of RHUI3 servers for my region
 
         :return: (list) of RHUI3 server IP addresses
         """
@@ -5232,6 +5271,52 @@ def get_aws_service_permissions(regions, ipv6=False):
     return permissions_list
 
 
+def get_rhui_server_permissions_all_versions(regions):
+    return get_rhui1_server_permissions(regions=regions) + \
+           get_rhui2_server_permissions(regions=regions) + \
+           get_rhui3_server_permissions(regions=regions)
+
+
+def get_rhui1_server_permissions(regions):
+    """Returns a list of IpPermissions objects for a list of regions
+
+    :param regions: (list) of (str) regions to include in the permissions set (e.g. ['us-gov-west-1', 'us-gov-east-1'])
+    :return: (list) of IpPermissions objects
+    """
+    log = logging.getLogger(mod_logger + '.get_rhui1_server_permissions')
+    if not isinstance(regions, list):
+        log.warning('list expected, found: {t}'.format(t=regions.__class__.__name__))
+        return []
+    permissions_list = []
+    rhui1_server_ips = get_aws_rhui1_ips(regions=regions)
+    for rhui1_server_ip in rhui1_server_ips:
+        permissions_list.append(
+            IpPermission(IpProtocol='tcp', FromPort=443, ToPort=443, CidrIp=rhui1_server_ip + '/32',
+                         Description='RedHat_RHUI1_Server')
+        )
+    return permissions_list
+
+
+def get_rhui2_server_permissions(regions):
+    """Returns a list of IpPermissions objects for a list of regions
+
+    :param regions: (list) of (str) regions to include in the permissions set (e.g. ['us-gov-west-1', 'us-gov-east-1'])
+    :return: (list) of IpPermissions objects
+    """
+    log = logging.getLogger(mod_logger + '.get_rhui2_server_permissions')
+    if not isinstance(regions, list):
+        log.warning('list expected, found: {t}'.format(t=regions.__class__.__name__))
+        return []
+    permissions_list = []
+    rhui2_server_ips = get_aws_rhui2_ips(regions=regions)
+    for rhui2_server_ip in rhui2_server_ips:
+        permissions_list.append(
+            IpPermission(IpProtocol='tcp', FromPort=443, ToPort=443, CidrIp=rhui2_server_ip + '/32',
+                         Description='RedHat_RHUI2_Server')
+        )
+    return permissions_list
+
+
 def get_rhui3_server_permissions(regions):
     """Returns a list of IpPermissions objects for a list of regions
 
@@ -5505,49 +5590,88 @@ def get_aws_service_ips(regions=None, include_elastic_ips=False, ipv6=False):
 
 
 ############################################################################
-# Method for retrieving AWS Red Hat Update Server RHUI3 IP addresses
+# Method for retrieving AWS Red Hat Update Server RHUI IP addresses
 ############################################################################
 
-
-def get_aws_rhui3_ips(regions=None):
+def get_aws_rhui_ips(regions=None, version=3):
     """Returns the list of Red Hat RHUI3 IP addresses
 
     Note: GovCloud uses the US-based servers
 
     :param regions: (list) region IDs to include in the results (e.g. [us-gov-west-1, us-gov-east-1])
+    :param version: (int) version number of the RHUI (e.g. 1, 2, or 3)
     :return: (list) of IP addresses
     """
-    log = logging.getLogger(mod_logger + '.get_aws_rhui3_ips')
+    log = logging.getLogger(mod_logger + '.get_aws_rhui_ips')
 
+    # Versions of RHUI supported
+    supported_rhui_versions = [1, 2, 3]
+
+    # Store the collected list of RHUI IPs
+    rhui_ips = []
+
+    # Set the list of subdomains based on prefix
+    if version == 1:
+        subdomains = ['rhui']
+    elif version == 2:
+        subdomains = ['rhui2-cds01', 'rhui2-cds02']
+    elif version == 3:
+        subdomains = ['rhui3']
+    else:
+        log.error('Unsupported RHUI version found [{v}] expected: {s}'.format(
+            v=str(version), s=','.join(map(str, supported_rhui_versions))))
+        return rhui_ips
+
+    # Get the list of regions
+    # If using a gov region, all of the US-based commercial servers are included in the list
     if not regions:
         regions = global_regions
     else:
         for region in regions:
             if region in gov_regions:
-                log.info('GovCloud region specified, returning only US-based RHUI3 servers...')
+                log.info('GovCloud region specified, returning only US-based RHUI servers...')
                 regions = us_regions
                 break
 
-    log.info('Returning RHUI3 IP addresses in regions: {r}'.format(r=','.join(regions)))
+    log.info('Returning RHUI IP addresses in regions: {r}'.format(r=','.join(regions)))
 
-    # Build the list of IPs
-    rhui3_ips = []
+    # Build the list of IPs for each region and RHUI subdomain
     for region in regions:
-        try:
-            _, _, rhui3_region_ips = socket.gethostbyname_ex('rhui3.{r}.aws.ce.redhat.com'.format(r=region))
-        except (socket.gaierror, socket.error, socket.herror) as exc:
-            log.error('Problem retrieving RHUI3 IP address for region: {r}\n{e}'.format(r=region, e=str(exc)))
-            continue
-        if len(rhui3_region_ips) < 1:
-            log.error('No RHUI3 IP addresses returned for region: {r}'.format(r=region))
-            continue
-        for rhui3_region_ip in rhui3_region_ips:
-            if validate_ip_address(rhui3_region_ip):
-                log.info('Found RHUI3 IP address for region {r}: {i}'.format(r=region, i=rhui3_region_ip))
-                rhui3_ips.append(rhui3_region_ip)
-            else:
-                log.error('Invalid RHUI3 IP address returned for region {r}: {i}'.format(r=region, i=rhui3_region_ip))
-    return rhui3_ips
+        for subdomain in subdomains:
+            rhui_server = '{s}.{r}.aws.ce.redhat.com'.format(s=subdomain, r=region)
+            log.info('Looking for the IP address for RHUI server: {s}'.format(s=rhui_server))
+            try:
+                _, _, rhui_region_ips = socket.gethostbyname_ex(rhui_server)
+            except (socket.gaierror, socket.error, socket.herror) as exc:
+                log.error('Problem retrieving RHUI IP address for region: {r}\n{e}'.format(r=region, e=str(exc)))
+                continue
+            if len(rhui_region_ips) < 1:
+                log.error('No RHUI IP addresses returned for server: {s}'.format(s=rhui_server))
+                continue
+            for rhui_region_ip in rhui_region_ips:
+                if validate_ip_address(rhui_region_ip):
+                    log.info('Found RHUI IP address for server {s}: {i}'.format(s=rhui_server, i=rhui_region_ip))
+                    rhui_ips.append(rhui_region_ip)
+                else:
+                    log.error('Invalid RHUI IP address returned for server [{s}]: {i}'.format(
+                        s=rhui_server, i=rhui_region_ip))
+    return rhui_ips
+
+
+def get_aws_rhui1_ips(regions=None):
+    return get_aws_rhui_ips(regions=regions, version=1)
+
+
+def get_aws_rhui2_ips(regions=None):
+    return get_aws_rhui_ips(regions=regions, version=2)
+
+
+def get_aws_rhui3_ips(regions=None):
+    return get_aws_rhui_ips(regions=regions, version=3)
+
+
+def get_aws_rhui_ips_all_versions(regions=None):
+    return get_aws_rhui1_ips(regions=regions) + get_aws_rhui2_ips(regions=regions) + get_aws_rhui3_ips(regions=regions)
 
 
 ############################################################################
