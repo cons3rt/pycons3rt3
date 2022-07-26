@@ -1537,19 +1537,18 @@ class Cons3rtClient:
             msg = 'The HTTP response contains a bad status code'
             raise Cons3rtClientError(msg) from exc
 
-    def update_asset_state(self, asset_id, state, asset_type):
+    def update_asset_state(self, asset_id, state):
         """Updates the asset state for the provided asset ID
 
         :param asset_id: (int) asset ID to update
         :param state: (str) desired asset state
-        :param asset_type: (str) asset type to update
         :return: None
         :raises: Cons3rtClientError
         """
         try:
             response = self.http_client.http_put(
                 rest_user=self.user,
-                target='{t}/{i}/updatestate?state={s}'.format(t=asset_type, i=str(asset_id), s=state))
+                target='assets/{i}/updatestate?state={s}'.format(i=str(asset_id), s=state))
         except Cons3rtClientError as exc:
             msg = 'Unable to set asset state for asset ID: {i}'.format(i=str(asset_id))
             raise Cons3rtClientError(msg) from exc
