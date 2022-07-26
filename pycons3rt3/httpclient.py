@@ -414,32 +414,37 @@ class Client:
             log.info('Prepped headers: {h}'.format(h=prepped.headers))
             log.info('Making request with method: [{m}]'.format(m=method))
 
-            # Send the request
-            try:
-                response = s.send(prepped)
-            except SSLError:
-                self.__http_exception__(
-                    exc=sys.exc_info(),
-                    msg_part='There was an SSL error making an HTTP {m} to URL: {u}'.format(m=method, u=url),
-                    start_time=start_time)
-            except requests.ConnectionError:
-                self.__http_exception__(
-                    exc=sys.exc_info(),
-                    msg_part='Connection error encountered making HTTP {m}'.format(m=method),
-                    start_time=start_time)
-            except requests.Timeout:
-                self.__http_exception__(
-                    exc=sys.exc_info(),
-                    msg_part='HTTP {m} to URL {u} timed out'.format(m=method, u=url),
-                    start_time=start_time)
-            except RequestException:
-                self.__http_exception__(
-                    exc=sys.exc_info(),
-                    msg_part='There was a problem making an HTTP {m} to URL: {u}'.format(m=method, u=url),
-                    start_time=start_time)
-        complete_time = time.time()
-        log.info('Request completed in {t} seconds'.format(t=str(round(complete_time - start_time, 2))))
-        return response
+            attempt_num = 1
+            err_msg_tally = ''
+            while True:
+                if attempt_num >= self.max_retry_attempts:
+                    err_msg += 'Max attempts exceeded: {n}\n{e}'.format(n=str(self.max_retry_attempts), e=err_msg_tally)
+                    self.__http_exception__(
+                        exc=sys.exc_info(),
+                        msg_part=err_msg_tally,
+                        start_time=start_time)
+                err_msg = ''
+
+                # Send the request
+                try:
+                    response = s.send(prepped)
+                except SSLError as exc:
+                    err_msg += 'SSLError on {m} to URL: {u}\n{e}'.format(u=url, m=method, e=str(exc))
+                except requests.ConnectionError as exc:
+                    err_msg += 'ConnectionError on {m} to URL: {u}\n{e}'.format(u=url, m=method, e=str(exc))
+                except requests.Timeout as exc:
+                    err_msg += 'Timeout on {m} to URL: {u}\n{e}'.format(u=url, m=method, e=str(exc))
+                except RequestException as exc:
+                    err_msg += 'RequestException on {m} to URL: {u}\n{e}'.format(u=url, m=method, e=str(exc))
+                else:
+                    complete_time = time.time()
+                    log.info('Request completed in {t} seconds'.format(t=str(round(complete_time - start_time, 2))))
+                    return response
+
+                err_msg_tally += err_msg + '\n'
+                log.warning('Problem encountered, retrying in {n} sec: {e}'.format(n=str(self.retry_time_sec), e=err_msg))
+                attempt_num += 1
+                time.sleep(self.retry_time_sec)
 
     def http_put_multipart(self, rest_user, target, content_file):
         """Makes an HTTP PUT Multipart request to upload a file
