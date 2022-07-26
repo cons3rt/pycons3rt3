@@ -1666,15 +1666,17 @@ class Cons3rtApi(object):
             raise Cons3rtApiError(msg) from exc
         log.info('Successfully updated Asset ID: {i}'.format(i=str(asset_id)))
 
-    def update_asset_state(self, asset_type, asset_id, state):
+    def update_asset_state(self, asset_id, state, asset_type=None):
         """Updates the asset state
 
-        :param asset_type: (str) asset type (scenario, deployment, system, etc)
         :param asset_id: (int) asset ID to update
-        :param state: (str) desired state
+        :param state: (str) desired state: IN_DEVELOPMENT, CERTIFIED, DEPRECATED
+        :param asset_type: (str) asset type (scenario, deployment, system, etc) DEPRECATED: NOT USED
         :return: None
         """
         log = logging.getLogger(self.cls_logger + '.update_asset_state')
+
+        valid_states = ['IN_DEVELOPMENT', 'CERTIFIED', 'DEPRECATED']
 
         # Ensure the asset_id is an int
         if not isinstance(asset_id, int):
@@ -1685,22 +1687,11 @@ class Cons3rtApi(object):
                 raise Cons3rtApiError(msg) from exc
 
         #  Ensure the asset_zip_file arg is a string
-        if not isinstance(asset_type, str):
-            msg = 'The asset_type arg must be a string, found {t}'.format(t=asset_type.__class__.__name__)
-            raise Cons3rtApiError(msg)
-
-        #  Ensure the asset_zip_file arg is a string
         if not isinstance(state, str):
             msg = 'The state arg must be a string, found {t}'.format(t=state.__class__.__name__)
             raise Cons3rtApiError(msg)
 
-        # Determine the target based on asset_type
-        target = self.get_asset_type(asset_type=asset_type)
-        if target == '':
-            raise Cons3rtApiError('Unable to determine the target from provided asset_type: {t}'.format(t=asset_type))
-
         # Ensure state is valid
-        valid_states = ['DEVELOPMENT', 'PUBLISHED', 'CERTIFIED', 'DEPRECATED', 'OFFLINE']
         state = state.upper().strip()
         if state not in valid_states:
             raise Cons3rtApiError('Provided state is not valid: {s}, must be one of: {v}'.format(
@@ -1708,7 +1699,7 @@ class Cons3rtApi(object):
 
         # Attempt to update the asset ID
         try:
-            self.cons3rt_client.update_asset_state(asset_id=asset_id, state=state, asset_type=target)
+            self.cons3rt_client.update_asset_state(asset_id=asset_id, state=state)
         except Cons3rtClientError as exc:
             msg = 'Unable to update the state for asset ID: {i}'.format(
                 i=str(asset_id))
@@ -2142,6 +2133,16 @@ class Cons3rtApi(object):
                 f=json_file)
             raise Cons3rtApiError(msg) from exc
         log.info('Successfully created User from file: {f}'.format(f=json_file))
+
+    def delete_user(self, user_id):
+        """Delete a user by user ID
+
+        TBD: THIS CALL DOES NOT EXIST IN CONS3RT AS OF 7/12/2022
+
+        :param user_id: (int) ID of the user to delete
+        :return:
+        """
+        pass
 
     def add_user_to_project(self, username, project_id):
         """Add the username to the specified project ID
@@ -3770,7 +3771,7 @@ class Cons3rtApi(object):
         """Leaving this for backwards compatibility
         """
         return self.retrieve_expanded_test_assets(asset_type=asset_type, community=community,
-                                                      category_ids=category_ids)
+                                                  category_ids=category_ids)
 
     def retrieve_container_assets(self, asset_type=None, community=False, expanded=False, category_ids=None,
                                   max_results=None):
