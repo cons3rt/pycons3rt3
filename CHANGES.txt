@@ -16,6 +16,10 @@
 * Updated host migration methods to use OS type and run a user-data script to configure sshd
 * Added the ability to migrate a deployment run to a dedicated host
 * Codified Linux user-data scripts for bringing a NAT instance online, and for migrating a Linux VM
+* Added a script for asset export / re-import
+* Added methods to get IPs and permissions for RHUI1 and RHUI2 AWS Red Hat server IPs
+* Added re-try logic acount http multipart uploads to better handle asset imports
+* Updated setting asset state to the newer versions 
 
 0.0.11
 =======
