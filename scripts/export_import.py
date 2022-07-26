@@ -38,9 +38,11 @@ importer = Cons3rtApi(config_file=import_config_file)
 print('STARTING EXPORT/IMPORT')
 
 successful_asset_ids = []
-failed_asset_ids = []
+failed_export_asset_ids = []
+failed_import_asset_ids = []
 imported_asset_ids = []
 fix_visibility = []
+fix_state = []
 count = -1
 
 print('Exporting {n} assets...'.format(n=str(len(asset_ids))))
@@ -56,8 +58,31 @@ for asset_id in asset_ids:
     except Cons3rtApiError as exc:
         print('Problem exporting asset ID: {i}\n{e}'.format(i=str(asset_id), e=str(exc)))
         traceback.print_exc()
-        failed_asset_ids.append(asset_id)
+        failed_export_asset_ids.append(asset_id)
         continue
+
+    # Retrieve the exported asset data
+    try:
+        exported_asset_data = exporter.retrieve_software_asset(asset_id=asset_id)
+    except Cons3rtApiError as exc:
+        print('Problem retrieving asset ID: {i}\n{e}'.format(i=str(asset_id), e=str(exc)))
+        traceback.print_exc()
+        failed_export_asset_ids.append(asset_id)
+        continue
+
+    # Ensure state and visibility are found
+    if 'state' not in exported_asset_data.keys():
+        print('state not found in exported asset data: {d}'.format(d=str(exported_asset_data)))
+        failed_export_asset_ids.append(asset_id)
+        continue
+    if 'visibility' not in exported_asset_data.keys():
+        print('visibility not found in exported asset data: {d}'.format(d=str(exported_asset_data)))
+        failed_export_asset_ids.append(asset_id)
+        continue
+
+    # Get the state and visibility from the exported site
+    exported_asset_state = exported_asset_data['state']
+    exported_asset_visibility = exported_asset_data['visibility']
 
     print('Importing asset #[{n}] of [{t}]'.format(n=str(count), t=str(len(asset_ids))))
 
@@ -67,7 +92,7 @@ for asset_id in asset_ids:
     except Cons3rtApiError as exc:
         print('Problem importing asset ID: {i}\n{e}'.format(i=str(asset_id), e=str(exc)))
         traceback.print_exc()
-        failed_asset_ids.append(asset_id)
+        failed_import_asset_ids.append(asset_id)
         continue
     else:
         successful_asset_ids.append(asset_id)
@@ -77,20 +102,40 @@ for asset_id in asset_ids:
         print('Removing exported asset: {z}'.format(z=exported_asset))
         os.remove(exported_asset)
 
-    # Set visibility to COMMUNITY
+    # Set visibility and state to match the exported site if the imported ID is known
     if isinstance(imported_asset_id, int):
+
+        # Set visibility to match the export site
+        print('Setting visibility to [{v}] for asset ID: [{i}]'.format(
+            i=str(imported_asset_id), v=exported_asset_visibility))
         try:
-            importer.update_asset_visibility(asset_id=imported_asset_id, visibility='COMMUNITY')
+            importer.update_asset_visibility(asset_id=imported_asset_id, visibility=exported_asset_visibility)
         except Cons3rtApiError as exc:
             fix_visibility.append(imported_asset_id)
-            print('Problem setting visibility on new asset ID: {i}'.format(i=imported_asset_id))
+            print('Problem setting visibility to [{v}] on new asset ID: {i}'.format(
+                v=exported_asset_visibility, i=imported_asset_id))
             traceback.print_exc()
+
+        # Set state to match the export site
+        print('Setting state to [{s}] for asset ID: [{i}]'.format(i=str(imported_asset_id), s=exported_asset_state))
+        try:
+            importer.update_asset_state(asset_id=imported_asset_id, state=exported_asset_state)
+        except Cons3rtApiError as exc:
+            print('Problem setting state to [{s}] on asset ID: {i}\n{e}'.format(
+                i=str(asset_id), s=exported_asset_state, e=str(exc)))
+            traceback.print_exc()
+            fix_state.append(asset_id)
     else:
-        print('Visibility not set, new asset ID not known')
+        print('New asset ID not known, cannot set visibility and state for the asset that was imported from '
+              'exported asset: {i}'.format(i=str(asset_id)))
+        fix_state.append(asset_id)
+        fix_visibility.append(asset_id)
 
 
 print('COMPLETED EXPORT/IMPORT')
 print('Successful asset export/imports: [{s}]'.format(s=','.join(map(str, successful_asset_ids))))
 print('Imported new asset IDs: [{i}]'.format(i=','.join(map(str, imported_asset_ids))))
-print('Failed asset export/imports: [{f}]'.format(f=','.join(map(str, failed_asset_ids))))
-print('Failed setting visibility on new assets: [{i}]'.format(i=','.join(map(str, fix_visibility))))
+print('Failed asset exports: [{f}]'.format(f=','.join(map(str, failed_export_asset_ids))))
+print('Failed asset imports: [{f}]'.format(f=','.join(map(str, failed_import_asset_ids))))
+print('Failed setting visibility on assets: [{i}]'.format(i=','.join(map(str, fix_visibility))))
+print('Failed setting state on assets: [{i}]'.format(i=','.join(map(str, fix_state))))
