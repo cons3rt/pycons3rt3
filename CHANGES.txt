@@ -1,6 +1,10 @@
+0.0.13
+======
 
-0.0.12a
-=======
+TBD
+
+0.0.12
+======
 
 * Added methods for listing unattached EBS volumes
 * Added methods for deleting EBS volumes and snapshots
