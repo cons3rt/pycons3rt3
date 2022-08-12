@@ -14,7 +14,6 @@ import fileinput
 import re
 import sys
 import zipfile
-import socket
 import contextlib
 import signal
 import time
@@ -135,11 +134,12 @@ def run_command_large_buffer(command, timeout_sec=3600.0):
     :return: Dict containing stdout, stderr, and return code
     :raises CommandError
     """
-    log = logging.getLogger(mod_logger + '.run_command')
+    log = logging.getLogger(mod_logger + '.run_command_large_buffer')
     if not isinstance(command, list):
         raise CommandError('command arg must be a list')
     command_str = ' '.join(command)
-    log.debug('Running command: {c}'.format(c=command_str))
+    log.error('Running command: {c}'.format(c=command_str))
+    print('Running command: {c}'.format(c=command_str))
     subproc = subprocess.Popen(command, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
     pid = subproc.pid
     log.debug('Opened up PID {p} with a timeout of {s} sec...'.format(p=pid, s=str(timeout_sec)))
