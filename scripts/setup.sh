@@ -1,7 +1,21 @@
 #!/bin/bash
+#
+# setup.sh
+#
+# Use this script to setup pycons3rt3
+#
+# Usage:
+#     ./scripts/setup.sh [ARGS]
+#
+# Args:
+#     1 - Path for the parent directory of the virtual environment called "venv"
+#
+#
+#
 
 defaultVenvLocation="${HOME}"
 workingDir=$(pwd)
+userSpecifiedVenvLocation="${1}"
 
 # Ensure the script is running from the pycons3rt3 directory
 if [ ! -f ${workingDir}/pycons3rt3/VERSION.txt ]; then
@@ -22,9 +36,13 @@ echo "Installing virtualenv..."
 python3 -m pip install virtualenv
 if [ $? -ne 0 ]; then echo "Problem installing the virtualenv package from pip"; exit 2; fi
 
-echo "Creating a virtual environment..."
-read -p "Type path to parent directory for the virtual environment venv directory [default: ${HOME}]" userSpecifiedVenvLocation
+if [ -z "${userSpecifiedVenvLocation}" ]; then
+    read -p "Type path to parent directory for the virtual environment venv directory [default: ${HOME}]" userSpecifiedVenvLocation
+else
+    echo "Using the provided arg for userSpecifiedVenvLocation: ${userSpecifiedVenvLocation}"
+fi
 
+echo "Creating a virtual environment..."
 parentDir="${defaultVenvLocation}"
 if [ -z "${userSpecifiedVenvLocation}" ]; then
     echo "Using default parent directory for venv: ${parentDir}"
