@@ -1,5 +1,6 @@
 import json
 import logging
+import re
 import sys
 
 import requests
@@ -19,7 +20,8 @@ mod_logger = Logify.get_name() + '.mailchimp'
 
 class MailChimpLister(object):
 
-    def __init__(self, site_name, mailchimp_rest_url, list_id, api_key, slack_url, slack_channel, config_file=None):
+    def __init__(self, site_name, mailchimp_rest_url, list_id, api_key, slack_url, slack_channel, config_file=None,
+                 skip_domains=None, replace_domains=None, extra_tags=None):
         self.cls_logger = mod_logger + '.MailChimpLister'
         self.slack_msg = SlackMessage(
             slack_url,
@@ -30,6 +32,18 @@ class MailChimpLister(object):
         self.list_id = list_id
         self.api_key = api_key
         self.config_file = config_file
+        if skip_domains:
+            self.skip_domains = skip_domains
+        else:
+            self.skip_domains = []
+        if replace_domains:
+            self.replace_domains = replace_domains
+        else:
+            self.replace_domains = []
+        if extra_tags:
+            self.extra_tags = extra_tags
+        else:
+            self.extra_tags = []
         self.site_user_list = []
         self.list_members = []
         self.add_count = 0
@@ -251,9 +265,41 @@ class MailChimpLister(object):
         """
         log = logging.getLogger(self.cls_logger + '.update_list')
 
+        # Validate the site tag prefix is short and has no special chars
+        special_char = re.compile('[@_!#$%^&*()<>?/\|}{~:-]')
+        if special_char.search(tag_prefix) is None:
+            log.info('Validated site tag prefix: {t}'.format(t=tag_prefix))
+        else:
+            msg = 'Invalid special character found in site tag prefix [{t}]  Please use only alpha-numeric ' \
+                  'characters'.format(t=tag_prefix)
+            raise MailChimpListerError(msg)
+        if len(tag_prefix) > 10:
+            msg = 'Site tag prefix [{t}] is too long, please make it less than 10 characters'.format(t=tag_prefix)
+            raise MailChimpListerError(msg)
+
+        # Validate skip_domains, replace_domains, and extra_tags are lists
+        if not isinstance(self.skip_domains, list):
+            msg = 'Provided skip_domains are should be a list, found: {t}'.format(
+                t=self.skip_domains.__class__.__name__)
+            raise MailChimpListerError(msg)
+        if not isinstance(self.replace_domains, list):
+            msg = 'Provided replace_domains are should be a list, found: {t}'.format(
+                t=self.replace_domains.__class__.__name__)
+            raise MailChimpListerError(msg)
+        if not isinstance(self.extra_tags, list):
+            msg = 'Provided extra_tags are should be a list, found: {t}'.format(
+                t=self.extra_tags.__class__.__name__)
+            raise MailChimpListerError(msg)
+
         # Search the list of CONS3RT users
+        cons3rt_user_index = 0
         for user in self.site_user_list:
+            cons3rt_user_index += 1
+            log.info('On user #{n} of {t} for site: {s}'.format(
+                n=str(cons3rt_user_index), t=str(len(self.site_user_list)), s=tag_prefix))
             user_found = False
+
+            # Ensure email and state are in the user data
             if 'email' not in user:
                 log.warning('User does not have an email address: {u}'.format(u=str(user)))
                 continue
@@ -262,6 +308,34 @@ class MailChimpLister(object):
                 continue
             user_email = user['email'].strip().lower()
             log.info('Looking at CONS3RT user with email: {e}'.format(e=user_email))
+
+            # Check user for domains to skip
+            skip = False
+            for skip_domain in self.skip_domains:
+                if skip_domain in user_email:
+                    log.info('Skipping user with skip domain [{d}] and email: {e}'.format(
+                        d=skip_domain, e=user_email
+                    ))
+                    skip = True
+                    break
+            if skip:
+                continue
+
+            # Check user for domains to attempt to replace
+            for replace_domain in self.replace_domains:
+                if 'original' not in replace_domain.keys():
+                    log.warning('original not found in replace_domain: {d}'.format(d=str(replace_domain)))
+                    continue
+                if 'replace' not in replace_domain.keys():
+                    log.warning('replace not found in replace_domain: {d}'.format(d=str(replace_domain)))
+                    continue
+                if replace_domain['original'] in user_email:
+                    user_email_username = user_email.split('@')[0]
+                    new_user_email = user_email_username + '@' + replace_domain['replace']
+                    log.info('Replacing email [{o}] with [{n}]'.format(o=user_email, n=new_user_email))
+                    user_email = new_user_email
+                    user['email'] = new_user_email
+
             if user['state'] == 'ACTIVE':
                 user_tag = '{t}_Active'.format(t=tag_prefix)
             elif user['state'] == 'INACTIVE':
@@ -271,13 +345,7 @@ class MailChimpLister(object):
             else:
                 user_tag = '{t}_Unknown_State'.format(t=tag_prefix)
             log.info('Set expected tag to be: {t}'.format(t=user_tag))
-            if 'hanscom.af.mil' in user_email:
-                log.warning('Skipping user with hanscom.af.mil email address: {e}'.format(e=user_email))
-                continue
-            if 'usace.army.mil' in user_email:
-                log.warning('Skipping user with usace.army.mil email address (they have opted out from MailChimp '
-                            'and adding to the list errors out: {e}'.format(e=user_email))
-                continue
+
             for member in self.list_members:
                 if 'email' not in member:
                     log.warning('Member found with no email address: {m}'.format(m=str(member)))
@@ -485,6 +553,11 @@ class MailChimpLister(object):
         """
         log = logging.getLogger(self.cls_logger + '.determine_update_tags')
 
+        site_tag = tag.split('_')[0]
+        site_tag_active = site_tag + '_Active'
+        site_tag_inactive = site_tag + '_Inactive'
+        site_tag_requested = site_tag + '_Requested'
+
         # Check if the tags need to be updated
         new_tags = [
             {
@@ -512,27 +585,41 @@ class MailChimpLister(object):
             return new_tags
 
         # Process tags on the member
-        log.info('Found member [{m}] tags: {t}'.format(m=member['email'], t=str(member_details['tags'])))
+        log.info('Found existing member [{m}] tags: {t}'.format(m=member['email'], t=str(member_details['tags'])))
 
+        # Invalidate other site-specific tags (Active, Inactive, Requested)
         for member_tag in member_details['tags']:
-            if 'name' in member_tag:
-                if member_tag['name'] == tag:
-                    log.info('Tag [{t}] already exists on list member: {m}'.format(t=tag, m=member['email']))
-                    return
-                elif member_tag['name'].endswith('Active') or \
-                        member_tag['name'].endswith('Inactive') or \
-                        member_tag['name'].endswith('Requested'):
-                    log.info('Tag will be removed: {t}'.format(t=member_tag['name']))
-                    new_tags.append({
-                        'name': member_tag['name'],
-                        'status': 'inactive'
-                    })
-                else:
-                    log.info('Keeping existing tag: {t}'.format(t=member_tag['name']))
-                    new_tags.append({
-                        'name': member_tag['name'],
-                        'status': 'active'
-                    })
+            if 'name' not in member_tag.keys():
+                log.warning('name not found in member tag data: {d}'.format(d=str(member_tag)))
+                continue
+            if member_tag['name'] == tag:
+                log.info('Tag [{t}] already exists on list member: {m}'.format(t=tag, m=member['email']))
+                return
+            elif member_tag['name'] == site_tag_active:
+                log.info('Tag will be removed: {t}'.format(t=member_tag['name']))
+                new_tags.append({
+                    'name': member_tag['name'],
+                    'status': 'inactive'
+                })
+            elif member_tag['name'] == site_tag_inactive:
+                log.info('Tag will be removed: {t}'.format(t=member_tag['name']))
+                new_tags.append({
+                    'name': member_tag['name'],
+                    'status': 'inactive'
+                })
+            elif member_tag['name'] == site_tag_requested:
+                log.info('Tag will be removed: {t}'.format(t=member_tag['name']))
+                new_tags.append({
+                    'name': member_tag['name'],
+                    'status': 'inactive'
+                })
+            else:
+                log.info('Keeping existing tag: {t}'.format(t=member_tag['name']))
+                new_tags.append({
+                    'name': member_tag['name'],
+                    'status': 'active'
+                })
+
         log.info('New tags for user [{m}], will be set to: {t}'.format(t=str(new_tags), m=member['email']))
         return new_tags
 
