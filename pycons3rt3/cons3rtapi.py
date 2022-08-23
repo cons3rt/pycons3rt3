@@ -2008,7 +2008,7 @@ class Cons3rtApi(object):
         except Cons3rtClientError as exc:
             msg = 'There was a problem querying for all users'
             raise Cons3rtApiError(msg) from exc
-        log.info('Successfully enabled retrieved all site users')
+        log.info('Successfully retrieved all site users')
         return users
 
     def list_all_users(self):
