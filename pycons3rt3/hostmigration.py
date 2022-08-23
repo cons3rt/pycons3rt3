@@ -339,7 +339,7 @@ def migrate_ec2_instance_to_host(ec2, instance_id, host_details, size, os_type=N
     if not ec2.wait_for_instance_availability(instance_id=new_instance_id):
         msg = 'Instance did not become available: {i}'.format(i=new_instance_id)
         raise EC2UtilError(msg)
-    log.info('NAT instance ID [{i}] is available and passed all checks'.format(i=new_instance_id))
+    log.info('Instance ID [{i}] is available and passed all checks'.format(i=new_instance_id))
 
     # Set the source/dest checks to disabled/False for NAT instances only
     if nat:
@@ -451,10 +451,10 @@ def main():
     parser.add_argument('subcommands', help='Optional command subtype', nargs='*')
     parser.add_argument('--ami', help='ID of the AMI to use in the restoration', required=False)
     parser.add_argument('--cloudtype', help='Type of cloud: [aws, azure, or vcloud]', required=True)
-    parser.add_argument('--host', help='Process only active runs', required=False)
-    parser.add_argument('--id', help='ID relative to the command provided', required=False)
-    parser.add_argument('--ids', help='List of IDs relative to the command provided', required=False)
-    parser.add_argument('--nat', help='Identifies the instance as a NAT box', required=False, action='store_true')
+    parser.add_argument('--host', help='ID of the dedicated host', required=False)
+    parser.add_argument('--id', help='ID of instance to move on/off a dedicated host', required=False)
+    parser.add_argument('--ids', help='ID of instances to move on/off a dedicated host', required=False)
+    parser.add_argument('--nat', help='Identifies the instance(s) as a NAT box', required=False, action='store_true')
     parser.add_argument('--ostype', help='Type of OS: [windows or linux]', required=False)
     parser.add_argument('--size', help='Instance type to use for the instance on the host', required=False)
     args = parser.parse_args()
