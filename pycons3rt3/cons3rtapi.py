@@ -2553,6 +2553,10 @@ class Cons3rtApi(object):
                 msg = 'vr_id arg must be an Integer, found: {t}'.format(t=vr_id.__class__.__name__)
                 raise Cons3rtApiError(msg) from exc
 
+        # Keep track of deleted runs and not deleted runs
+        deleted_runs = []
+        not_deleted_runs = []
+
         # List runs in the virtualization realm
         try:
             drs = self.list_deployment_runs_in_virtualization_realm(vr_id=vr_id, search_type='SEARCH_INACTIVE')
@@ -2565,25 +2569,39 @@ class Cons3rtApi(object):
         log.debug('Found inactive runs in VR ID {i}:\n{r}'.format(i=str(vr_id), r=str(drs)))
         log.info('Attempting to delete inactive runs from VR ID: {i}'.format(i=str(vr_id)))
         for dr in drs:
-            try:
-                dr_id = dr['id']
-            except KeyError:
+            # Ensure id data exists
+            if 'id' not in dr.keys():
                 log.warning('Unable to determine the run ID from run: {r}'.format(r=str(dr)))
+                not_deleted_runs.append(dr)
                 continue
+
+            # Try to delete the inactive run
             try:
-                self.delete_inactive_run(dr_id=dr_id)
+                self.delete_inactive_run(dr_id=dr['id'])
             except Cons3rtApiError as exc:
-                log.warning('Cons3rtApiError: Unable to delete run ID: {i}\n{e}'.format(i=str(dr_id), e=str(exc)))
-                continue
-        log.info('Completed deleting {n} inactive DRs in VR ID: {i}'.format(i=str(vr_id), n=str(len(drs))))
-        return len(drs)
+                log.warning('Cons3rtApiError: Unable to delete run ID: {i}\n{e}'.format(i=str(dr['id']), e=str(exc)))
+                not_deleted_runs.append(dr)
+            else:
+                log.info('Deleted run [{r}] from virtualization realm: {v}'.format(r=str(dr['id']), v=vr_id))
+                deleted_runs.append(dr)
+
+        processed_runs = len(deleted_runs) + len(not_deleted_runs)
+        if len(drs) != processed_runs:
+            log.warning('The total runs [{t}] in virtualization realm {v} did not equal the number of runs processed'
+                        'for deletion: {p}'.format(t=str(len(drs)), v=str(vr_id), p=str(processed_runs)))
+
+        log.info('Deleted {n} inactive runs in virtualization realm ID: {i}'.format(i=str(vr_id), n=str(len(deleted_runs))))
+        if len(not_deleted_runs) > 0:
+            log.info('Unable to delete {n} inactive runs in virtualization realm: {v}'.format(
+                n=str(len(not_deleted_runs)), v=str(vr_id)))
+        return deleted_runs, not_deleted_runs
 
     def release_active_runs_in_virtualization_realm(self, vr_id, unlock=False):
         """Releases all active runs in a virtualization realm
 
         :param vr_id: (int) virtualization realm ID
         :param unlock (bool) Set True to unset the run lock before releasing
-        :return: None
+        :return: (tuple) list of released runs, and not released runs
         :raises Cons3rtApiError
         """
         log = logging.getLogger(self.cls_logger + '.release_active_runs_in_virtualization_realm')
@@ -2601,6 +2619,10 @@ class Cons3rtApi(object):
             msg = 'unlock arg must be a bool, found: {t}'.format(t=unlock.__class__.__name__)
             raise Cons3rtApiError(msg)
 
+        # Store the released and not released runs
+        released_runs = []
+        not_released_runs = []
+
         # List active runs in the virtualization realm
         try:
             drs = self.list_deployment_runs_in_virtualization_realm(vr_id=vr_id, search_type='SEARCH_ACTIVE')
@@ -2613,35 +2635,76 @@ class Cons3rtApi(object):
         log.debug('Found active runs in VR ID {i}:\n{r}'.format(i=str(vr_id), r=str(drs)))
         log.info('Attempting to release or cancel active runs from VR ID: {i}'.format(i=str(vr_id)))
         for dr in drs:
-            try:
-                dr_id = dr['id']
-            except KeyError:
-                log.warning('Unable to determine the run ID from run: {r}'.format(r=str(dr)))
+            if 'id' not in dr.keys():
+                log.warning('Unable to determine the run ID: {r}'.format(r=str(dr)))
+                not_released_runs.append(dr)
+                continue
+            if 'name' not in dr.keys():
+                log.warning('Unable to determine the run name: {r}'.format(r=str(dr)))
+                not_released_runs.append(dr)
                 continue
 
-            # Unlock the run if specified
-            do_unlock = False
-            if unlock:
-                if 'locked' not in dr:
-                    log.warning('locked data not found in DR, unlock will be attempted: {d}'.format(d=str(dr)))
-                    do_unlock = True
-                elif dr['locked']:
-                    do_unlock = True
-            if do_unlock:
+            # Track if the run release should be attempted
+            do_release = True
+
+            # Track if the run is remote access
+            is_remote_access = False
+
+            # Determine if the run is locked, or assumed to be locked
+            if 'locked' not in dr.keys():
+                log.warning('Could not determine the locked status of run ID [{i}], assuming locked'.format(
+                    i=dr['id']))
+                dr_locked = True
+            else:
+                log.info('Found locked status of run {d}: {s}'.format(d=str(dr['id']), s=str(dr['locked'])))
+                dr_locked = dr['locked']
+
+            # Check if this is a remote access run, and skip releasing it
+            if '-RemoteAccess' in dr['name']:
+                log.info('Run ID [{r}] is the remote access run for virtualization realm: {v}'.format(
+                    r=str(dr['id']), v=str(vr_id)))
+                is_remote_access = True
+
+            # Unlock the run if specified, and if it is locked, but not if it is remote access
+            if unlock and dr_locked and not is_remote_access:
                 try:
-                    self.set_deployment_run_lock(dr_id=dr_id, lock=False)
+                    self.set_deployment_run_lock(dr_id=dr['id'], lock=False)
                 except Cons3rtApiError as exc:
-                    msg = 'Problem removing run lock on run ID: {i}\n{e}'.format(i=str(dr_id), e=str(exc))
-                    log.warning(msg)
+                    log.warning('Problem removing run lock on run ID: {i}\n{e}'.format(i=str(dr['id']), e=str(exc)))
+                    do_release = False
+                    not_released_runs.append(dr)
                 else:
-                    log.info('Removed run lock for run ID: {i}'.format(i=str(dr_id)))
-            try:
-                self.release_deployment_run(dr_id=dr_id)
-            except Cons3rtApiError as exc:
-                log.warning('Cons3rtApiError: Unable to release or cancel run ID: {i}\n{e}'.format(
-                    i=str(dr_id), e=str(exc)))
-                continue
+                    log.info('Removed run lock for run ID: {i}'.format(i=str(dr['id'])))
+            elif dr_locked:
+                log.info('Run [{r}] is locked, and unlock was not specified, this run will not be released from '
+                         'virtualization run ID: {v}'.format(r=str(dr['id']), v=vr_id))
+                not_released_runs.append(dr)
+                do_release = False
+            elif is_remote_access:
+                log.info('Remote access run for virtualization realm {v} will not be released: {r}'.format(
+                    v=str(vr_id), r=str(dr['id'])))
+                not_released_runs.append(dr)
+                do_release = False
+
+            # Attempt to release the deployment run
+            if do_release:
+                try:
+                    self.release_deployment_run(dr_id=dr['id'])
+                except Cons3rtApiError as exc:
+                    log.warning('Unable to release or cancel run ID: {i}\n{e}'.format(
+                        i=str(dr['id']), e=str(exc)))
+                    not_released_runs.append(dr)
+                    continue
+                else:
+                    log.info('Released run [{d}] from virtualization realm [{v}]'.format(d=str(dr['id']), v=str(vr_id)))
+                    released_runs.append(dr)
         log.info('Completed releasing or cancelling active DRs in VR ID: {i}'.format(i=str(vr_id)))
+
+        processed_runs = len(released_runs) + len(not_released_runs)
+        if len(drs) != processed_runs:
+            log.warning('The total runs [{t}] in virtualization realm {v} did not equal the number of runs processed'
+                        'for release: {p}'.format(t=str(len(drs)), v=str(vr_id), p=str(processed_runs)))
+        return released_runs, not_released_runs
 
     def clean_all_runs_in_virtualization_realm(self, vr_id, unlock=False):
         """Releases all active runs in a virtualization realm
@@ -2672,14 +2735,31 @@ class Cons3rtApi(object):
             log.info('Attempting release and delete all runs, except for locked runs from VR ID: {i}'.format(
                 i=str(vr_id)))
 
-        self.release_active_runs_in_virtualization_realm(vr_id=vr_id, unlock=unlock)
-        log.info('Waiting 120 seconds to proceed to deletion of inactive runs...')
-        time.sleep(120)
-
-        # Once a minute for 5 minutes, delete inactive runs (as runs release)
+        # Release active runs until none are left
         attempt_num = 1
         max_attempts = 10
-        interval_sec = 60
+        interval_sec = 30
+        while True:
+            if attempt_num > max_attempts:
+                msg = 'Maximum number of attempts {n} exceeded for releasing active runs from VR ID: {i}'.format(
+                    i=str(vr_id), n=str(max_attempts))
+                raise Cons3rtApiError(msg)
+            log.info('Attempting to release active runs from VR ID {i}, attempt #{n} of {m}'.format(
+                i=str(vr_id), n=str(attempt_num), m=str(max_attempts)))
+            released_runs, not_released_runs = self.release_active_runs_in_virtualization_realm(
+                vr_id=vr_id, unlock=unlock)
+            log.info('Released {n} runs from VR ID: {v}'.format(n=str(len(released_runs)), v=str(vr_id)))
+            if (len(released_runs) + len(not_released_runs)) == 0:
+                log.info('Completed releasing active runs from VR ID: {i}'.format(i=str(vr_id)))
+                break
+            attempt_num += 1
+            log.info('Waiting {n} seconds to re-attempt releasing active runs...'.format(n=str(interval_sec)))
+            time.sleep(interval_sec)
+
+        # Delete inactive runs until none are left (as runs release)
+        attempt_num = 1
+        max_attempts = 40
+        interval_sec = 15
         while True:
             if attempt_num > max_attempts:
                 msg = 'Maximum number of attempts {n} exceeded for deleting inactive runs from VR ID: {i}'.format(
@@ -2687,14 +2767,15 @@ class Cons3rtApi(object):
                 raise Cons3rtApiError(msg)
             log.info('Attempting to delete inactive runs from VR ID {i}, attempt #{n} of {m}'.format(
                 i=str(vr_id), n=str(attempt_num), m=str(max_attempts)))
-            num_deleted = self.delete_inactive_runs_in_virtualization_realm(vr_id=vr_id)
-            if num_deleted < 1:
+            deleted_runs, not_deleted_runs = self.delete_inactive_runs_in_virtualization_realm(vr_id=vr_id)
+            log.info('Deleted {n} runs from VR ID: {v}'.format(n=str(len(deleted_runs)), v=str(vr_id)))
+            if len(not_deleted_runs) == 0:
                 log.info('Completed deleting all inactive runs from VR ID: {i}'.format(i=str(vr_id)))
                 break
             attempt_num += 1
             log.info('Waiting {n} seconds to re-attempt inactive run deletion...'.format(n=str(interval_sec)))
             time.sleep(interval_sec)
-        log.info('Completed cleaning all runs from VR ID: {i}'.format(i=str(vr_id)))
+        log.info('Completed cleaning runs from VR ID: {i}'.format(i=str(vr_id)))
 
     def set_virtualization_realm_state(self, vr_id, state):
         """Sets the virtualization realm ID to the provided state
@@ -2763,11 +2844,11 @@ class Cons3rtApi(object):
         log.info('Preparing VR ID {i} for de-allocation or unregistering...'.format(i=str(vr_id)))
         self.disable_remote_access(vr_id=vr_id)
         self.remove_all_projects_in_virtualization_realm(vr_id=vr_id)
-        log.info('Waiting 60 seconds to proceed to removing runs...')
-        time.sleep(60)
+        log.info('Waiting 10 seconds to proceed to removing runs...')
+        time.sleep(10)
         self.clean_all_runs_in_virtualization_realm(vr_id=vr_id, unlock=True)
-        log.info('Waiting 60 seconds to proceed to deactivation of the VR...')
-        time.sleep(60)
+        log.info('Waiting 10 seconds to proceed to deactivation of the VR...')
+        time.sleep(10)
         state_result = self.set_virtualization_realm_state(vr_id=vr_id, state=False)
         if not state_result:
             msg = 'Unable to deactivate VR ID {i} before attempting to unregister/de-allocate'.format(i=str(vr_id))
@@ -5453,6 +5534,37 @@ class Cons3rtApi(object):
             templates=templates_to_share,
             vr_ids=vr_ids
         )
+
+    def delete_virtualization_realms_for_cloud(self, cloud_id, unlock=False):
+        """Unregisters and/or deallocates all virtualization realms for the provided cloud ID
+
+        :param cloud_id: (str) cloud ID
+        :param unlock: (bool) Set True to unlock all runs, otherwise this call could fail on a locked run
+        :return: (tuple) list of deleted VRs, list of VRs not deleted
+        :raises: Cons3rtApiError
+        """
+        log = logging.getLogger(self.cls_logger + '.delete_virtualization_realms_for_cloud')
+
+        # Store lists of deleted VRs and not deleted VRs
+        deleted_vrs = []
+        not_deleted_vrs = []
+
+        # Retrieve the list of virtualization realms
+        try:
+            cloud_vrs = self.list_virtualization_realms_for_cloud(cloud_id=cloud_id)
+        except Cons3rtApiError as exc:
+            msg = 'Problem list VRs from cloud ID {i} details'.format(i=str(cloud_id))
+            raise Cons3rtApiError(msg) from exc
+        log.info('Found {n} virtualization realms in cloud ID: {i}'.format(n=str(len(cloud_vrs)), i=cloud_id))
+        if len(cloud_vrs) == 0:
+            return [], []
+        for cloud_vr in cloud_vrs:
+            if 'id' not in cloud_vr.keys():
+                log.warning('id not found in cloud VR data: {d}'.format(d=str(cloud_vr)))
+                not_deleted_vrs.append(cloud_vr)
+            cloud_vr_id = cloud_vr['id']
+            self.clean_all_runs_in_virtualization_realm(vr_id=cloud_vr_id, unlock=unlock)
+
 
     def share_templates_to_vrs_in_cloud(self, cloud_id, provider_vr_id=None, templates_registration_data=None,
                                         template_names=None, subscribe=True, online=True):
