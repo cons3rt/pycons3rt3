@@ -464,6 +464,21 @@ class CloudCli(Cons3rtCli):
             raise Cons3rtCliError(msg) from exc
 
     def delete_clouds(self):
+        if len(self.subcommands) == 1:
+            self.delete_clouds_only()
+        elif len(self.subcommands) > 1:
+            delete_subcommand = self.subcommands[1]
+            valid_delete_subcommands = [
+                'cloudspaces'
+            ]
+            if delete_subcommand not in valid_delete_subcommands:
+                self.err('Unrecognized cloud delete subcommand [{c}], options: {o}'.format(
+                    c=delete_subcommand, o=','.join(valid_delete_subcommands)))
+                return False
+            if delete_subcommand == 'cloudspaces':
+                self.delete_cloudspaces()
+
+    def delete_clouds_only(self):
         if not self.ids:
             msg = '--id or --ids arg required to specify the cloud IDs to delete'
             self.err(msg)
@@ -475,6 +490,27 @@ class CloudCli(Cons3rtCli):
                 msg = 'Problem deleting cloud ID: {c}\n{e}'.format(c=str(cloud_id), e=str(exc))
                 self.err(msg)
                 raise Cons3rtCliError(msg) from exc
+
+    def delete_cloudspaces(self):
+        if not self.ids:
+            msg = '--id or --ids arg required to specify the cloud IDs to delete'
+            self.err(msg)
+            raise Cons3rtCliError(msg)
+        for cloud_id in self.ids:
+            try:
+                deleted_cloudspaces, undeleted_cloudspaces = self.c5t.delete_virtualization_realms_for_cloud(
+                    cloud_id=cloud_id)
+            except Cons3rtApiError as exc:
+                msg = 'Problem deleting VRs in cloud ID cloud ID: {c}\n{e}'.format(c=str(cloud_id), e=str(exc))
+                self.err(msg)
+                raise Cons3rtCliError(msg) from exc
+            print('Deallocated/unregistered {n} cloudspaces for cloud {c}:'.format(
+                n=str(len(deleted_cloudspaces)), c=str(cloud_id)))
+            self.print_cloudspaces(cloudspaces_list=deleted_cloudspaces)
+            if len(undeleted_cloudspaces) > 0:
+                print('Unable to deallocate/unregister {n} cloudspaces for cloud {c}:'.format(
+                    n=str(len(undeleted_cloudspaces)), c=str(cloud_id)))
+                self.print_cloudspaces(cloudspaces_list=undeleted_cloudspaces)
 
     def retrieve_clouds(self):
         if not self.ids:
@@ -563,9 +599,11 @@ class CloudspaceCli(Cons3rtCli):
         self.valid_subcommands = [
             'allocate',
             'deallocate',
+            'delete_inactive_runs',
             'list',
             'template',
             'register',
+            'release_active_runs',
             'retrieve',
             'unregister'
         ]
@@ -588,6 +626,11 @@ class CloudspaceCli(Cons3rtCli):
                 self.deallocate_cloudspace()
             except Cons3rtCliError:
                 return False
+        elif self.subcommands[0] == 'delete_inactive_runs':
+            try:
+                self.delete_inactive_runs()
+            except Cons3rtCliError:
+                return False
         elif self.subcommands[0] == 'list':
             try:
                 self.list_cloudspace()
@@ -596,6 +639,11 @@ class CloudspaceCli(Cons3rtCli):
         elif self.subcommands[0] == 'register':
             try:
                 self.register_cloudspace()
+            except Cons3rtCliError:
+                return False
+        elif self.subcommands[0] == 'release_active_runs':
+            try:
+                self.release_active_runs()
             except Cons3rtCliError:
                 return False
         elif self.subcommands[0] == 'retrieve':
@@ -673,12 +721,16 @@ class CloudspaceCli(Cons3rtCli):
 
     def delete_inactive_runs_from_cloudspace(self, cloudspace_id):
         try:
-            self.c5t.delete_inactive_runs_in_virtualization_realm(vr_id=cloudspace_id)
+            deleted_runs, not_deleted_runs  = self.c5t.delete_inactive_runs_in_virtualization_realm(vr_id=cloudspace_id)
         except Cons3rtApiError as exc:
             msg = 'There was a problem deleting inactive runs from cloudspace ID: {i}\n{e}'.format(
                 i=str(cloudspace_id), e=str(exc))
             self.err(msg)
             raise Cons3rtCliError(msg) from exc
+        print('Deleted {n} inactive runs from cloudspace: {i}'.format(n=str(len(deleted_runs)), i=str(cloudspace_id)))
+        if len(not_deleted_runs) > 0:
+            print('Unable to delete {n} inactive runs from cloudspace: {i}'.format(
+                n=str(len(not_deleted_runs)), i=str(cloudspace_id)))
 
     def delete_templates(self):
         for cloudspace_id in self.ids:
@@ -844,12 +896,16 @@ class CloudspaceCli(Cons3rtCli):
 
     def release_active_runs_from_cloudspace(self, cloudspace_id):
         try:
-            self.c5t.release_active_runs_in_virtualization_realm(vr_id=cloudspace_id)
+            released_runs, not_released_runs = self.c5t.release_active_runs_in_virtualization_realm(vr_id=cloudspace_id)
         except Cons3rtApiError as exc:
             msg = 'There was a problem releasing active runs from cloudspace ID: {i}\n{e}'.format(
                 i=str(cloudspace_id), e=str(exc))
             self.err(msg)
             raise Cons3rtCliError(msg) from exc
+        print('Release {n} active runs from cloudspace: {i}'.format(n=str(len(released_runs)), i=str(cloudspace_id)))
+        if len(not_released_runs) > 0:
+            print('Unable to release {n} active runs from cloudspace: {i}'.format(
+                n=str(len(not_released_runs)), i=str(cloudspace_id)))
 
     def retrieve_cloudspace(self):
         if not self.ids:
