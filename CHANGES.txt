@@ -2,7 +2,7 @@
 ======
 
 * Added a CLI command and method to delete cloudspaces for a cloud, and added returns for release runs in a cloudspace, and deleting runs in a cloudspace
-
+* Added a method to retrieve details of a test asset
 
 0.0.12
 ======
