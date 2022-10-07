@@ -1828,11 +1828,34 @@ class Cons3rtClient:
         print('Retrieved a total of {n} software assets'.format(n=str(len(software_assets))))
         return software_assets
 
+    def retrieve_test_asset(self, asset_id):
+        """Retrieves details for the test asset
+
+        :param asset_id: (int) asset ID
+        :return: (dict) details about the test asset
+        :raises: Cons3rtClientError
+        """
+        target = 'testassets/{i}'.format(i=str(asset_id))
+        try:
+            response = self.http_client.http_get(
+                rest_user=self.user,
+                target=target
+            )
+        except Cons3rtClientError as exc:
+            raise Cons3rtClientError('Problem retrieving test asset: {i}'.format(i=str(asset_id))) from exc
+        try:
+            result = self.http_client.parse_response(response=response)
+        except Cons3rtClientError as exc:
+            msg = 'The HTTP response contains a bad status code'
+            raise Cons3rtClientError(msg) from exc
+        test_asset = json.loads(result)
+        return test_asset
+
     def retrieve_test_assets(self, asset_type=None, community=False, category_ids=None, expanded=False,
                              max_results=40, page_num=0):
         """Get a list of test assets
 
-        :param asset_type: (str) the test asset type, defaults to null
+        :param asset_type: (str) the test asset type, defaults to null: "UNKNOWN" "NESSUS" "SCRIPT" "POWERSHELL" "MOCK"
         :param community: (bool) the boolean to include community assets
         :param category_ids: (list) the list of categories to filter by
         :param expanded: (bool) whether to retrieve expanded info

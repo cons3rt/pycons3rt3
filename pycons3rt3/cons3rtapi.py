@@ -3794,11 +3794,27 @@ class Cons3rtApi(object):
         return self.retrieve_expanded_software_assets(asset_type=asset_type, community=community,
                                                       category_ids=category_ids)
 
+    def retrieve_test_asset(self, asset_id):
+        """Retrieves details for the software asset
+
+        :param asset_id: (int) asset ID
+        return: (dict) details about the software asset
+        :return:
+        """
+        log = logging.getLogger(self.cls_logger + '.retrieve_test_asset')
+        log.info('Retrieving test asset ID: {i}'.format(i=str(asset_id)))
+        try:
+            test_asset = self.cons3rt_client.retrieve_test_asset(asset_id=asset_id)
+        except Cons3rtClientError as exc:
+            msg = 'Problem retrieving test asset ID: {i}'.format(i=str(asset_id))
+            raise Cons3rtApiError(msg) from exc
+        return test_asset
+
     def retrieve_test_assets(self, asset_type=None, community=False, expanded=False, category_ids=None,
                              max_results=None):
         """Get a list of test assets
 
-        :param asset_type: (str) the test asset type, defaults to null
+        :param asset_type: (str) the test asset type, defaults to null: "UNKNOWN" "NESSUS" "SCRIPT" "POWERSHELL" "MOCK"
         :param community: (bool) the boolean to include community assets
         :param expanded: (bool) the boolean to include project assets
         :param category_ids: (list) the list of categories to filter by
