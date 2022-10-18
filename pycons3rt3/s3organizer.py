@@ -20,7 +20,7 @@ __author__ = 'Joe Yennaco'
 
 
 # Set up logger name for this module
-log_tag = 's3deleter'
+log_tag = 's3organizer'
 mod_logger = Logify.get_name() + '.' + log_tag
 
 widgets = [
