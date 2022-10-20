@@ -1602,10 +1602,13 @@ class TeamCli(Cons3rtCli):
 
     def generate_report(self, team_id):
         load = False
+        config = None
         if self.args.load:
             load = True
+        if self.args.config:
+            config = self.args.config
         try:
-            generate_team_report(team_id=team_id, load=load)
+            generate_team_report(team_id=team_id, load=load, cons3rt_api=self.c5t)
         except Cons3rtReportsError as exc:
             msg = 'Problem generating report for team ID: {i}\n{e}'.format(i=str(team_id), e=str(exc))
             self.err(msg)
@@ -1613,7 +1616,7 @@ class TeamCli(Cons3rtCli):
 
     def generate_asset_report(self, team_id):
         try:
-            generate_team_asset_report(team_id=team_id)
+            generate_team_asset_report(team_id=team_id, cons3rt_api=self.c5t)
         except Cons3rtReportsError as exc:
             msg = 'Problem generating asset report for team ID: {i}\n{e}'.format(i=str(team_id), e=str(exc))
             self.err(msg)

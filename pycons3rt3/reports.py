@@ -28,10 +28,11 @@ report_dir = os.path.join(os.path.expanduser('~'), 'cons3rt_reports')
 cons3rt_data_file = os.path.join(report_dir, 'cons3rt_tmp_data.yml')
 
 
-def generate_team_report(team_id, load=False):
+def generate_team_report(team_id, cons3rt_api, load=False):
     """Generates reports for the specified team ID
 
     :param team_id: (int) ID of the team
+    :param cons3rt_api: (Cons3rtApi) object
     :param load: (bool) Set True to load CONS3RT data from the local cons3rt_data_file, False to generate new data
     :return: (list) of CONS3RT deployment run host data
     :raises: Cons3rtReportsError
@@ -50,7 +51,7 @@ def generate_team_report(team_id, load=False):
     if load:
         cons3rt_vm_data = read_cons3rt_data()
     else:
-        cons3rt_vm_data = generate_cons3rt_data(team_id=team_id)
+        cons3rt_vm_data = generate_cons3rt_data(team_id=team_id, cons3rt_api=cons3rt_api)
         save_cons3rt_data(cons3rt_vm_data)
     if not cons3rt_vm_data:
         msg = 'Problem retrieving CONS3RT data'
@@ -64,10 +65,11 @@ def generate_team_report(team_id, load=False):
     return cons3rt_vm_data
 
 
-def generate_team_asset_report(team_id):
+def generate_team_asset_report(team_id, cons3rt_api):
     """Generates reports for the specified team ID
 
     :param team_id: (int) ID of the team
+    :param cons3rt_api: (Cons3rtApi) object
     :return: None
     :raises: Cons3rtReportsError
     """
@@ -82,25 +84,25 @@ def generate_team_asset_report(team_id):
     if not os.path.isdir(report_dir):
         os.makedirs(report_dir, exist_ok=True)
 
-    asset_data = generate_team_asset_list(team_id=team_id)
+    asset_data = generate_team_asset_list(team_id=team_id, cons3rt_api=cons3rt_api)
 
     # Generate the output
     generate_asset_output(team_id=team_id, asset_data=asset_data)
     log.info('Completed team asset tally for team ID: {i}'.format(i=team_id))
 
 
-def generate_cons3rt_data(team_id):
+def generate_cons3rt_data(team_id, cons3rt_api):
     """Returns data for the specified team ID
 
     :param team_id: (int) ID of the team
+    :param cons3rt_api: (Cons3rtApi) object
     :return: (list) of deployment run host data
     """
     log = logging.getLogger(mod_logger + '.generate_cons3rt_data')
-    capi = Cons3rtApi()
 
     log.info('Retrieving team info for team ID: {i}'.format(i=str(team_id)))
     try:
-        team_details = capi.get_team_details(team_id=team_id)
+        team_details = cons3rt_api.get_team_details(team_id=team_id)
     except Cons3rtApiError as exc:
         msg = 'Problem retrieving team details for team ID: {i}'.format(i=str(team_id))
         raise Cons3rtReportsError(msg) from exc
@@ -109,7 +111,7 @@ def generate_cons3rt_data(team_id):
 
     log.info('Retrieving deployment run and host details for team ID: {i}'.format(i=str(team_id)))
     try:
-        run_host_list = capi.list_host_details_in_team(team_id=team_id)
+        run_host_list = cons3rt_api.list_host_details_in_team(team_id=team_id)
     except Cons3rtApiError as exc:
         msg = 'Problem getting a list of runs and hosts in team ID: {i}'.format(i=str(team_id))
         raise Cons3rtReportsError(msg) from exc
@@ -119,7 +121,7 @@ def generate_cons3rt_data(team_id):
     drh_data = []
     for run_host_data in run_host_list:
         dr_details = run_host_data['run']
-        custom_props = capi.retrieve_custom_properties_from_deployment_run_details(dr_details=dr_details)
+        custom_props = cons3rt_api.retrieve_custom_properties_from_deployment_run_details(dr_details=dr_details)
         dep_props_str = ''
         if custom_props:
             for dep_prop in custom_props:
@@ -182,12 +184,13 @@ def generate_cons3rt_data(team_id):
     return drh_data
 
 
-def generate_team_asset_list(team_id):
+def generate_team_asset_list(team_id, cons3rt_api):
     """Returns software and container asset data for the specified team ID
 
     Assets used in currently active deployment runs.
 
     :param team_id: (int) ID of the team
+    :param cons3rt_api: (Cons3rtApi) object
     :return: (list) of assets used by the team:
     [
       {
@@ -197,11 +200,11 @@ def generate_team_asset_list(team_id):
     ]
     """
     log = logging.getLogger(mod_logger + '.generate_team_asset_list')
-    capi = Cons3rtApi()
+    cons3rt_api = Cons3rtApi()
 
     log.info('Retrieving team info for team ID: {i}'.format(i=str(team_id)))
     try:
-        team_details = capi.get_team_details(team_id=team_id)
+        team_details = cons3rt_api.get_team_details(team_id=team_id)
     except Cons3rtApiError as exc:
         msg = 'Problem retrieving team details for team ID: {i}'.format(i=str(team_id))
         raise Cons3rtReportsError(msg) from exc
@@ -210,7 +213,7 @@ def generate_team_asset_list(team_id):
 
     log.info('Retrieving deployment run and host details for team ID: {i}'.format(i=str(team_id)))
     try:
-        run_host_list = capi.list_host_details_in_team(team_id=team_id)
+        run_host_list = cons3rt_api.list_host_details_in_team(team_id=team_id)
     except Cons3rtApiError as exc:
         msg = 'Problem getting a list of runs and hosts in team ID: {i}'.format(i=str(team_id))
         raise Cons3rtReportsError(msg) from exc
