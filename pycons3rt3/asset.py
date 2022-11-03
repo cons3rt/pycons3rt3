@@ -624,20 +624,28 @@ def make_asset_zip(asset_dir_path, destination_directory=None):
                     skip = False
                     file_path = os.path.join(root, f)
 
-                    # Skip files in the ignore directories list
+                    # Skip files in the ignore_dirs list
                     for ignore_dir in ignore_dirs:
                         if ignore_dir in file_path:
-                            skip = True
-                            break
+                            matching_item = False
+                            for file_path_component in file_path.split(os.sep):
+                                if file_path_component == ignore_dir:
+                                    matching_item = True
+                            if matching_item:
+                                test_dir = file_path[:file_path.index(ignore_dir) + len(ignore_dir)]
+                                if os.path.isdir(test_dir):
+                                    log.info('File is in an ignore directory {d}: {f}'.format(d=ignore_dir, f=file_path))
+                                    skip = True
 
-                    # Skip file in the ignore files list
+                    # Skip file in the ignore_files list
                     for ignore_file in ignore_files:
                         if f.startswith(ignore_file):
+                            log.info('File starts with ignored file prefix {p}: {f}'.format(p=ignore_file, f=file_path))
                             skip = True
-                            break
 
-                    # Skip if the file ends with the specified extension
+                    # Skip if the file ends with one of the items in ignore_file_extensions
                     if ignore_by_extension(item_path=file_path):
+                        log.info('File has an ignored extension: {f}'.format(f=file_path))
                         skip = True
 
                     if skip:
