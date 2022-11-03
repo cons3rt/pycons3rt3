@@ -13,7 +13,7 @@ from .cloud import Cloud
 from .cons3rtclient import Cons3rtClient
 from .deployment import Deployment
 from .pycons3rtlibs import HostActionResult, RestUser
-from .cons3rtconfig import cons3rtapi_config_file, get_pycons3rt_conf_dir, site_urls
+from .cons3rtconfig import cons3rtapi_config_file, get_pycons3rt_conf_dir
 from .exceptions import Cons3rtClientError, Cons3rtApiError, DeploymentError, InvalidCloudError, \
     InvalidOperatingSystemTemplate
 from .ostemplates import OperatingSystemTemplate, OperatingSystemType
@@ -21,6 +21,25 @@ from .ostemplates import OperatingSystemTemplate, OperatingSystemType
 
 # Set up logger name for this module
 mod_logger = Logify.get_name() + '.cons3rtapi'
+
+# Valid states for project members
+project_member_states = ['REQUESTED', 'ACTIVE', 'BLOCKED', 'DELETED']
+
+# Project roles for an express user (excludes all others including STANDARD, which must be removed)
+express_roles = ['MEMBER', 'CONSUMER']
+
+# Project roles for a standard non-express user 
+standard_roles = ['STANDARD']
+
+# Project roles for a standard asset developer
+asset_developer_roles = ['SOFTWARE_DEVELOPER', 'TEST_DEVELOPER', 'ASSET_SHARER', 'ASSET_PROMOTER', 'ASSET_UPLOADER', 
+                         'POWER_SCHEDULE_UPDATER']
+
+# Project roles for a project manager/owner (who does not develop assets)
+project_manager_roles = ['PROJECT_OWNER', 'PROJECT_MANAGER', 'PROJECT_MODERATOR']
+
+# All valid roles combined
+valid_member_roles = express_roles + standard_roles + asset_developer_roles + project_manager_roles
 
 
 class Cons3rtApi(object):
@@ -652,12 +671,8 @@ class Cons3rtApi(object):
         """Returns a list of members in a project based on the provided query parameters
 
         :param project_id: (int) ID of the project
-        :param state: (str) membership state "REQUESTED" "ACTIVE" "BLOCKED" "DELETED"
-        :param role: (str) membership role "ADMINISTRATOR" "ASSET_RESTORER" "STATUS_READER" "UI_MACHINE" "TEST_TOOL"
-            "MEMBER" "CONSUMER" "STANDARD" "SOFTWARE_DEVELOPER" "TEST_DEVELOPER" "ASSET_SHARER" "ASSET_PROMOTER"
-            "POWER_SCHEDULE_UPDATER" "PROJECT_OWNER" "PROJECT_MANAGER" "PROJECT_MODERATOR" "REMOTE_ACCESS"
-            "MAESTRO_MACHINE" "FAP_MACHINE" "SCHEDULER_MACHINE" "CONS3RT_MACHINE" "SOURCEBUILDER_MACHINE"
-            "SYSTEM_ASSET_IMPORTER" "ASSET_CERTIFIER" "ASSET_UPLOADER"
+        :param state: (str) membership state (see project_member_states)
+        :param role: (str) membership role (see valid_roles)
         :param username: (str) username to search for
         :return: (list) of projects
         :raises: Cons3rtApiError
@@ -672,27 +687,20 @@ class Cons3rtApi(object):
                 msg = 'project_id arg must be an Integer, found: {t}'.format(t=project_id.__class__.__name__)
                 raise Cons3rtApiError(msg) from exc
         
-        valid_states = ['REQUESTED', 'ACTIVE', 'BLOCKED', 'DELETED']
-        valid_roles = ['ADMINISTRATOR', 'ASSET_RESTORER', 'STATUS_READER', 'UI_MACHINE', 'TEST_TOOL', 'MEMBER',
-                       'CONSUMER', 'STANDARD', 'SOFTWARE_DEVELOPER', 'TEST_DEVELOPER', 'ASSET_SHARER', 'ASSET_PROMOTER',
-                       'POWER_SCHEDULE_UPDATER', 'PROJECT_OWNER', 'PROJECT_MANAGER', 'PROJECT_MODERATOR',
-                       'REMOTE_ACCESS', 'MAESTRO_MACHINE', 'FAP_MACHINE', 'SCHEDULER_MACHINE', 'CONS3RT_MACHINE',
-                       'SOURCEBUILDER_MACHINE', 'SYSTEM_ASSET_IMPORTER', 'ASSET_CERTIFIER', 'ASSET_UPLOADER']
-        
         # Ensure the args are valid
         if state:
             if not isinstance(state, str):
                 msg = 'state arg must be a string, received: {t}'.format(t=state.__class__.__name__)
                 raise Cons3rtApiError(msg)
-            if state not in valid_states:
-                msg = 'state [{s}] invalid, must be one of: {v}'.format(s=state, v=','.join(valid_states))
+            if state not in project_member_states:
+                msg = 'state [{s}] invalid, must be one of: {v}'.format(s=state, v=','.join(project_member_states))
                 raise Cons3rtApiError(msg)
         if role:
             if not isinstance(role, str):
                 msg = 'role arg must be a string, received: {t}'.format(t=role.__class__.__name__)
                 raise Cons3rtApiError(msg)
-            if role not in valid_roles:
-                msg = 'role [{r}] invalid, must be one of: {v}'.format(r=role, v=','.join(valid_roles))
+            if role not in valid_member_roles:
+                msg = 'role [{r}] invalid, must be one of: {v}'.format(r=role, v=','.join(valid_member_roles))
                 raise Cons3rtApiError(msg)
         if username:
             if not isinstance(username, str):
@@ -2176,6 +2184,275 @@ class Cons3rtApi(object):
             raise Cons3rtApiError(msg) from exc
         log.info('Successfully added username {u} to project ID: {i}'.format(i=str(project_id), u=username))
 
+    def assign_role_to_project_member(self, project_id, username, role):
+        """Assigns the provided role to the username in the project ID
+        :param project_id: (int) project ID
+        :param username: (str) CONS3RT username
+        :param role: (str) project role
+        :return: (bool) True if successful
+        :raises: Cons3rtApiError
+        """
+        log = logging.getLogger(self.cls_logger + '.assign_role_to_project_member')
+
+        # Ensure the username and role args are strings
+        if not isinstance(username, str):
+            msg = 'The username arg must be a string'
+            raise Cons3rtApiError(msg)
+        if not isinstance(role, str):
+            msg = 'The role arg must be a string'
+            raise Cons3rtApiError(msg)
+
+        # Ensure the project_id is an int
+        if not isinstance(project_id, int):
+            try:
+                project_id = int(project_id)
+            except ValueError as exc:
+                msg = 'project_id arg must be an Integer, found: {t}'.format(t=project_id.__class__.__name__)
+                raise Cons3rtApiError(msg) from exc
+
+        # Ensure the role is valid
+        if role not in valid_member_roles:
+            msg = 'role [{r}] invalid, must be one of: {v}'.format(r=role, v=','.join(valid_member_roles))
+            raise Cons3rtApiError(msg)
+
+        # Attempt assign the role to the user
+        try:
+            res = self.cons3rt_client.assign_role_to_project_member(project_id=project_id, username=username, role=role)
+        except Cons3rtClientError as exc:
+            msg = 'Unable to assign role [{r}] to user [{u}] in project ID: {i}'.format(
+                r=role, u=username, i=str(project_id))
+            raise Cons3rtApiError(msg) from exc
+        log.info('Added role [{r}] to user [{u}] in project ID: {i}'.format(r=role, i=str(project_id), u=username))
+        return res
+
+    def unassign_role_from_project_member(self, project_id, username, role):
+        """Assigns the provided role to the username in the project ID
+        :param project_id: (int) project ID
+        :param username: (str) CONS3RT username
+        :param role: (str) project role
+        :return: (bool) True if successful
+        :raises: Cons3rtApiError
+        """
+        log = logging.getLogger(self.cls_logger + '.unassign_role_from_project_member')
+
+        # Ensure the username and role args are strings
+        if not isinstance(username, str):
+            msg = 'The username arg must be a string'
+            raise Cons3rtApiError(msg)
+        if not isinstance(role, str):
+            msg = 'The role arg must be a string'
+            raise Cons3rtApiError(msg)
+
+        # Ensure the project_id is an int
+        if not isinstance(project_id, int):
+            try:
+                project_id = int(project_id)
+            except ValueError as exc:
+                msg = 'project_id arg must be an Integer, found: {t}'.format(t=project_id.__class__.__name__)
+                raise Cons3rtApiError(msg) from exc
+
+        # Ensure the role is valid
+        if role not in valid_member_roles:
+            msg = 'role [{r}] invalid, must be one of: {v}'.format(r=role, v=','.join(valid_member_roles))
+            raise Cons3rtApiError(msg)
+
+        # Attempt assign the role to the user
+        try:
+            res = self.cons3rt_client.unassign_role_from_project_member(
+                project_id=project_id, username=username, role=role)
+        except Cons3rtClientError as exc:
+            msg = 'Unable to unassign role [{r}] from user [{u}] in project ID: {i}'.format(
+                r=role, u=username, i=str(project_id))
+            raise Cons3rtApiError(msg) from exc
+        log.info('Removed role [{r}] from user [{u}] in project ID: {i}'.format(r=role, i=str(project_id), u=username))
+        return res
+
+    def assign_roles_to_project_member(self, project_id, username, project_role_list):
+        """Assigns the all roles in the project ID
+        :param project_id: (int) project ID
+        :param username: (str) CONS3RT username
+        :param project_role_list (list) List of str roles
+        :return: (bool) True if successful
+        :raises: Cons3rtApiError
+        """
+        log = logging.getLogger(self.cls_logger + '.assign_roles_to_project_member')
+
+        # Ensure the username is a string
+        if not isinstance(username, str):
+            msg = 'The username arg must be a string'
+            raise Cons3rtApiError(msg)
+
+        # Ensure the project_role_list is a list
+        if not isinstance(project_role_list, list):
+            msg = 'The project_role_list arg must be a list'
+            raise Cons3rtApiError(msg)
+
+        # Ensure the project_id is an int
+        if not isinstance(project_id, int):
+            try:
+                project_id = int(project_id)
+            except ValueError as exc:
+                msg = 'project_id arg must be an Integer, found: {t}'.format(t=project_id.__class__.__name__)
+                raise Cons3rtApiError(msg) from exc
+
+        # Assign the standard and project manager roles
+        for role in project_role_list:
+            try:
+                self.assign_role_to_project_member(project_id=project_id, username=username, role=role)
+            except Cons3rtClientError as exc:
+                msg = 'Unable to assign role [{r}] to user [{u}] in project ID: {i}'.format(
+                    r=role, u=username, i=str(project_id))
+                raise Cons3rtApiError(msg) from exc
+        log.info('Assigned roles to user [{u}] in project ID {p}: {r}'.format(
+            p=str(project_id), u=username, r=','.join(project_role_list)))
+        return True
+
+    def unassign_roles_from_project_member(self, project_id, username, project_role_list):
+        """Unassigns the all roles for the member in the project ID
+        :param project_id: (int) project ID
+        :param username: (str) CONS3RT username
+        :param project_role_list (list) List of str roles
+        :return: (bool) True if successful
+        :raises: Cons3rtApiError
+        """
+        log = logging.getLogger(self.cls_logger + '.unassign_roles_from_project_member')
+
+        # Ensure the username is a string
+        if not isinstance(username, str):
+            msg = 'The username arg must be a string'
+            raise Cons3rtApiError(msg)
+
+        # Ensure the project_role_list is a list
+        if not isinstance(project_role_list, list):
+            msg = 'The project_role_list arg must be a list'
+            raise Cons3rtApiError(msg)
+
+        # Ensure the project_id is an int
+        if not isinstance(project_id, int):
+            try:
+                project_id = int(project_id)
+            except ValueError as exc:
+                msg = 'project_id arg must be an Integer, found: {t}'.format(t=project_id.__class__.__name__)
+                raise Cons3rtApiError(msg) from exc
+
+        # Get current list of permissions for user in project
+        log.info('Getting current roles for user [{u}] in projec ID: {p}'.format(u=username, p=str(project_id)))
+        try:
+            project_members = self.list_project_members(project_id=project_id, username=username)
+        except Cons3rtApiError as exc:
+            msg = 'Unable to get current roles for user [{u}] in project ID: {p}'.format(u=username, p=str(project_id))
+            raise Cons3rtApiError(msg) from exc
+
+        # Get the list of roles from the response
+        current_project_roles = None
+        for project_member in project_members:
+            if 'username' not in project_member.keys():
+                log.warning('username not found in project member data: {d}'.format(d=str(project_member)))
+                continue
+            if 'roles' not in project_member.keys():
+                log.warning('roles not found in project member data: {d}'.format(d=str(project_member)))
+                continue
+            if project_member['username'] == username:
+                current_project_roles = project_member['roles']
+                break
+
+        # Raise exception if the user roles were not found
+        if not current_project_roles:
+            msg = 'User [{u}] not found in project ID: {p}'.format(u=username, p=str(project_id))
+            raise Cons3rtApiError(msg)
+
+        log.info('User [{u}] currently has roles in project ID {p}: {r}'.format(
+            u=username, p=str(project_id), r=','.join(current_project_roles)))
+
+        # Build the list of project roles to unassign
+        unassign_roles = []
+        for project_role in project_role_list:
+            if project_role in current_project_roles:
+                unassign_roles.append(project_role)
+
+        log.info('Unassigning roles for user [{u}] in project ID {p}: {r}'.format(
+            u=username, p=str(project_id), r=','.join(unassign_roles)))
+
+        # Assign the standard and project manager roles
+        for project_role in unassign_roles:
+            try:
+                self.unassign_role_from_project_member(project_id=project_id, username=username, role=project_role)
+            except Cons3rtApiError as exc:
+                msg = 'Unable to unassign role [{r}] from user [{u}] in project ID: {i}'.format(
+                    r=project_role, u=username, i=str(project_id))
+                raise Cons3rtApiError(msg) from exc
+        log.info('Unassigned roles from user [{u}] in project ID {p}: {r}'.format(
+            p=str(project_id), u=username, r=','.join(unassign_roles)))
+        return True
+
+    def assign_express_member(self, project_id, username):
+        """Assigns the express roles in the project ID
+        :param project_id: (int) project ID
+        :param username: (str) CONS3RT username
+        :return: (bool) True if successful
+        :raises: Cons3rtApiError
+        """
+        log = logging.getLogger(self.cls_logger + '.assign_express_member')
+        roles = standard_roles + asset_developer_roles + project_manager_roles
+        self.unassign_roles_from_project_member(
+            project_id=project_id,
+            username=username,
+            project_role_list=roles
+        )
+        log.info('User [{u}] has express roles in project ID: {p}'.format(p=str(project_id), u=username))
+        return True
+
+    def assign_project_manager(self, project_id, username):
+        """Assigns the project owner+manager roles in the project ID
+        :param project_id: (int) project ID
+        :param username: (str) CONS3RT username
+        :return: (bool) True if successful
+        :raises: Cons3rtApiError
+        """
+        log = logging.getLogger(self.cls_logger + '.assign_project_manager')
+        roles = standard_roles + project_manager_roles
+        self.assign_roles_to_project_member(
+            project_id=project_id,
+            username=username,
+            project_role_list=roles
+        )
+        log.info('User [{u}] has project manager/owner roles in project ID: {p}'.format(p=str(project_id), u=username))
+        return True
+
+    def assign_asset_developer(self, project_id, username):
+        """Assigns the asset developer roles in the project ID
+        :param project_id: (int) project ID
+        :param username: (str) CONS3RT username
+        :return: (bool) True if successful
+        :raises: Cons3rtApiError
+        """
+        log = logging.getLogger(self.cls_logger + '.assign_asset_developer')
+        roles = standard_roles + asset_developer_roles
+        self.assign_roles_to_project_member(
+            project_id=project_id,
+            username=username,
+            project_role_list=roles
+        )
+        log.info('User [{u}] has asset developer roles in project ID: {p}'.format(p=str(project_id), u=username))
+        return True
+
+    def assign_all_project_roles(self, project_id, username):
+        """Assigns the all roles in the project ID
+        :param project_id: (int) project ID
+        :param username: (str) CONS3RT username
+        :return: (bool) True if successful
+        :raises: Cons3rtApiError
+        """
+        log = logging.getLogger(self.cls_logger + '.assign_all_project_roles')
+        roles = standard_roles + project_manager_roles + asset_developer_roles
+        self.assign_roles_to_project_member(
+            project_id=project_id,
+            username=username,
+            project_role_list=roles
+        )
+        log.info('User [{u}] has ALL roles in project ID: {p}'.format(p=str(project_id), u=username))
+        return True
+
     def create_system(
             self,
             name=None,
@@ -2590,7 +2867,8 @@ class Cons3rtApi(object):
             log.warning('The total runs [{t}] in virtualization realm {v} did not equal the number of runs processed'
                         'for deletion: {p}'.format(t=str(len(drs)), v=str(vr_id), p=str(processed_runs)))
 
-        log.info('Deleted {n} inactive runs in virtualization realm ID: {i}'.format(i=str(vr_id), n=str(len(deleted_runs))))
+        log.info('Deleted {n} inactive runs in virtualization realm ID: {i}'.format(
+            i=str(vr_id), n=str(len(deleted_runs))))
         if len(not_deleted_runs) > 0:
             log.info('Unable to delete {n} inactive runs in virtualization realm: {v}'.format(
                 n=str(len(not_deleted_runs)), v=str(vr_id)))
@@ -5580,7 +5858,6 @@ class Cons3rtApi(object):
                 not_deleted_vrs.append(cloud_vr)
             cloud_vr_id = cloud_vr['id']
             self.clean_all_runs_in_virtualization_realm(vr_id=cloud_vr_id, unlock=unlock)
-
 
     def share_templates_to_vrs_in_cloud(self, cloud_id, provider_vr_id=None, templates_registration_data=None,
                                         template_names=None, subscribe=True, online=True):

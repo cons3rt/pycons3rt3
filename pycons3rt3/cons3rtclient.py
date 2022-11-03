@@ -195,6 +195,60 @@ class Cons3rtClient:
             msg = 'The HTTP response contains a bad status code'
             raise Cons3rtClientError(msg) from exc
 
+    def assign_role_to_project_member(self, project_id, username, role):
+        """Assigns the provided role to the username in the project ID
+        :param project_id: (int) project ID
+        :param username: (str) CONS3RT username
+        :param role: (str) project role
+        :return: (bool) True if successful
+        :raises: Cons3rtClientError
+        """
+        # Set the target URL
+        target = 'projects/{i}/members/roles/?username={u}&role={r}'.format(i=str(project_id), u=username, r=role)
+
+        # Add the user to the project
+        try:
+            response = self.http_client.http_put(rest_user=self.user, target=target)
+        except Cons3rtClientError as exc:
+            msg = 'Unable to assign role [{r}] to user [{u}] in project ID: {i}'.format(
+                r=role, u=username, i=str(project_id))
+            raise Cons3rtClientError(msg) from exc
+
+        # Check the response
+        try:
+            result = self.http_client.parse_response(response=response)
+        except Cons3rtClientError as exc:
+            msg = 'The HTTP response contains a bad status code'
+            raise Cons3rtClientError(msg) from exc
+        return result
+
+    def unassign_role_from_project_member(self, project_id, username, role):
+        """Assigns the provided role to the username in the project ID
+        :param project_id: (int) project ID
+        :param username: (str) CONS3RT username
+        :param role: (str) project role
+        :return: (bool) True if successful
+        :raises: Cons3rtClientError
+        """
+        # Set the target URL
+        target = 'projects/{i}/members/roles/?username={u}&role={r}'.format(i=str(project_id), u=username, r=role)
+
+        # Add the user to the project
+        try:
+            response = self.http_client.http_delete(rest_user=self.user, target=target)
+        except Cons3rtClientError as exc:
+            msg = 'Unable to unassign role [{r}] from user [{u}] in project ID: {i}'.format(
+                r=role, u=username, i=str(project_id))
+            raise Cons3rtClientError(msg) from exc
+
+        # Check the response
+        try:
+            result = self.http_client.parse_response(response=response)
+        except Cons3rtClientError as exc:
+            msg = 'The HTTP response contains a bad status code'
+            raise Cons3rtClientError(msg) from exc
+        return result
+
     def create_system(self, system_data):
         """Creates a system and returns the system ID
 
