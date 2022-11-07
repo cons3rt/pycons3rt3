@@ -70,11 +70,15 @@ def get_os():
 
 
 def get_pycons3rt_home_dir():
-    """Returns the pycons3rt home directory based on OS
+    """Checks for PYCONS3RT_HOME first, and if not set or it does not exist
+    returns the default pycons3rt home directory based on OS
 
     :return: (str) Full path to pycons3rt home
     :raises: OSError
     """
+    if 'PYCONS3RT_HOME' in os.environ.keys():
+        if os.path.isdir(os.environ['PYCONS3RT_HOME']):
+            return os.environ['PYCONS3RT_HOME']
     user_login = True
     user_home_dir = os.path.expanduser('~')
     if user_home_dir == '~' or not os.path.isdir(user_home_dir):

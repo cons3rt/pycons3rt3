@@ -33,9 +33,13 @@ python setup.py install
 When installed, pycons3rt determines and creates a system directory (`pycons3rt_system_home`) and 
 a local user directory (`pycons3rt_user_home`).  
 
+Set the `PYCONS3RT_HOME` environment variable to point pycons3rt3 to a desired
+directory.  If set, `PYCONS3RT_HOME` is used for `pycons3rt_system_home` and 
+`pycons3rt_user_home`.
+
 The `pycons3rt_system_home` directory is located on your system here:
 
-* Linux: `/root/.cons3rt`
+* Linux: `~/.cons3rt`
 * MacOS: `~/.cons3rt`
 * Windows: `C:\cons3rt`
 
