@@ -45,9 +45,7 @@ default_commercial_region = 'us-east-2'
 default_output_format = 'text'
 
 # AWS config file locations
-aws_dir = os.path.join(os.path.expanduser('~'), '.aws')
-credentials_file = os.path.join(aws_dir, 'credentials')
-config_file = os.path.join(aws_dir, 'config')
+default_aws_dir = os.path.join(os.path.expanduser('~'), '.aws')
 
 
 class AwsOrganizationAccount(object):
@@ -98,7 +96,24 @@ class AwsOrganizationAccount(object):
             self.regions = commercial_regions
             self.default_region = default_commercial_region
             self.description = 'commercial'
-        self.master_credentials_file = os.path.join(aws_dir, 'credentials.' + self.description)
+
+        # Set the AWS master credentials file, first check if AWS_SHARED_CREDENTIALS_FILE is set
+        # If not, or if the file does not exist, use the default
+        use_default_credentials_file = True
+        use_default_config_file = True
+        if 'AWS_SHARED_CREDENTIALS_FILE' in os.environ.keys():
+            if os.path.isfile(os.environ['AWS_SHARED_CREDENTIALS_FILE']):
+                self.credentials_file = os.environ['AWS_SHARED_CREDENTIALS_FILE']
+                use_default_credentials_file = False
+        if 'AWS_CONFIG_FILE' in os.environ.keys():
+            if os.path.isfile(os.environ['AWS_CONFIG_FILE']):
+                self.config_file = os.environ['AWS_CONFIG_FILE']
+                use_default_config_file = False
+        if use_default_credentials_file:
+            self.credentials_file = os.path.join(default_aws_dir, 'credentials')
+        if use_default_config_file:
+            self.config_file = os.path.join(default_aws_dir, 'config')
+        self.master_credentials_file = self.credentials_file + '.' + self.description
         self.customer_list = [x['customer'] for x in self.child_account_list]
 
     def reset_master_account_credentials(self, region=None):
@@ -112,15 +127,15 @@ class AwsOrganizationAccount(object):
             msg = 'Master credential file not found, please create it with your master account credentials: {f}'.format(
                 f=self.master_credentials_file)
             raise OSError(msg)
-        if os.path.isfile(credentials_file):
-            os.remove(credentials_file)
-        if os.path.isfile(config_file):
-            os.remove(config_file)
-        shutil.copy2(self.master_credentials_file, credentials_file)
+        if os.path.isfile(self.credentials_file):
+            os.remove(self.credentials_file)
+        if os.path.isfile(self.config_file):
+            os.remove(self.config_file)
+        shutil.copy2(self.master_credentials_file, self.credentials_file)
         if not region:
             region = self.default_region
         config_content = '[default]\nregion = {r}\noutput = {f}\n\n'.format(r=region, f=self.output_format)
-        with open(config_file, 'w') as f:
+        with open(self.config_file, 'w') as f:
             f.write(config_content)
 
     def set_credentials(self, access_key_id, secret_access_key, session_token=None, region=None):
@@ -138,15 +153,15 @@ class AwsOrganizationAccount(object):
             if region not in self.regions:
                 msg = 'Invalid region [{r}], must be one of: [{s}]'.format(r=region, s=','.join(self.regions))
                 raise OSError(msg)
-            if os.path.isfile(config_file):
-                os.remove(config_file)
+            if os.path.isfile(self.config_file):
+                os.remove(self.config_file)
             config_content = '[default]\nregion = {r}\noutput = {f}\n\n'.format(r=region, f=self.output_format)
-            with open(config_file, 'w') as f:
+            with open(self.config_file, 'w') as f:
                 f.write(config_content)
 
         # Update the credentials file
-        if os.path.isfile(credentials_file):
-            os.remove(credentials_file)
+        if os.path.isfile(self.credentials_file):
+            os.remove(self.credentials_file)
 
         credentials_content = '[default]\n'
         credentials_content += 'aws_access_key_id = {a}\n'.format(a=access_key_id)
@@ -154,7 +169,7 @@ class AwsOrganizationAccount(object):
         if session_token:
             credentials_content += 'aws_session_token = {s}\n'.format(s=session_token)
         credentials_content += '\n'
-        with open(credentials_file, 'w') as f:
+        with open(self.credentials_file, 'w') as f:
             f.write(credentials_content)
 
     def get_master_account_credentials(self):
