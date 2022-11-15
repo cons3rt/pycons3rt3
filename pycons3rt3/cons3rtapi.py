@@ -982,9 +982,11 @@ class Cons3rtApi(object):
             raise Cons3rtApiError(msg) from exc
         return cloud_details
 
-    def list_teams(self):
+    def list_teams(self, active_only=False, not_expired=False):
         """Query CONS3RT to return a list of Teams
 
+        :param active_only (bool) Set true to return only teams that are active
+        :param not_expired (bool) Set true to return only teams that are not expired
         :return: (list) of Team Info
         :raises: Cons3rtApiError
         """
@@ -1006,8 +1008,70 @@ class Cons3rtApi(object):
                 break
             else:
                 page_num += 1
-        log.info('Found {n} teams'.format(n=str(len(teams))))
+        log.info('Found {n} teams in all'.format(n=str(len(teams))))
+
+        # Filter out the system team
+        exluding_system_team = []
+        for team in teams:
+            if team['name'] == 'SystemTeam':
+                continue
+            else:
+                exluding_system_team.append(team)
+        teams = list(exluding_system_team)
+        if active_only:
+            log.info('Trimming teams by active teams only as requested...')
+            active_teams = []
+            for team in teams:
+                if 'state' not in team.keys():
+                    log.warning('state data not found in team: {d}'.format(d=str(team)))
+                    continue
+                if team['state'] == 'ACTIVE':
+                    log.info('Found active team: {n}'.format(n=team['name']))
+                    active_teams.append(team)
+            log.info('Found {n} active teams'.format(n=str(len(active_teams))))
+            teams = list(active_teams)
+        if not_expired:
+            log.info('Trimming teams by unexpired teams only as requested...')
+            unexpired_teams = []
+            for team in teams:
+                if 'validUtil' not in team.keys():
+                    log.warning('validUtil data not found in team: {d}'.format(d=str(team)))
+                    continue
+                team_expiration_date = team['validUtil'] / 1000
+                team_expiration_date_unix = datetime.datetime.fromtimestamp(team_expiration_date)
+                now = datetime.datetime.now()
+                if team_expiration_date_unix >= now:
+                    log.info('Found unexpired team: {n}'.format(n=team['name']))
+                    unexpired_teams.append(team)
+                else:
+                    log.info('Found team [{n}] expired on: {t}'.format(n=team['name'], t=str(team_expiration_date_unix)))
+            teams = list(unexpired_teams)
+            log.info('Found {n} unexpired teams'.format(n=str(len(unexpired_teams))))
         return teams
+
+    def list_active_teams(self):
+        """Query CONS3RT to retrieve active site teams
+
+        :return: (list) Containing all site teams
+        :raises: Cons3rtClientError
+        """
+        return self.list_teams(active_only=True)
+
+    def list_unexpired_teams(self):
+        """Query CONS3RT to retrieve active site teams
+
+        :return: (list) Containing all site teams
+        :raises: Cons3rtClientError
+        """
+        return self.list_teams(not_expired=True)
+
+    def list_active_unexpired_teams(self):
+        """Query CONS3RT to retrieve active site teams
+
+        :return: (list) Containing all site teams
+        :raises: Cons3rtClientError
+        """
+        return self.list_teams(active_only=True, not_expired=True)
 
     def list_all_teams(self):
         """Query CONS3RT to retrieve all site teams (deprecated)
@@ -1016,6 +1080,51 @@ class Cons3rtApi(object):
         :raises: Cons3rtClientError
         """
         return self.list_teams()
+
+    def list_expired_teams(self):
+        """Query CONS3RT to return a list of expired teams
+
+        :return: (list) of Team Info for expired teams
+        :raises: Cons3rtApiError
+        """
+        log = logging.getLogger(self.cls_logger + '.list_expired_teams')
+        teams = self.list_teams()
+        expired_teams = []
+        for team in teams:
+            if 'validUtil' not in team.keys():
+                log.warning('validUtil data not found in team: {d}'.format(d=str(team)))
+                continue
+            team_expiration_date = team['validUtil'] / 1000
+            team_expiration_date_unix = datetime.datetime.fromtimestamp(team_expiration_date)
+            now = datetime.datetime.now()
+            if team_expiration_date_unix < now:
+                log.info('Team [{n}] expired on: {t}'.format(n=team['name'], t=str(team_expiration_date_unix)))
+                expired_teams.append(team)
+            else:
+                log.info('Team [{n}] will expire on: {t}'.format(n=team['name'], t=str(team_expiration_date_unix)))
+        log.info('Found {n} expired teams'.format(n=str(len(expired_teams))))
+        return expired_teams
+
+    def list_inactive_teams(self):
+        """Query CONS3RT to return a list of teams with a state other than ACTIVE
+
+        :return: (list) of Team Info for expired teams
+        :raises: Cons3rtApiError
+        """
+        log = logging.getLogger(self.cls_logger + '.list_inactive_teams')
+        teams = self.list_teams()
+        inactive_teams = []
+        for team in teams:
+            if 'state' not in team.keys():
+                log.warning('state data not found in team: {d}'.format(d=str(team)))
+                continue
+            if team['state'] != 'ACTIVE':
+                log.info('Team [{n}] has inactive state: {s}'.format(n=team['name'], s=team['state']))
+                inactive_teams.append(team)
+            else:
+                log.info('Team [{n}] is ACTIVE'.format(n=team['name']))
+        log.info('Found {n} inactive teams'.format(n=str(len(inactive_teams))))
+        return inactive_teams
 
     def get_team_details(self, team_id):
         """Returns details for the specified team ID
@@ -2027,9 +2136,11 @@ class Cons3rtApi(object):
         """
         return self.retrieve_all_users()
 
-    def list_team_managers(self):
+    def list_team_managers(self, active_only=False, not_expired=False):
         """Retrieves a list of team managers for all teams
 
+        :param active_only (bool) Set true to return only teams that are active
+        :param not_expired (bool) Set true to return only teams that are not expired
         :return: (list) of team managers:
             {
                 "id": ID,
@@ -2045,7 +2156,7 @@ class Cons3rtApi(object):
 
         # Get a list of teams
         try:
-            teams = self.list_teams()
+            teams = self.list_teams(active_only=active_only, not_expired=not_expired)
         except Cons3rtApiError as exc:
             msg = 'Problem getting a list of teams, unable to determine team managers'
             raise Cons3rtApiError(msg) from exc
@@ -2072,12 +2183,51 @@ class Cons3rtApi(object):
                         existing_team_manager['teamIds'] += [team['id']]
                         existing_team_manager['teamNames'] += [team['name']]
                 if not already_on_list:
-                    log.info('Found team manager with user ID [{i}] and username [{u}]'.format(
-                        i=team_manager['id'], u=team_manager['username']))
+                    log.info('Found team manager for team ID [{t}], team name [{n}], user ID [{i}], and username [{u}]'
+                             .format(t=team['id'], n=team['name'], i=team_manager['id'], u=team_manager['username']))
                     team_manager['teamIds'] = [team['id']]
                     team_manager['teamNames'] = [team['name']]
                     team_managers.append(team_manager)
         log.info('Found {n} team managers'.format(n=str(len(team_managers))))
+        return team_managers
+
+    def print_team_managers_emails(self, filter_domains=None):
+        """Prints a semicolon separated list of email addresses of each team manager
+
+        :param filter_domains: (list) of domains to keep out of the printed output
+        :return: (list) of team managers filters by domain:
+            {
+                "id": ID,
+                "username": USERNAME,
+                "email": EMAIL,
+                "teamIds": list of team IDs,
+                "teamNames": list of team names
+            }
+        :raises: Cons3rtApiError
+        """
+        log = logging.getLogger(self.cls_logger + '.print_team_managers_emails')
+        if filter_domains:
+            if not isinstance(filter_domains, list):
+                raise Cons3rtApiError('Expected filter_domains to be a list, found: {t}'.format(
+                    t=filter_domains.__class__.__name__))
+        else:
+            filter_domains = []
+        team_managers = self.list_team_managers(active_only=True, not_expired=True)
+        team_manager_emails = ''
+        for team_manager in team_managers:
+            if 'email' not in team_manager.keys():
+                log.warning('Team manager did not include email data: {d}'.format(d=str(team_manager)))
+                continue
+            include_email = True
+            for filter_domain in filter_domains:
+                if filter_domain in team_manager['email']:
+                    log.info('Skipping team manager email: {e}'.format(e=team_manager['email']))
+                    include_email = False
+            if include_email:
+                log.info('Including team manager email: {e}'.format(e=team_manager['email']))
+                team_manager_emails += team_manager['email'] + '; '
+        team_manager_emails.rstrip(';')
+        print(team_manager_emails)
         return team_managers
 
     def list_team_managers_for_team(self, team_id):

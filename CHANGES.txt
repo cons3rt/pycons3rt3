@@ -8,6 +8,7 @@
 * Added helpful methods for quickly assigning roles for project managers, asset developers, and express users in a project
 * Added support for setting PYCONS3RT_HOME environment variable to keep the config, logs, etc. in a desired location
 * Added support for AWS CLI environment variables AWS_CONFIG_FILE and AWS_SHARED_CREDENTIALS_FILE when performing login_as_role and setting the credentials files
+* Added methods for retrieving expires, active, inactive, and non-expired teams; and printing team manager emails
 
 0.0.12
 ======
