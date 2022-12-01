@@ -38,11 +38,20 @@ class IamUtil(object):
     def add_policy_statement(self, policy_arn, statement):
         return add_policy_statement(client=self.client, policy_arn=policy_arn, statement=statement)
 
+    def add_user_to_group(self, user_name, group_name):
+        return add_user_to_group(client=self.client, user_name=user_name, group_name=group_name)
+
     def attach_policy_to_group(self, group_name, policy_arn):
         return attach_policy_to_group(client=self.client, group_name=group_name, policy_arn=policy_arn)
 
     def attach_policy_to_role(self, role_name, policy_arn):
         return attach_policy_to_role(client=self.client, role_name=role_name, policy_arn=policy_arn)
+
+    def create_access_key_for_user(self, user_name):
+        return create_access_key_for_user(client=self.client, user_name=user_name)
+
+    def create_first_access_key_for_user(self, user_name):
+        return create_first_access_key_for_user(client=self.client, user_name=user_name)
 
     def create_default_policy_version(self, policy_arn, json_policy_data):
         return create_default_policy_version(client=self.client, policy_arn=policy_arn,
@@ -67,6 +76,15 @@ class IamUtil(object):
         return create_role(client=self.client, role_name=role_name, role_policy=role_policy, path=path,
                            description=description, max_session_duration_sec=max_session_duration_sec)
 
+    def create_user(self, user_name, path='/'):
+        return create_user(client=self.client, user_name=user_name, path=path)
+
+    def delete_access_key(self, user_name, access_key_id):
+        return delete_access_key(client=self.client, user_name=user_name, access_key_id=access_key_id)
+
+    def delete_all_access_keys_for_user(self, user_name, access_key_id):
+        return delete_all_access_keys_for_user(client=self.client, user_name=user_name)
+
     def delete_oldest_policy_version(self, policy_arn):
         return delete_oldest_policy_version(client=self.client, policy_arn=policy_arn)
 
@@ -78,6 +96,9 @@ class IamUtil(object):
 
     def get_policy_version(self, policy_arn, version_id):
         return get_policy_version(client=self.client, policy_arn=policy_arn, version_id=version_id)
+
+    def list_access_keys_for_user(self, user_name):
+        return list_access_keys_for_user(client=self.client, user_name=user_name)
 
     def list_groups(self, path_prefix='/'):
         return list_groups(client=self.client, path_prefix=path_prefix)
@@ -92,6 +113,15 @@ class IamUtil(object):
 
     def list_roles(self, path_prefix='/'):
         return list_roles(client=self.client, path_prefix=path_prefix)
+
+    def list_users(self, path_prefix='/'):
+        return list_users(client=self.client, path_prefix=path_prefix)
+
+    def update_access_key(self, user_name, access_key_id, status):
+        return update_access_key(client=self.client, user_name=user_name, access_key_id=access_key_id, status=status)
+
+    def update_all_access_keys_for_user(self, user_name, status):
+        return update_all_access_keys_for_user(client=self.client, user_name=user_name, status=status)
 
     def update_account_password_policy(self, min_password_len=14, symbols=True, numbers=True, uppers=True,
                                        lowers=True, allow_change=True, max_age=90, previous_password_prevention=24,
@@ -166,6 +196,32 @@ def attach_policy_to_role(client, role_name, policy_arn):
 
 
 ############################################################################
+# Methods for adding users to groups
+############################################################################
+
+
+def add_user_to_group(client, user_name, group_name):
+    """Add the user to the group
+
+    :param client: boto3.client object
+    :param user_name: (str) name of the role
+    :param group_name: (str) ARN of the policy
+    :return: None
+    :raises: IamUtilError
+    """
+    log = logging.getLogger(mod_logger + '.add_user_to_group')
+    log.info('Adding user [{u}] to group: [{g}]'.format(u=user_name, g=group_name))
+    try:
+        client.add_user_to_group(
+            GroupName=group_name,
+            UserName=user_name
+        )
+    except ClientError as exc:
+        msg = 'Problem adding user [{u}] to group [{g}]'.format(u=user_name, g=group_name)
+        raise IamUtilError(msg) from exc
+
+
+############################################################################
 # Methods for creating groups
 ############################################################################
 
@@ -215,6 +271,58 @@ def create_group(client, group_name, path='/'):
         raise IamUtilError(msg)
     log.info('Created new group: [{n}]'.format(n=group_name))
     return response['Group']
+
+
+############################################################################
+# Methods for creating users
+############################################################################
+
+
+def create_user(client, user_name, path='/'):
+    """Creates the specified user, if it already exists returns it
+
+    :param client: boto3.client object
+    :param user_name: (str) user name
+    :param path: (str) path to the user
+    :return: (dict) group data (specified in boto3)
+    :raises: IamUtilError
+    """
+    log = logging.getLogger(mod_logger + '.create_user')
+    log.info('Attempting to create user [{n}]'.format(n=user_name))
+
+    # Checking for existing group
+    user_data = None
+    existing_users = list_users(client=client, path_prefix=path)
+    for existing_user in existing_users:
+        if 'UserName' not in existing_user.keys():
+            log.warning('UserName not found in user: {r}'.format(r=str(existing_user)))
+            continue
+        if 'Path' not in existing_user.keys():
+            log.warning('Path not found in user: {r}'.format(r=str(existing_user)))
+            continue
+        if 'Arn' not in existing_user.keys():
+            log.warning('Arn not found in user: {r}'.format(r=str(existing_user)))
+            continue
+        if user_name == existing_user['UserName'] and path == existing_user['Path']:
+            user_data = existing_user
+
+    if user_data:
+        log.info('Found existing user [{n}] at path [{p}]'.format(n=user_data, p=path))
+        return user_data
+    log.info('Attempting to create user [{n}]'.format(n=user_name))
+    try:
+        response = client.create_user(
+            UserName=user_name,
+            Path=path
+        )
+    except ClientError as exc:
+        msg = 'Problem creating user [{n}]'.format(n=user_name)
+        raise IamUtilError(msg) from exc
+    if 'User' not in response.keys():
+        msg = 'User not found in response: {d}'.format(d=str(response))
+        raise IamUtilError(msg)
+    log.info('Created new user: [{n}]'.format(n=user_name))
+    return response['User']
 
 
 ############################################################################
@@ -549,6 +657,66 @@ def list_groups(client, path_prefix='/'):
             marker = response['Marker']
     log.info('Found {n} IAM groups'.format(n=str(len(group_list))))
     return group_list
+
+
+############################################################################
+# Methods for listing users
+############################################################################
+
+
+def list_users_with_marker(client, path_prefix='/', marker=None, max_results=100):
+    """Returns a list of IAM users using the provided marker
+
+    :param client: boto3.client object
+    :param path_prefix: (str) IAM user path prefix
+    :param max_results: (int) max results to query on
+    :param marker: (str) token to query on
+    :return: (dict) response object containing response data
+    """
+    if marker:
+        return client.list_users(
+            PathPrefix=path_prefix,
+            Marker=marker,
+            MaxItems=max_results
+        )
+    else:
+        return client.list_users(
+            PathPrefix=path_prefix,
+            MaxItems=max_results
+        )
+
+
+def list_users(client, path_prefix='/'):
+    """Lists users in IAM
+
+    :param client: boto3.client object
+    :param path_prefix: (str) IAM group path prefix
+    :return: (list) of groups (dict)
+    :raises: IamUtilError
+    """
+    log = logging.getLogger(mod_logger + '.list_users')
+    marker = None
+    next_query = True
+    user_list = []
+    log.info('Attempting to list IAM users...')
+    while True:
+        if not next_query:
+            break
+        response = list_users_with_marker(client=client, path_prefix=path_prefix, marker=marker)
+        if 'IsTruncated' not in response.keys():
+            log.warning('IsTruncated not found in response: {r}'.format(r=str(response)))
+            return user_list
+        if 'Users' not in response.keys():
+            log.warning('Users not found in response: {r}'.format(r=str(response)))
+            return user_list
+        next_query = response['IsTruncated']
+        user_list += response['Users']
+        if 'Marker' not in response.keys():
+            next_query = False
+        else:
+            marker = response['Marker']
+    log.info('Found {n} IAM users'.format(n=str(len(user_list))))
+    return user_list
 
 
 ############################################################################
@@ -1119,3 +1287,190 @@ def update_role_trust_policy(client, role_name, role_policy):
         msg = 'Problem updating the trust policy to [{p}] for role [{n}] with\n{d}'.format(
             p=role_policy, n=role_name, d=str(json_role_policy_data))
         raise IamUtilError(msg) from exc
+
+
+############################################################################
+# IAM access keys
+############################################################################
+
+def create_access_key_for_user(client, user_name):
+    """Creates an access key for the specified user
+
+    :param client: boto3.client object
+    :param user_name: (str) user name
+    :return: (dict) Access Key data
+    :raises: IamUtilError
+    """
+    log = logging.getLogger(mod_logger + '.create_access_key_for_user')
+    log.info('Attempting to create access key for user: {n}'.format(n=user_name))
+    try:
+        response = client.create_access_key(UserName=user_name)
+    except ClientError as exc:
+        msg = 'Problem creating access key for user [{n}]'.format(n=user_name)
+        raise IamUtilError(msg) from exc
+    if 'AccessKey' not in response.keys():
+        msg = 'AccessKey not found in response: {d}'.format(d=str(response))
+        raise IamUtilError(msg)
+    access_key = response['AccessKey']
+    if 'AccessKeyId' not in access_key:
+        msg = 'AccessKeyId not found in access key data: {d}'.format(d=str(access_key))
+        raise IamUtilError(msg)
+    access_key_id = response['AccessKey']['AccessKeyId']
+    log.info('Created new access key for user [{n}] with ID: {i}'.format(n=user_name, i=access_key_id))
+    return response['AccessKey']
+
+
+def create_first_access_key_for_user(client, user_name):
+    """Checks for existing access keys, and only creates one if none are found
+
+    :param client: boto3.client object
+    :param user_name: user name
+    :return: (list) Access Key data, either existing ones or the new one
+    :raises: IamUtilError
+    """
+    log = logging.getLogger(mod_logger + '.create_first_access_key_for_user')
+    log.info('Creating an access key for user [{n}] only if one does not exist yet'.format(n=user_name))
+    existing_access_keys = list_access_keys_for_user(client=client, user_name=user_name)
+    if len(existing_access_keys) > 0:
+        log.info('Found existing access key IDs for user [{n}]:'.format(n=user_name))
+        for existing_access_key in existing_access_keys:
+            log.info('Access Key ID: {i}'.format(i=existing_access_key['AccessKeyId']))
+        return existing_access_keys
+    else:
+        log.info('No existing access keys found for user [{u}], creating one...'.format(u=user_name))
+        return [create_access_key_for_user(client=client, user_name=user_name)]
+
+
+def delete_access_key(client, user_name, access_key_id):
+    """Delete an access key for the specified user
+
+    :param client: boto3.client object
+    :param user_name: (str) user name
+    :param access_key_id: (str) ID of the access key
+    :return: (dict) Access Key data
+    :raises: IamUtilError
+    """
+    log = logging.getLogger(mod_logger + '.delete_access_key')
+    log.info('Deleting access key ID [{i}] for user: {n}'.format(i=access_key_id, n=user_name))
+    try:
+        client.delete_access_key(UserName=user_name, AccessKeyId=access_key_id)
+    except ClientError as exc:
+        msg = 'Problem deleting access key ID [{i}] for user [{n}]'.format(i=access_key_id, n=user_name)
+        raise IamUtilError(msg) from exc
+
+
+def delete_all_access_keys_for_user(client, user_name):
+    """Delete an access key for the specified user
+
+    :param client: boto3.client object
+    :param user_name: (str) user name
+    :return: (list) Deleted access Key data
+    :raises: IamUtilError
+    """
+    log = logging.getLogger(mod_logger + '.delete_all_access_keys_for_user')
+    log.info('Deleting all access key IDs for user: {n}'.format(n=user_name))
+    existing_access_keys = list_access_keys_for_user(client=client, user_name=user_name)
+    log.info('Found {n} existing access key IDs for user [{u}]:'.format(n=str(len(existing_access_keys)), u=user_name))
+    for existing_access_key in existing_access_keys:
+        delete_access_key(client=client, user_name=user_name, access_key_id=existing_access_key['AccessKeyId'])
+    return existing_access_keys
+
+
+def list_access_keys_for_user_with_marker(client, user_name, marker=None, max_results=100):
+    """Returns a list of access keys for the provided user using the provided marker
+
+    :param client: boto3.client object
+    :param user_name: (str) user name
+    :param max_results: (int) max results to query on
+    :param marker: (str) token to query on
+    :return: (dict) response object containing response data
+    """
+    if marker:
+        return client.list_access_keys(
+            UserName=user_name,
+            Marker=marker,
+            MaxItems=max_results
+        )
+    else:
+        return client.list_access_keys(
+            UserName=user_name,
+            MaxItems=max_results
+        )
+
+
+def list_access_keys_for_user(client, user_name):
+    """Lists access keys for user
+
+    :param client: boto3.client object
+    :param user_name: (str) user name
+    :return: (list) of groups (dict)
+    :raises: IamUtilError
+    """
+    log = logging.getLogger(mod_logger + '.list_access_keys_for_user')
+    marker = None
+    next_query = True
+    access_key_list = []
+    log.info('Attempting to list access keys for user: {n}'.format(n=user_name))
+    while True:
+        if not next_query:
+            break
+        response = list_access_keys_for_user_with_marker(client=client, user_name=user_name, marker=marker)
+        if 'IsTruncated' not in response.keys():
+            log.warning('IsTruncated not found in response: {r}'.format(r=str(response)))
+            return access_key_list
+        if 'AccessKeyMetadata' not in response.keys():
+            log.warning('AccessKeyMetadata not found in response: {r}'.format(r=str(response)))
+            return access_key_list
+        next_query = response['IsTruncated']
+        access_key_list += response['AccessKeyMetadata']
+        if 'Marker' not in response.keys():
+            next_query = False
+        else:
+            marker = response['Marker']
+    log.info('Found {n} IAM access keys for user: {u}'.format(u=user_name, n=str(len(access_key_list))))
+    return access_key_list
+
+
+def update_access_key(client, user_name, access_key_id, status):
+    """Delete an access key for the specified user
+
+    :param client: boto3.client object
+    :param user_name: (str) user name
+    :param access_key_id: (str) ID of the access key
+    :param status: (str) Active or Inactive
+    :return: (dict) Access Key data
+    :raises: IamUtilError
+    """
+    log = logging.getLogger(mod_logger + '.update_access_key')
+
+    # Ensure status is valid
+    if status not in ['Active', 'Inactive']:
+        msg = 'Invalid status provided [{s}], must be Active or Inactive'.format(s=status)
+        raise IamUtilError(msg)
+
+    # Update access key status
+    log.info('Updating access key ID [{i}] to [{s}] for user: {n}'.format(i=access_key_id, s=status, n=user_name))
+    try:
+        client.update_access_key(UserName=user_name, AccessKeyId=access_key_id, Status=status)
+    except ClientError as exc:
+        msg = 'Problem updating status of access key ID [{i}] for user [{n}] to: {s}'.format(
+            i=access_key_id, n=user_name, s=status)
+        raise IamUtilError(msg) from exc
+
+
+def update_all_access_keys_for_user(client, user_name, status):
+    """Delete an access key for the specified user
+
+    :param client: boto3.client object
+    :param user_name: (str) user name
+    :return: (list) Deleted access Key data
+    :raises: IamUtilError
+    """
+    log = logging.getLogger(mod_logger + '.update_all_access_keys_for_user')
+    log.info('Updating all access key IDs for user [{n}] with status: {s}'.format(n=user_name, s=status))
+    existing_access_keys = list_access_keys_for_user(client=client, user_name=user_name)
+    log.info('Found {n} existing access key IDs for user [{u}]:'.format(n=str(len(existing_access_keys)), u=user_name))
+    for existing_access_key in existing_access_keys:
+        update_access_key(client=client, user_name=user_name, access_key_id=existing_access_key['AccessKeyId'],
+                          status=status)
+    return existing_access_keys

@@ -623,6 +623,7 @@ def make_asset_zip(asset_dir_path, destination_directory=None):
                 for f in files:
                     skip = False
                     file_path = os.path.join(root, f)
+                    log.debug('Evaluating file: {f}'.format(f=file_path))
 
                     # Skip files in the ignore_dirs list
                     for ignore_dir in ignore_dirs:
@@ -657,7 +658,7 @@ def make_asset_zip(asset_dir_path, destination_directory=None):
                     if archive_name.startswith('/'):
                         log.debug('Trimming the leading char: [/]')
                         archive_name = archive_name[1:]
-                    log.info('Adding to archive as: {a}'.format(a=archive_name))
+                    log.info('Adding file to archive as: {a}'.format(a=archive_name))
                     zip_w.write(file_path, archive_name)
     except Exception as exc:
         raise AssetZipCreationError('Unable to create zip file: {f}'.format(f=asset_info.asset_zip_path)) from exc
@@ -901,7 +902,8 @@ def import_update(asset_dir, dest_dir, visibility=None, import_only=False, updat
         # If there is not an existing asset ID, import and append the resulting ID
         else:
             if not update_only:
-                print('No existing asset ID found, attempting to import asset zip: {f}'.format(f=asset_info.asset_zip_path))
+                print('No existing asset ID found, attempting to import asset zip: {f}'.format(
+                    f=asset_info.asset_zip_path))
                 asset_info, asset_id, result = import_asset(cons3rt_api=c5t, asset_info=asset_info)
                 if result:
                     print('Imported asset successfully')

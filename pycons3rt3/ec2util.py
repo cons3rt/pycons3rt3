@@ -464,7 +464,7 @@ class EC2Util(object):
             return False
         return True
 
-    def list_route_tables_with_token(self, next_token=None, vpc_id=None):
+    def list_vpc_route_tables_with_token(self, next_token=None, vpc_id=None):
         """Listing route tables in the VPC with continuation token if provided
 
         :param vpc_id: (str) VPC ID to filter on if provided
@@ -491,14 +491,14 @@ class EC2Util(object):
             raise EC2UtilError('RouteTables not found in response: {r}'.format(r=str(response)))
         return response
 
-    def list_route_tables(self, vpc_id=None):
+    def list_vpc_route_tables(self, vpc_id=None):
         """Returns the list of subnets for the VPC
 
         :param vpc_id: (str) VPC ID to filter on if provided
         :return: (list) of route tables (see boto3 docs)
         :raises: EC2UtilError
         """
-        log = logging.getLogger(self.cls_logger + '.list_route_tables')
+        log = logging.getLogger(self.cls_logger + '.list_vpc_route_tables')
         if vpc_id:
             log.info('Listing route tables in VPC ID: {v}'.format(v=vpc_id))
         else:
@@ -507,7 +507,7 @@ class EC2Util(object):
         next_query = True
         route_tables = []
         while next_query:
-            response = self.list_route_tables_with_token(vpc_id=vpc_id, next_token=next_token)
+            response = self.list_vpc_route_tables_with_token(vpc_id=vpc_id, next_token=next_token)
             if 'NextToken' not in response.keys():
                 next_query = False
             else:
@@ -3318,15 +3318,15 @@ class EC2Util(object):
                 s=subnet_id, v=str(auto_assign))
             raise EC2UtilError(msg) from exc
 
-    def create_route_table(self, name, vpc_id):
-        """Creates a subnet
+    def create_vpc_route_table(self, name, vpc_id):
+        """Creates a route table for a VPC
 
         :param name: (str) route table name
         :param vpc_id: (str) VPC ID
-        :return: (str) route table ID
+        :return: (dict) route table data
         :raises: EC2UtilError
         """
-        log = logging.getLogger(self.cls_logger + '.create_route_table')
+        log = logging.getLogger(self.cls_logger + '.create_vpc_route_table')
         log.info('Creating route table with name [{n}] in VPC ID: {v}'.format(n=name, v=vpc_id))
         try:
             response = self.client.create_route_table(VpcId=vpc_id, DryRun=False)
@@ -3337,10 +3337,11 @@ class EC2Util(object):
         # Get the new VPC ID
         if 'RouteTable' not in response.keys():
             raise EC2UtilError('Route Table not created with name: {n}'.format(n=name))
+        route_table = response['RouteTable']
 
-        if 'RouteTableId' not in response['RouteTable'].keys():
-            raise EC2UtilError('RouteTableId data not found in: {d}'.format(d=str(response['RouteTable'])))
-        route_table_id = response['RouteTable']['RouteTableId']
+        if 'RouteTableId' not in route_table.keys():
+            raise EC2UtilError('RouteTableId data not found in: {d}'.format(d=str(route_table)))
+        route_table_id = route_table['RouteTableId']
 
         # Ensure the route table ID created exists
         if not self.ensure_exists(resource_id=route_table_id):
@@ -3350,7 +3351,77 @@ class EC2Util(object):
         if not self.create_name_tag(resource_id=route_table_id, resource_name=name):
             raise EC2UtilError('Problem adding name tag name of route table ID: {i}'.format(i=route_table_id))
         log.info('Created new route table with ID: {i}'.format(i=route_table_id))
-        return route_table_id
+        return route_table
+
+    def delete_vpc_route_table(self, route_table_id):
+        """Deletes the specified route table ID
+
+        :param route_table_id: (str) route table ID
+        :return: (dict) route table data
+        :raises: EC2UtilError
+        """
+        log = logging.getLogger(self.cls_logger + '.delete_vpc_route_table')
+
+        # Get the route table and ensure it exists
+        try:
+            route_table = self.get_route_table(route_table_id=route_table_id)
+        except EC2UtilError as exc:
+            msg = 'Route table ID not found: {i}'.format(i=route_table_id)
+            raise EC2UtilError(msg) from exc
+
+        log.info('Deleting route table with ID: {i}'.format(i=route_table_id))
+        try:
+            self.client.delete_route_table(RouteTableId=route_table_id, DryRun=False)
+        except ClientError as exc:
+            msg = 'Problem deleting route table: {i}'.format(i=route_table_id)
+            raise EC2UtilError(msg) from exc
+        return route_table
+
+    def is_vpc_route_table_associated_to_subnet(self, route_table_id, subnet_id):
+        """Determines if the route table is assoictaed to the subnet
+
+        :param route_table_id: (str) ID of the route table
+        :param subnet_id: (str) ID of the subnet
+        :return: (Tuple) (bool) True/False, (dict) Association Data
+        :raises: EC2UtilError
+        """
+        log = logging.getLogger(self.cls_logger + '.is_vpc_route_table_associated_to_subnet')
+
+        # Ensure the route table ID exists
+        try:
+            route_table = self.get_route_table(route_table_id=route_table_id)
+        except EC2UtilError as exc:
+            msg = 'Route table ID not found: {i}'.format(i=route_table_id)
+            raise EC2UtilError(msg) from exc
+
+        # Ensure the subnet ID exists
+        try:
+            subnet = self.retrieve_subnet(subnet_id=subnet_id)
+        except EC2UtilError as exc:
+            msg = 'Subnet ID not found: {i}'.format(i=subnet_id)
+            raise EC2UtilError(msg) from exc
+
+        # Return if no associations found
+        if 'Associations' not in route_table.keys():
+            log.info('Route table has no associations: {i}'.format(i=route_table_id))
+            return False, None
+
+        # Get associations for the route table
+        log.info('Checking existing associations for route table [{r}]'.format(r=route_table_id))
+        for association in route_table['Associations']:
+            if 'RouteTableAssociationId' not in association.keys():
+                log.warning('RouteTableAssociationId not found in association: {d}'.format(d=str(association)))
+                continue
+            if 'SubnetId' not in association.keys():
+                log.info('SubnetId not found in association: {d}'.format(d=str(association)))
+                continue
+            if association['SubnetId'] == subnet_id:
+                log.info('Subnet ID [{s}] is already associated to route table [{r}] with ID: {i}'.format(
+                    s=subnet_id, r=route_table_id, i=association['RouteTableAssociationId']))
+                return True, association
+        log.info('This route table [{r}] has associations but not to subnet ID [{s}]'.format(
+            r=route_table_id, s=subnet_id))
+        return False, None
 
     def associate_route_table(self, route_table_id, subnet_id):
         """Associates the route table to the subnet
@@ -3361,6 +3432,15 @@ class EC2Util(object):
         :raises: EC2UtilError
         """
         log = logging.getLogger(self.cls_logger + '.associate_route_table')
+
+        # Get associations for the route table
+        is_associated, association = self.is_vpc_route_table_associated_to_subnet(
+            route_table_id=route_table_id, subnet_id=subnet_id)
+
+        # Is associated, return the association ID
+        if is_associated:
+            return association['RouteTableAssociationId']
+
         log.info('Associating route table [{r}] with subnet ID: {s}'.format(r=route_table_id, s=subnet_id))
         try:
             response = self.client.associate_route_table(RouteTableId=route_table_id, SubnetId=subnet_id, DryRun=False)
@@ -3368,7 +3448,7 @@ class EC2Util(object):
             msg = 'Problem associating route table [{r}] with subnet ID: {s}'.format(r=route_table_id, s=subnet_id)
             raise EC2UtilError(msg) from exc
 
-        # Get the new VPC ID
+        # Get the AssociationId
         if 'AssociationId' not in response.keys():
             raise EC2UtilError('AssociationId not found in response: {d}'.format(d=str(response)))
         association_id = response['AssociationId']
@@ -3376,12 +3456,51 @@ class EC2Util(object):
             r=route_table_id, s=subnet_id, a=association_id))
         return association_id
 
-    def create_network_acl(self, name, vpc_id):
-        """Creates a subnet
+    def disassociate_vpc_route_table(self, route_table_id, subnet_id):
+        """Disassociates the VPC route table from the subnet
 
-        :param name: (str) route table name
+        :param route_table_id: (str) ID of the route table
+        :param subnet_id: (str) ID of the subnet
+        :return: (str) ID of the association or None (not associated)
+        :raises: EC2UtilError
+        """
+        log = logging.getLogger(self.cls_logger + '.associate_route_table')
+
+        # Get associations for the route table
+        is_associated, association = self.is_vpc_route_table_associated_to_subnet(
+            route_table_id=route_table_id, subnet_id=subnet_id)
+
+        # If it is not associated, return
+        if not is_associated:
+            log.info('Route table [{r}] is not associated to subnet ID [{s}], nothing to disassociate'.format(
+                r=route_table_id, s=subnet_id))
+            return
+
+        # Ensure the RouteTableAssociationId is found
+        if 'RouteTableAssociationId' not in association.keys():
+            msg = 'RouteTableAssociationId not found in association: {d}'.format(d=str(association))
+            raise EC2UtilError(msg)
+
+        # Get the association ID
+        association_id = association['RouteTableAssociationId']
+
+        # Disassociate the route table
+        log.info('Disassociating route table [{r}] from subnet ID [{s}], with association ID [{i}]'.format(
+            r=route_table_id, s=subnet_id, i=association_id))
+        try:
+            response = self.client.disassociate_route_table(AssociationId=association_id, DryRun=False)
+        except ClientError as exc:
+            msg = 'Problem disassociating route table [{r}] from subnet ID [{s}] with association ID [{i}]'.format(
+                r=route_table_id, s=subnet_id, i=association_id)
+            raise EC2UtilError(msg) from exc
+        return association_id
+
+    def create_network_acl(self, name, vpc_id):
+        """Creates a network ACL
+
+        :param name: (str) network ACL name
         :param vpc_id: (str) VPC ID
-        :return: (str) route table ID
+        :return: (str) network ACL ID
         :raises: EC2UtilError
         """
         log = logging.getLogger(self.cls_logger + '.create_network_acl')
@@ -3411,11 +3530,27 @@ class EC2Util(object):
         log.info('Created new network ACL with ID: {i}'.format(i=network_acl_id))
         return network_acl_id
 
+    def delete_network_acl(self, network_acl_id):
+        """Deletes a network ACL
+
+        :param network_acl_id: (str) route table name
+        :return: (str) Deleted network ACL ID
+        :raises: EC2UtilError
+        """
+        log = logging.getLogger(self.cls_logger + '.delete_network_acl')
+        log.info('Deleting network ACL: {i}'.format(i=network_acl_id))
+        try:
+            response = self.client.delete_network_acl(NetworkAclId=network_acl_id, DryRun=False)
+        except ClientError as exc:
+            msg = 'Problem deleting network ACL: {i}'.format(i=network_acl_id)
+            raise EC2UtilError(msg) from exc
+        return network_acl_id
+
     def get_network_acl_for_subnet(self, subnet_id):
         """Returns the associated network ACL ID for the specified subnet ID
 
         :param subnet_id: (str) ID of the subnet
-        :return: (tuple) Network ACL ID, association ID
+        :return: (tuple) Network ACL ID (str), association ID (str), network ACL data (dict)
         """
         log = logging.getLogger(self.cls_logger + '.get_network_acl_for_subnet')
         log.info('Attempting to determine the associated network ACL for subnet ID: {s}'.format(s=subnet_id))
@@ -3435,8 +3570,11 @@ class EC2Util(object):
             msg = 'Problem determining the network ACL associated to subnet ID: {s}'.format(s=subnet_id)
             raise EC2UtilError(msg) from exc
         if 'NetworkAcls' not in response.keys():
-            msg = 'NetworkAcls not in response: {r}'.format(r=str(response))
-            raise EC2UtilError(msg)
+            log.info('No network ACLs found for subnet ID: {s}'.format(s=subnet_id))
+            return None, None
+        if len(response['NetworkAcls']) == 0:
+            log.info('No network ACLs found for subnet ID: {s}'.format(s=subnet_id))
+            return None, None
         if len(response['NetworkAcls']) != 1:
             msg = 'Expected 1 network ACL in response, found: {n}\n{r}'.format(
                 n=str(len(response['NetworkAcls'])), r=str(response))
@@ -3461,13 +3599,14 @@ class EC2Util(object):
             raise EC2UtilError(msg)
         log.info('Found subnet [{s}] associated to network ACL {n} with association ID: {i}'.format(
             s=subnet_id, n=network_acl_id, i=association_id))
-        return network_acl_id, association_id
+        return network_acl_id, association_id, network_acl
 
-    def associate_network_acl(self, network_acl_id, subnet_id):
+    def associate_network_acl(self, network_acl_id, subnet_id, delete_existing=False):
         """Associates the network ACL to the subnet
 
         :param network_acl_id: (str) ID of the network ACL
         :param subnet_id: (str) ID of the subnet
+        :param delete_existing: (bool) Set True to delete the Network ACL currently associated to the subnet
         :return: (str) ID of the association
         :raises: EC2UtilError
         """
@@ -3476,13 +3615,19 @@ class EC2Util(object):
         # Get the current/default subnet association
         log.info('Getting the current network ACL association for subnet ID: {s}'.format(s=subnet_id))
         try:
-            current_network_acl_id, association_id = self.get_network_acl_for_subnet(subnet_id=subnet_id)
+            current_network_acl_id, association_id, network_acl = self.get_network_acl_for_subnet(subnet_id=subnet_id)
         except EC2UtilError as exc:
             msg = 'Problem getting the network ACL ID from subnet ID: {i}'.format(i=subnet_id)
             raise EC2UtilError(msg) from exc
 
-        log.info('Replacing current network ACL [{c}] under association ID [{a}] with network ACL [{n}] in '
-                 'subnet ID: {s}'.format(c=current_network_acl_id, a=association_id, n=network_acl_id, s=subnet_id))
+        # Log whether a current association exists
+        if not current_network_acl_id:
+            log.info('Associating network ACL [{n}] with subnet ID [{s}]'.format(n=network_acl_id, s=subnet_id))
+        else:
+            log.info('Replacing current network ACL [{c}] under association ID [{a}] with network ACL [{n}] in '
+                     'subnet ID: {s}'.format(c=current_network_acl_id, a=association_id, n=network_acl_id, s=subnet_id))
+
+        # Replace the network ACL
         try:
             response = self.client.replace_network_acl_association(
                 AssociationId=association_id, NetworkAclId=network_acl_id, DryRun=False
@@ -3491,12 +3636,24 @@ class EC2Util(object):
             msg = 'Problem associating network ACL [{n}] with subnet ID: {s}'.format(n=network_acl_id, s=subnet_id)
             raise EC2UtilError(msg) from exc
 
-        # Get the new VPC ID
+        # Get the new association ID
         if 'NewAssociationId' not in response.keys():
             raise EC2UtilError('NewAssociationId not found in response: {d}'.format(d=str(response)))
         new_association_id = response['NewAssociationId']
         log.info('Associated network ACL [{n}] to subnet [{s}] with association ID: {a}'.format(
             n=network_acl_id, s=subnet_id, a=new_association_id))
+
+        # Delete the previously associated network ACL if it is not a default network ACL
+        if delete_existing and current_network_acl_id:
+            if 'IsDefault' not in network_acl.keys():
+                log.warning('IsDefault data not found in network ACL: {d}'.format(d=str(network_acl)))
+            else:
+                is_default = network_acl['IsDefault']
+                if not is_default:
+                    log.info('Deleting existing network ACL ID: {i}'.format(i=network_acl_id))
+                    self.delete_network_acl(network_acl_id=current_network_acl_id)
+                else:
+                    log.info('Not deleting the default network ACL: {i}'.format(i=network_acl_id))
         return new_association_id
 
     def create_network_acl_rule_ipv4_all(self, network_acl_id, cidr, rule_num, rule_action='allow', egress=False):
@@ -3799,10 +3956,47 @@ class EC2Util(object):
                 if not self.create_cons3rt_enabled_tag(resource_id=subnet_id, enabled=True):
                     raise EC2UtilError('Problem setting cons3rtenabled true on subnet: {i}'.format(i=subnet_id))
 
-            route_table_id = self.create_route_table(name=name + '-rt', vpc_id=vpc_id)
+            # Check for existing route table
+            route_table_id = None
+            existing_vpc_route_tables = self.list_vpc_route_tables(vpc_id=vpc_id)
+            for existing_vpc_route_table in existing_vpc_route_tables:
+                if 'RouteTableId' not in existing_vpc_route_table.keys():
+                    log.warning('RouteTableId not found in route table: {d}'.format(d=str(existing_vpc_route_table)))
+                    continue
+                existing_route_table_id = existing_vpc_route_table['RouteTableId']
+                if 'Associations' not in existing_vpc_route_table.keys():
+                    log.info('Route table has no associations: {i}'.format(i=existing_route_table_id))
+                    continue
+                log.info('Checking route table [{r}] for associations to subnet [{s}]'.format(
+                    r=existing_route_table_id, s=subnet_id))
+                for association in existing_vpc_route_table['Associations']:
+                    if 'RouteTableAssociationId' not in association.keys():
+                        log.warning('RouteTableAssociationId not found in association: {d}'.format(d=str(association)))
+                        continue
+                    if 'SubnetId' not in association.keys():
+                        log.info('SubnetId not found in association: {d}'.format(d=str(association)))
+                        continue
+                    if association['SubnetId'] == subnet_id:
+                        log.info('Subnet ID [{s}] is already associated to route table [{r}] with ID: {i}'.format(
+                            s=subnet_id, r=existing_route_table_id, i=association['RouteTableAssociationId']))
+                        route_table_id = existing_route_table_id
+                        break
+
+            # If existing route table was found, disassociate and delete it
+            if route_table_id:
+                log.info('Attempting to disassociate and delete the existing route table: {i}'.format(i=route_table_id))
+                self.disassociate_vpc_route_table(route_table_id=route_table_id, subnet_id=subnet_id)
+                self.delete_vpc_route_table(route_table_id=route_table_id)
+
+            # Create a new route table and associate it
+            log.info('Proceeding with route table creation...'.format(s=subnet_id))
+            route_table = self.create_vpc_route_table(name=name + '-rt', vpc_id=vpc_id)
+            route_table_id = route_table['RouteTableId']
             self.associate_route_table(route_table_id=route_table_id, subnet_id=subnet_id)
+
+            # create and associate the network ACL
             network_acl_id = self.create_network_acl(name=name + '-acl', vpc_id=vpc_id)
-            self.associate_network_acl(network_acl_id=network_acl_id, subnet_id=subnet_id)
+            self.associate_network_acl(network_acl_id=network_acl_id, subnet_id=subnet_id, delete_existing=True)
             self.create_network_acl_rule(network_acl_id=network_acl_id, rule_num=100, cidr='0.0.0.0/0',
                                          rule_action='allow', protocol='-1', egress=False)
             self.create_network_acl_rule(network_acl_id=network_acl_id, rule_num=100, cidr='0.0.0.0/0',
@@ -4594,7 +4788,7 @@ class TransitGateway(object):
                 route_table_id = None
 
         # If not found, create a new route table
-        route_table_id = self.create_route_table(route_table_name='{n}-rt'.format(n=self.name))
+        route_table_id = self.create_transit_gateway_route_table(route_table_name='{n}-rt'.format(n=self.name))
 
         # Associate the new route table
         self.associate_route_table_to_attachment(
@@ -4611,13 +4805,13 @@ class TransitGateway(object):
         log.info('Completed configuring route table for attachment: {a}'.format(a=attachment_id))
         return route_table_id
 
-    def create_route_table(self, route_table_name=None):
+    def create_transit_gateway_route_table(self, route_table_name=None):
         """Creates a new route table
 
         :return: (str) route table ID
         :raises: AwsTransitGatewayError
         """
-        log = logging.getLogger(self.cls_logger + '.create_route_table')
+        log = logging.getLogger(self.cls_logger + '.create_transit_gateway_route_table')
         if not route_table_name:
             route_table_name = self.name
         log.info('Creating route table in transit gateway: {i}'.format(i=self.id))
