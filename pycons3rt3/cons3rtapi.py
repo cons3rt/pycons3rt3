@@ -1011,13 +1011,13 @@ class Cons3rtApi(object):
         log.info('Found {n} teams in all'.format(n=str(len(teams))))
 
         # Filter out the system team
-        exluding_system_team = []
+        excluding_system_team = []
         for team in teams:
             if team['name'] == 'SystemTeam':
                 continue
             else:
-                exluding_system_team.append(team)
-        teams = list(exluding_system_team)
+                excluding_system_team.append(team)
+        teams = list(excluding_system_team)
         if active_only:
             log.info('Trimming teams by active teams only as requested...')
             active_teams = []
@@ -1025,6 +1025,13 @@ class Cons3rtApi(object):
                 if 'state' not in team.keys():
                     log.warning('state data not found in team: {d}'.format(d=str(team)))
                     continue
+                if 'validUtil' not in team.keys():
+                    log.warning('validUtil data not found in team: {d}'.format(d=str(team)))
+                    continue
+                team_expiration_date = team['validUtil'] / 1000
+                team_expiration_date_unix = datetime.datetime.fromtimestamp(team_expiration_date)
+                team_expiration_date_formatted = team_expiration_date_unix.strftime("%d %B %Y")
+                team['expirationDate'] = team_expiration_date_formatted
                 if team['state'] == 'ACTIVE':
                     log.info('Found active team: {n}'.format(n=team['name']))
                     active_teams.append(team)
@@ -1039,12 +1046,15 @@ class Cons3rtApi(object):
                     continue
                 team_expiration_date = team['validUtil'] / 1000
                 team_expiration_date_unix = datetime.datetime.fromtimestamp(team_expiration_date)
+                team_expiration_date_formatted = team_expiration_date_unix.strftime("%d %B %Y")
+                team['expirationDate'] = team_expiration_date_formatted
                 now = datetime.datetime.now()
                 if team_expiration_date_unix >= now:
                     log.info('Found unexpired team: {n}'.format(n=team['name']))
                     unexpired_teams.append(team)
                 else:
-                    log.info('Found team [{n}] expired on: {t}'.format(n=team['name'], t=str(team_expiration_date_unix)))
+                    log.info('Found team [{n}] expired on: {t}'.format(
+                        n=team['name'], t=str(team_expiration_date_unix)))
             teams = list(unexpired_teams)
             log.info('Found {n} unexpired teams'.format(n=str(len(unexpired_teams))))
         return teams
@@ -1096,6 +1106,8 @@ class Cons3rtApi(object):
                 continue
             team_expiration_date = team['validUtil'] / 1000
             team_expiration_date_unix = datetime.datetime.fromtimestamp(team_expiration_date)
+            team_expiration_date_formatted = team_expiration_date_unix.strftime("%d %B %Y")
+            team['expirationDate'] = team_expiration_date_formatted
             now = datetime.datetime.now()
             if team_expiration_date_unix < now:
                 log.info('Team [{n}] expired on: {t}'.format(n=team['name'], t=str(team_expiration_date_unix)))
@@ -1118,6 +1130,13 @@ class Cons3rtApi(object):
             if 'state' not in team.keys():
                 log.warning('state data not found in team: {d}'.format(d=str(team)))
                 continue
+            if 'validUtil' not in team.keys():
+                log.warning('validUtil data not found in team: {d}'.format(d=str(team)))
+                continue
+            team_expiration_date = team['validUtil'] / 1000
+            team_expiration_date_unix = datetime.datetime.fromtimestamp(team_expiration_date)
+            team_expiration_date_formatted = team_expiration_date_unix.strftime("%d %B %Y")
+            team['expirationDate'] = team_expiration_date_formatted
             if team['state'] != 'ACTIVE':
                 log.info('Team [{n}] has inactive state: {s}'.format(n=team['name'], s=team['state']))
                 inactive_teams.append(team)

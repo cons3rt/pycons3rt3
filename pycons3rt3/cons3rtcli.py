@@ -262,15 +262,25 @@ class Cons3rtCli(object):
 
     @staticmethod
     def print_teams(teams_list):
-        msg = 'ID\tName\n'
+        msg = 'ID\tName\t\t\tState\t\tExpiration\n'
         for team in teams_list:
-            if 'id' in team:
+            if 'id' in team.keys():
                 msg += str(team['id'])
             else:
                 msg += '      '
             msg += '\t'
-            if 'name' in team:
+            if 'name' in team.keys():
                 msg += team['name']
+            else:
+                msg += '                '
+            msg += '\t\t'
+            if 'state' in team.keys():
+                msg += team['state']
+            else:
+                msg += '        '
+            msg += '\t\t'
+            if 'expirationDate' in team.keys():
+                msg += team['expirationDate']
             else:
                 msg += '                '
             msg += '\n'
@@ -1635,8 +1645,14 @@ class TeamCli(Cons3rtCli):
 
     def list_teams(self):
         teams = []
+        not_expired = False
+        active_only = False
+        if self.args.unexpired:
+            not_expired = True
+        if self.args.active:
+            active_only = True
         try:
-            teams += self.c5t.list_teams()
+            teams += self.c5t.list_teams(not_expired=not_expired, active_only=active_only)
         except Cons3rtApiError as exc:
             msg = 'There was a problem listing teams\n{e}'.format(e=str(exc))
             self.err(msg)
