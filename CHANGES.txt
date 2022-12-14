@@ -10,6 +10,7 @@
 * Added support for AWS CLI environment variables AWS_CONFIG_FILE and AWS_SHARED_CREDENTIALS_FILE when performing login_as_role and setting the credentials files
 * Added methods for retrieving expires, active, inactive, and non-expired teams; and printing team manager emails
 * Added the --expired and --unexpired for listing teams via CLI, and also incorporated the --active when listing teams in the CLI.  Added the state and expiration date to the team listing output.
+* Added the --config arg for the asset CLI command to specify a config file
 
 0.0.12
 ======
