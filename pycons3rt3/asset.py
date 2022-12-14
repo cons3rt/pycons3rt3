@@ -1136,6 +1136,7 @@ def main():
     parser.add_argument('--asset_type', help='Set to: containers, software')
     parser.add_argument('--category_ids', help='List of category IDs to filter on')
     parser.add_argument('--community', help='Include to retrieve community assets', action='store_true')
+    parser.add_argument('--config', help='Path to a config file to load', required=False)
     parser.add_argument('--dest_dir', help='Destination directory for the asset zip (default is Downloads)')
     parser.add_argument('--expanded', help='Include to retrieve expanded info on assets', action='store_true')
     parser.add_argument('--id', help='Asset ID to download or update')
@@ -1174,6 +1175,12 @@ def main():
             return 2
     else:
         asset_dir = working_dir
+
+    # Determine if a config file was provided
+    config_file = None
+    if args.config:
+        config_file = args.config
+        print('Using cons3rt API config file: {f}'.format(f=config_file))
 
     # Determine the destination directory
     if args.dest_dir:
@@ -1228,18 +1235,19 @@ def main():
         res = download_cli(args)
     elif command == 'import':
         asset, res, err = import_update(asset_dir=asset_dir, dest_dir=dest_dir, import_only=True,
-                                        visibility=visibility, log_level='WARNING')
+                                        visibility=visibility, log_level='WARNING', config_file=config_file)
     elif command == 'query':
         res = query_assets_args(args)
     elif command == 'queryids':
         res = query_assets_args(args, id_only=True)
     elif command == 'update':
         asset, res, err = import_update(asset_dir=asset_dir, dest_dir=dest_dir, visibility=visibility,
-                                        log_level='WARNING', keep_asset_zip=keep, update_asset_id=asset_id)
+                                        log_level='WARNING', keep_asset_zip=keep, update_asset_id=asset_id,
+                                        config_file=config_file)
     elif command == 'updateonly':
         asset, res, err = import_update(asset_dir=asset_dir, dest_dir=dest_dir, visibility=visibility,
                                         log_level='WARNING', keep_asset_zip=keep, update_only=True,
-                                        update_asset_id=asset_id)
+                                        update_asset_id=asset_id, config_file=config_file)
     elif command == 'validate':
         validate(asset_dir=asset_dir)
     return res
