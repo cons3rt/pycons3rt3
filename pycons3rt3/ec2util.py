@@ -2971,6 +2971,38 @@ class EC2Util(object):
         """
         return list_volumes(client=self.client)
 
+    def list_internet_gateways(self):
+        """Returns a list of Internet Gateways
+
+        :return: (list) of dict Internet gateways (see boto3 docs for details)
+        :raises: EC2UtilError
+        """
+        return list_internet_gateways(client=self.client)
+
+    def delete_internet_gateway(self, ig_id):
+        """Deletes the provided Internet Gateway
+
+        :return: None
+        :raises: EC2UtilError
+        """
+        return delete_internet_gateway(client=self.client, ig_id=ig_id)
+
+    def detach_internet_gateway(self, ig_id, vpc_id):
+        """Deletes the provided Internet Gateway
+
+        :return: None
+        :raises: EC2UtilError
+        """
+        return detach_internet_gateway(client=self.client, ig_id=ig_id, vpc_id=vpc_id)
+
+    def delete_subnet(self, subnet_id):
+        """Deletes the provided subnet ID
+
+        :return: None
+        :raises: EC2UtilError
+        """
+        return delete_subnet(client=self.client, subnet_id=subnet_id)
+
     def get_vpcs(self):
         """Describes the VPCs
 
@@ -3122,6 +3154,135 @@ class EC2Util(object):
         log.info('Successfully created VPC name {n} with ID: {n}'.format(n=vpc_name, i=vpc_id))
         return response['Vpc']
 
+    def delete_vpc(self, vpc_id):
+        """Deletes the provided VPC ID
+
+        :param vpc_id: (str) ID of the VPC
+        :return: None
+        :raises EC2UtilError
+        """
+        log = logging.getLogger(self.cls_logger + '.delete_vpc')
+        log.info('Deleting VPC ID: {i}'.format(i=vpc_id))
+        try:
+            self.client.delete_vpc(
+                VpcId=vpc_id,
+                DryRun=False
+            )
+        except ClientError as exc:
+            msg = 'Problem deleting VPC ID: {i}'.format(i=vpc_id)
+            raise EC2UtilError(msg) from exc
+
+    def delete_default_vpc(self):
+        """Finds and deletes the default VPC if it exists
+
+        :return: (dict) Info about the deleted VPC or None
+        :raises: (EC2UtilError)
+        """
+        log = logging.getLogger(self.cls_logger + '.delete_default_vpc')
+        try:
+            vpcs = self.get_vpcs()
+        except EC2UtilError as exc:
+            raise EC2UtilError('Problem listing VPCs') from exc
+        log.info('Attempting to find the default VPC if it exists...')
+
+        # Store the default VPC ID when found
+        default_vpc_id = None
+
+        # Query and search all the VPCs for the default one
+        for vpc in vpcs:
+            if 'VpcId' not in vpc.keys():
+                log.warning('VpcId not found in data: {d}'.format(d=str(vpc)))
+                continue
+            if 'IsDefault' not in vpc.keys():
+                log.warning('IsDefault not found in data: {d}'.format(d=str(vpc)))
+                continue
+            if vpc['IsDefault']:
+                default_vpc_id = vpc['VpcId']
+                break
+
+        # Return none if a default VPC was not found
+        if not default_vpc_id:
+            log.info('No default VPCs found')
+            return
+
+        # Attempt to delete the default VPC
+        log.info('Found default VPC ID [{i}], attempting to delete dependencies...'.format(i=default_vpc_id))
+
+        try:
+            internet_gateway = self.get_internet_gateway_for_vpc(vpc_id=default_vpc_id)
+        except EC2UtilError as exc:
+            msg = 'Problem determining the Internet gateway for VPC ID: {i}'.format(i=default_vpc_id)
+            raise EC2UtilError(msg) from exc
+
+        # Delete the internet gateway if found
+        if internet_gateway:
+            log.info('Detach the Internet Gateway [{i}] from VPC: {v}'.format(
+                i=internet_gateway['InternetGatewayId'], v=default_vpc_id))
+            try:
+                self.detach_internet_gateway(ig_id=internet_gateway['InternetGatewayId'], vpc_id=default_vpc_id)
+            except EC2UtilError as exc:
+                msg = 'Problem detaching Internet Gateway [{i}], unable to delete default VPC'.format(
+                    i=internet_gateway['InternetGatewayId'])
+                raise EC2UtilError(msg) from exc
+
+            log.info('Deleting the Internet Gateway for VPC ID: {v}'.format(v=default_vpc_id))
+            try:
+                self.delete_internet_gateway(ig_id=internet_gateway['InternetGatewayId'])
+            except EC2UtilError as exc:
+                msg = 'Problem deleting Internet Gateway [{i}], unable to delete default VPC'.format(
+                    i=internet_gateway['InternetGatewayId'])
+                raise EC2UtilError(msg) from exc
+
+        # Get a list of subnets in the VPC
+        try:
+            subnets = self.list_subnets(vpc_id=default_vpc_id)
+        except EC2UtilError as exc:
+            msg = 'Problem getting a list of subnet in VPC ID [{i}], unable to delete default VPC'.format(
+                i=default_vpc_id)
+            raise EC2UtilError(msg) from exc
+
+        # Delete each of the subnets
+        log.info('Deleting subnets for VPC ID: {v}'.format(v=default_vpc_id))
+        for subnet in subnets:
+            try:
+                self.delete_subnet(subnet_id=subnet['SubnetId'])
+            except EC2UtilError as exc:
+                msg = 'Problem deleting subnet ID [{i}], unable to delete default VPC'.format(i=subnet['SubnetId'])
+                raise EC2UtilError(msg) from exc
+
+        # Delete the VPC itself after deleting the dependencies
+        try:
+            self.delete_vpc(vpc_id=default_vpc_id)
+        except EC2UtilError as exc:
+            msg = 'Problem deleting default VPC: {i}'.format(i=default_vpc_id)
+            raise EC2UtilError(msg) from exc
+
+    def get_internet_gateway_for_vpc(self, vpc_id):
+        """Returns an Internet gateway if one is attaches to the provided VPC ID
+
+        :param vpc_id: (str) ID of the VPC
+        :return: (dict) Internet gateway (see boto3 docs) for the gateway attached to the provided VPC ID, or None
+        :raises: EC2UtilError
+        """
+        log = logging.getLogger(self.cls_logger + '.get_internet_gateway_for_vpc')
+        log.info('Attempting to determine if an Internet gateway exists for VPC ID: {i}'.format(i=vpc_id))
+
+        # Check if the VPC already has an internet gateway
+        try:
+            igs = self.list_internet_gateways()
+        except EC2UtilError as exc:
+            msg = 'Problem listing internet gateways'
+            raise EC2UtilError(msg) from exc
+
+        for ig in igs:
+            if 'Attachments' in ig.keys():
+                for attachment in ig['Attachments']:
+                    if attachment['VpcId'] == vpc_id:
+                        log.info('VPC [{v}] has attached Internet gateway [{i}]'.format(
+                            v=vpc_id, i=ig['InternetGatewayId']))
+                        return ig
+        log.info('VPC ID [{v}] does not have an attached Internet gateway'.format(v=vpc_id))
+
     def add_vpc_cidr(self, vpc_id, cidr, amazon_ipv6_cidr=False):
         """Adds the provided CIDR block to the VPC
 
@@ -3161,18 +3322,15 @@ class EC2Util(object):
 
         # Check if the VPC already has an internet gateway
         try:
-            igs = list_internet_gateways(client=self.client)
+            ig = self.get_internet_gateway_for_vpc(vpc_id=vpc['VpcId'])
         except EC2UtilError as exc:
-            msg = 'Problem listing internet gateways'
+            msg = 'Problem determining if VPC ID [{v}] has an Internet gateway'.format(v=vpc['VpcId'])
             raise EC2UtilError(msg) from exc
 
-        for ig in igs:
-            if 'Attachments' in ig.keys():
-                for attachment in ig['Attachments']:
-                    if attachment['VpcId'] == vpc['VpcId']:
-                        log.info('VPC [{v}] already has attached Internet gateway [{i}]'.format(
-                            v=vpc['VpcId'], i=ig['InternetGatewayId']))
-                        return vpc['VpcId'], ig['InternetGatewayId']
+        # If an existing Internet Gateway was found, return it and the VPC ID
+        if ig:
+            log.info('Found existing Internet Gateway for VPC ID: {v}'.format(v=vpc['VpcId']))
+            return vpc['VpcId'], ig['InternetGatewayId']
 
         # Create an Internet Gateway
         log.info('Existing attached internet gateway not found for VPC [{v}], creating one...'.format(v=vpc['VpcId']))
@@ -6461,6 +6619,71 @@ def list_internet_gateways(client):
     log.info('Found {n} internet gateways'.format(n=str(len(internet_gateways))))
     return internet_gateways
 
+
+def delete_internet_gateway(client, ig_id):
+    """Deletes the provided Internet Gateway ID
+
+    :param client: boto3.client object
+    :param ig_id: (str) ID of the Internet Gateway
+    :return: None
+    :raises: EC2UtilError
+    """
+    log = logging.getLogger(mod_logger + '.delete_internet_gateway')
+    log.info('Deleting Internet Gateway ID: {i}'.format(i=ig_id))
+    try:
+        client.delete_internet_gateway(
+            DryRun=False,
+            InternetGatewayId=ig_id
+        )
+    except ClientError as exc:
+        msg = 'Problem deleting Internet Gateway: {i}'.format(i=ig_id)
+        raise EC2UtilError(msg) from exc
+
+
+def detach_internet_gateway(client, ig_id, vpc_id):
+    """Detaches the Internet Gateway from the VPC
+
+    :param client: boto3.client object
+    :param ig_id: (str) ID of the Internet Gateway
+    :param vpc_id: (str) ID of the VPC
+    :return: None
+    :raises: EC2UtilError
+    """
+    log = logging.getLogger(mod_logger + '.detach_internet_gateway')
+    log.info('Deleting Internet Gateway ID: {i}'.format(i=ig_id))
+    try:
+        client.detach_internet_gateway(
+            DryRun=False,
+            InternetGatewayId=ig_id,
+            VpcId=vpc_id
+        )
+    except ClientError as exc:
+        msg = 'Problem deleting Internet Gateway: {i}'.format(i=ig_id)
+        raise EC2UtilError(msg) from exc
+
+
+############################################################################
+# Methods for subnets
+############################################################################
+
+def delete_subnet(client, subnet_id):
+    """Deletes the subnet ID
+
+    :param client: boto3.client object
+    :param subnet_id: (str) ID of the subnet
+    :return: None
+    :raises: EC2UtilError
+    """
+    log = logging.getLogger(mod_logger + '.delete_subnet')
+    log.info('Deleting subnet ID: {i}'.format(i=subnet_id))
+    try:
+        client.delete_subnet(
+            DryRun=False,
+            SubnetId=subnet_id
+        )
+    except ClientError as exc:
+        msg = 'Problem deleting subnet: {i}'.format(i=subnet_id)
+        raise EC2UtilError(msg) from exc
 
 ############################################################################
 # Methods for network interfaces
