@@ -2982,6 +2982,40 @@ class Cons3rtApi(object):
             i=str(dr_id), d=str(deployment_id)))
         return dr_id
 
+    def add_project_to_virtualization_realm(self, vr_id, project_id):
+        """Deletes all inactive runs in a virtualization realm
+
+        :param vr_id: (int) virtualization realm ID
+        :param project_id: (int) project ID
+        :return: (int) number of runs deleted
+        :raises: Cons3rtApiError
+        """
+        log = logging.getLogger(self.cls_logger + '.add_project_to_virtualization_realm')
+
+        # Ensure the vr_id is an int
+        if not isinstance(vr_id, int):
+            try:
+                vr_id = int(vr_id)
+            except ValueError as exc:
+                msg = 'vr_id arg must be an Integer, found: {t}'.format(t=str(type(vr_id)))
+                raise Cons3rtApiError(msg) from exc
+
+        # Ensure the project_id is an int
+        if not isinstance(project_id, int):
+            try:
+                project_id = int(project_id)
+            except ValueError as exc:
+                msg = 'project_id arg must be an Integer, found: {t}'.format(t=str(type(project_id)))
+                raise Cons3rtApiError(msg) from exc
+
+        # Add the project to the virtualization realm
+        log.info('Adding project [{p}] to virtualization realm [{v}]'.format(p=str(project_id), v=str(vr_id)))
+        try:
+            self.cons3rt_client.add_project_to_virtualization_realm(vr_id=vr_id, project_id=project_id)
+        except Cons3rtClientError as exc:
+            msg = 'Problem adding project ID [{p}] to VR ID [{v}]'.format(v=str(vr_id), p=str(project_id))
+            raise Cons3rtApiError(msg) from exc
+
     def delete_inactive_runs_in_virtualization_realm(self, vr_id):
         """Deletes all inactive runs in a virtualization realm
 
