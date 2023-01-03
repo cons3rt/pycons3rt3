@@ -81,7 +81,7 @@ class Logify(object):
 
     @classmethod
     def set_log_level(cls, log_level):
-        """Sets the log level for cons3rt assets
+        """Sets the overall log level
 
         This method sets the logging level for cons3rt assets using
         pycons3rt. The loglevel is read in from a deployment property
@@ -91,6 +91,79 @@ class Logify(object):
         :return: True if log level was set, False otherwise.
         """
         log = logging.getLogger(cls.cls_logger + '.set_log_level')
+        if log_level is None:
+            log.info('Arg loglevel was None, log level will not be updated.')
+            return False
+        if not isinstance(log_level, str):
+            log.error('Passed arg loglevel must be a string')
+            return False
+        log_level = log_level.upper()
+        if log_level == 'DEBUG':
+            cls._logger.setLevel(logging.DEBUG)
+            cls._stream.setLevel(logging.DEBUG)
+        elif log_level == 'INFO':
+            cls._logger.setLevel(logging.INFO)
+            cls._stream.setLevel(logging.INFO)
+        elif log_level == 'WARN':
+            cls._logger.setLevel(logging.WARN)
+            cls._stream.setLevel(logging.WARN)
+        elif log_level == 'WARNING':
+            cls._logger.setLevel(logging.WARNING)
+            cls._stream.setLevel(logging.WARNING)
+        elif log_level == 'ERROR':
+            cls._logger.setLevel(logging.ERROR)
+            cls._stream.setLevel(logging.ERROR)
+        else:
+            log.error('Could not set log level, this is not a valid log level: %s', log_level)
+            return False
+        log.info('pycons3rt loglevel set to: {s}'.format(s=log_level))
+        return True
+
+    @classmethod
+    def set_log_level_for_stream(cls, log_level):
+        """Sets the log level for the log stream (stdout/stderr)
+
+        This method sets the logging level. The loglevel can be read
+        in from a deployment property called loglevel.
+
+        :type log_level: str
+        :return: True if log level was set, False otherwise.
+        """
+        log = logging.getLogger(cls.cls_logger + '.set_log_level_for_stream')
+        if log_level is None:
+            log.info('Arg loglevel was None, stream log level will not be updated.')
+            return False
+        if not isinstance(log_level, str):
+            log.error('Passed arg loglevel must be a string')
+            return False
+        log_level = log_level.upper()
+        if log_level == 'DEBUG':
+            cls._stream.setLevel(logging.DEBUG)
+        elif log_level == 'INFO':
+            cls._stream.setLevel(logging.INFO)
+        elif log_level == 'WARN':
+            cls._stream.setLevel(logging.WARN)
+        elif log_level == 'WARNING':
+            cls._stream.setLevel(logging.WARNING)
+        elif log_level == 'ERROR':
+            cls._stream.setLevel(logging.ERROR)
+        else:
+            log.error('Could not set stream log level, this is not a valid log level: %s', log_level)
+            return False
+        log.info('stream loglevel set to: {s}'.format(s=log_level))
+        return True
+
+    def set_log_level_for_file(cls, log_level):
+        """Sets the log level for cons3rt assets
+
+        This method sets the logging level for cons3rt assets using
+        pycons3rt. The loglevel is read in from a deployment property
+        called loglevel and set appropriately.
+
+        :type log_level: str
+        :return: True if log level was set, False otherwise.
+        """
+        log = logging.getLogger(cls.cls_logger + '.set_log_level_for_file')
         if log_level is None:
             log.info('Arg loglevel was None, log level will not be updated.')
             return False
