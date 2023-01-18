@@ -40,6 +40,7 @@ class Logify(object):
     log_file_info = os.path.join(log_dir, 'pycons3rt-info.log')
     log_file_debug = os.path.join(log_dir, 'pycons3rt-debug.log')
     log_file_warn = os.path.join(log_dir, 'pycons3rt-warn.log')
+    _stream = logging.StreamHandler()
     try:
         fileConfig(config_file)
     except (IOError, OSError, Exception):
@@ -47,7 +48,6 @@ class Logify(object):
         _logger.setLevel(logging.DEBUG)
         _formatter = logging.Formatter('%(asctime)s [%(levelname)s] %(name)s - %(message)s')
         _formatter_threads = logging.Formatter('%(asctime)s [%(levelname)s] %(name)s <%(threadName)s> - %(message)s')
-        _stream = logging.StreamHandler()
         _stream.setLevel(logging.INFO)
         _stream.setFormatter(_formatter)
         _logger.addHandler(_stream)
