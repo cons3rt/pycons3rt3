@@ -1634,9 +1634,15 @@ class TeamCli(Cons3rtCli):
 
     def list_team_managers(self):
         results = []
+        not_expired = False
+        active_only = False
+        if self.args.unexpired:
+            not_expired = True
+        if self.args.active:
+            active_only = True
         if not self.ids:
             # No ids specified, getting a list for all teams
-            results += self.c5t.list_team_managers()
+            results += self.c5t.list_team_managers(not_expired=not_expired, active_only=active_only)
         else:
             # Generate a list for each team ID specified
             for team_id in self.ids:

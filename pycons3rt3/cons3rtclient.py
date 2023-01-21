@@ -1112,7 +1112,7 @@ class Cons3rtClient:
         return drs
 
     def list_all_deployment_runs_in_virtualization_realm(self, vr_id, search_type='SEARCH_ALL'):
-        """Lists all of the deployment runs in a virtualization realm by page
+        """Lists the deployment runs in a virtualization realm by page
 
         :param vr_id: (int) ID of the virtualization realm
         :param search_type: (str) search type
@@ -1123,8 +1123,6 @@ class Cons3rtClient:
         page_num = 0
         max_results = 40
         while True:
-            print('Retrieving deployment runs in virtualization realm [{i}]: page {p}'.format(
-                i=str(vr_id), p=str(page_num)))
             try:
                 page_of_drs = self.list_deployment_runs_in_virtualization_realm(
                     vr_id=vr_id,
