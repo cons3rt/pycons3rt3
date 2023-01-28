@@ -174,23 +174,18 @@ class Logify(object):
         log_level = log_level.upper()
         if log_level == 'DEBUG':
             cls._logger.setLevel(logging.DEBUG)
-            cls._stream.setLevel(logging.DEBUG)
         elif log_level == 'INFO':
             cls._logger.setLevel(logging.INFO)
-            cls._stream.setLevel(logging.INFO)
         elif log_level == 'WARN':
             cls._logger.setLevel(logging.WARN)
-            cls._stream.setLevel(logging.WARN)
         elif log_level == 'WARNING':
             cls._logger.setLevel(logging.WARNING)
-            cls._stream.setLevel(logging.WARNING)
         elif log_level == 'ERROR':
             cls._logger.setLevel(logging.ERROR)
-            cls._stream.setLevel(logging.ERROR)
         else:
-            log.error('Could not set log level, this is not a valid log level: %s', log_level)
+            log.error('Could not set file log level, this is not a valid log level: %s', log_level)
             return False
-        log.info('pycons3rt loglevel set to: {s}'.format(s=log_level))
+        log.info('file log level set to: {s}'.format(s=log_level))
         return True
 
     @classmethod
