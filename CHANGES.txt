@@ -12,6 +12,7 @@
 * Added the --expired and --unexpired for listing teams via CLI, and also incorporated the --active when listing teams in the CLI.  Added the state and expiration date to the team listing output.
 * Added the --config arg for the asset CLI command to specify a config file
 * Added methods for deleting subnets, deleting internet gateways, deleting VPCs, and deleting the default VPC
+* Added methods for getting a list of cons3rt bucket source IPs, and adding IPs to the list
 
 0.0.12
 ======

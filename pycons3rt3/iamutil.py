@@ -12,6 +12,7 @@ from botocore.client import ClientError
 from .awsutil import get_boto3_client
 from .exceptions import IamUtilError
 from .logify import Logify
+from .network import validate_ip_address
 
 
 __author__ = 'Joe Yennaco'
@@ -37,6 +38,10 @@ class IamUtil(object):
 
     def add_policy_statement(self, policy_arn, statement):
         return add_policy_statement(client=self.client, policy_arn=policy_arn, statement=statement)
+
+    def add_source_ip_addresses_to_cons3rt_bucket_policy(self, policy_arn, source_ip_addresses):
+        return add_source_ip_addresses_to_cons3rt_bucket_policy(
+            client=self.client, policy_arn=policy_arn, source_ip_addresses=source_ip_addresses)
 
     def add_user_to_group(self, user_name, group_name):
         return add_user_to_group(client=self.client, user_name=user_name, group_name=group_name)
@@ -82,11 +87,14 @@ class IamUtil(object):
     def delete_access_key(self, user_name, access_key_id):
         return delete_access_key(client=self.client, user_name=user_name, access_key_id=access_key_id)
 
-    def delete_all_access_keys_for_user(self, user_name, access_key_id):
+    def delete_all_access_keys_for_user(self, user_name):
         return delete_all_access_keys_for_user(client=self.client, user_name=user_name)
 
     def delete_oldest_policy_version(self, policy_arn):
         return delete_oldest_policy_version(client=self.client, policy_arn=policy_arn)
+
+    def get_cons3rt_bucket_policy_source_ip_addresses(self, policy_arn):
+        return get_cons3rt_bucket_policy_source_ip_addresses(client=self.client, policy_arn=policy_arn)
 
     def get_default_policy_document(self, policy_arn):
         return get_default_policy_document(client=self.client, policy_arn=policy_arn)
@@ -1207,6 +1215,190 @@ def add_policy_statement(client, policy_arn, statement):
     return True
 
 
+def add_source_ip_addresses_to_cons3rt_bucket_policy(client, policy_arn, source_ip_addresses):
+    """Adds the provided source IP addresses to the aws:SourceIp of the writeBuckets SID.  The statement will match
+    on the SID provided in the statement.
+    If the SID exists, the statement is not added.
+
+    :param client: boto3.client object
+    :param policy_arn: (str) policy ARN
+    :param source_ip_addresses: (list) source IP addresses
+    :return: (bool) True if successful or no update needed, False otherwise
+    :raises: IamUtilError
+    """
+    log = logging.getLogger(mod_logger + '.add_source_ip_addresses_to_cons3rt_bucket_policy')
+
+    # The writeBuckets Sid
+    write_buckets_sid = 'writeBuckets'
+
+    # Ensure the statement is a dict
+    if not isinstance(source_ip_addresses, list):
+        msg = 'source_ip_addresses expected to be type list, found: {t}'.format(t=str(type(source_ip_addresses)))
+        raise IamUtilError(msg)
+
+    # Validate the IP addresses
+    for source_ip_address in source_ip_addresses:
+        if not isinstance(source_ip_address, str):
+            msg = 'IP address in the source_ip_addresses must be a string, found: {t}'.format(
+                t=str(type(source_ip_address)))
+            raise IamUtilError(msg)
+        if not validate_ip_address(source_ip_address):
+            msg = 'Invalid IP address provided in the source_ip_addresses list arg: {i}'.format(i=source_ip_address)
+            raise IamUtilError(msg)
+
+    # Checking for existing policy
+    policy_data = get_policy_by_arn(client=client, policy_arn=policy_arn)
+    if 'PolicyName' not in policy_data.keys():
+        msg = 'PolicyName not found in policy data: {p}'.format(p=str(policy_data))
+        raise IamUtilError(msg)
+    policy_name = policy_data['PolicyName']
+
+    # Get the policy document
+    policy_document = get_default_policy_document(client=client, policy_arn=policy_arn)
+
+    # Ensure Statements exist
+    if 'Statement' not in policy_document.keys():
+        log.info('The default version policy document has no statements, nothing to do: {d}'.format(
+            d=str(policy_document)))
+        return True
+
+    # Get the list of statements
+    statements = policy_document['Statement']
+    log.info('Found {n} existing policy statements'.format(n=str(len(statements))))
+
+    # Get the writeBuckets statement
+    write_buckets_statement = None
+    for existing_statement in statements:
+        if 'Sid' not in existing_statement.keys():
+            log.warning('Sid not found in existing statement: {s}'.format(s=str(existing_statement)))
+            continue
+        if existing_statement['Sid'] == write_buckets_sid:
+            log.info('Found the write buckets SID: {s}'.format(s=write_buckets_sid))
+            write_buckets_statement = dict(existing_statement)
+
+    # Return if to writeBuckets SID was found
+    if not write_buckets_statement:
+        log.info('This policy has no {s} SID, nothing to do'.format(s=write_buckets_sid))
+        return True
+
+    # Ensure it has a condition
+    if 'Condition' not in write_buckets_statement.keys():
+        log.warning('Statement {s} found with no Condition: {d}'.format(
+            s=write_buckets_sid, d=str(write_buckets_statement)))
+        return False
+    condition = write_buckets_statement['Condition']
+
+    # Ensure IpAddress data exists
+    if 'IpAddress' not in condition.keys():
+        log.warning('Condition found with no IpAddress: {c}'.format(c=str(condition)))
+        return False
+    ip_address_data = condition['IpAddress']
+
+    # Ensure aws:SourceIp data exists
+    if 'aws:SourceIp' not in ip_address_data.keys():
+        log.warning('IpAddress found with no aws:SourceIp: {i}'.format(i=str(ip_address_data)))
+        return False
+
+    # Get the aws:SourceIp list
+    aws_source_ip_list = list(ip_address_data['aws:SourceIp'])
+
+    log.info('Adding policy source IPs [{i}] to the default version of policy ARN: {p}'.format(
+        p=policy_arn, i=','.join(source_ip_addresses)))
+
+    # Append IPs to the list
+    for source_ip_address in source_ip_addresses:
+        aws_source_ip_list.append(source_ip_address)
+
+    # Update the IpAddress data with the new list
+    ip_address_data['aws:SourceIp'] = list(aws_source_ip_list)
+
+    # update the policy with the new document
+    log.info('Updating policy [{n}] with new policy document: {d}'.format(n=policy_name, d=str(policy_document)))
+    try:
+        update_policy(client=client, policy_name=policy_name, policy_content=policy_document)
+    except IamUtilError as exc:
+        msg = 'Problem updating policy {n}'.format(n=policy_name)
+        raise IamUtilError(msg) from exc
+    return True
+
+
+def get_cons3rt_bucket_policy_source_ip_addresses(client, policy_arn):
+    """Returns a list of IP addresses in the writeBuckets statement (if it exists)
+
+    :param client: boto3.client object
+    :param policy_arn: (str) policy ARN
+    :return: (list) of source IPs in the writeBuckets statement
+    :raises: IamUtilError
+    """
+    log = logging.getLogger(mod_logger + '.get_cons3rt_bucket_policy_source_ip_addresses')
+
+    # Store the list of source IPs to return
+    bucket_source_ip_addresses = []
+
+    # The writeBuckets Sid
+    write_buckets_sid = 'writeBuckets'
+
+    # Checking for existing policy
+    policy_data = get_policy_by_arn(client=client, policy_arn=policy_arn)
+    if 'PolicyName' not in policy_data.keys():
+        msg = 'PolicyName not found in policy data: {p}'.format(p=str(policy_data))
+        raise IamUtilError(msg)
+    policy_name = policy_data['PolicyName']
+
+    # Get the policy document
+    policy_document = get_default_policy_document(client=client, policy_arn=policy_arn)
+
+    # Ensure Statements exist
+    if 'Statement' not in policy_document.keys():
+        log.info('The default version policy document has no statements, nothing to do: {d}'.format(
+            d=str(policy_document)))
+        return bucket_source_ip_addresses
+
+    # Get the list of statements
+    statements = policy_document['Statement']
+    log.info('Found {n} existing policy statements'.format(n=str(len(statements))))
+
+    # Get the writeBuckets statement
+    write_buckets_statement = None
+    for existing_statement in statements:
+        if 'Sid' not in existing_statement.keys():
+            log.warning('Sid not found in existing statement: {s}'.format(s=str(existing_statement)))
+            continue
+        if existing_statement['Sid'] == write_buckets_sid:
+            log.info('Found the write buckets SID: {s}'.format(s=write_buckets_sid))
+            write_buckets_statement = dict(existing_statement)
+
+    # Return if to writeBuckets SID was found
+    if not write_buckets_statement:
+        log.info('This policy has no {s} SID, nothing to do'.format(s=write_buckets_sid))
+        return bucket_source_ip_addresses
+
+    # Ensure it has a condition
+    if 'Condition' not in write_buckets_statement.keys():
+        log.warning('Statement {s} found with no Condition: {d}'.format(
+            s=write_buckets_sid, d=str(write_buckets_statement)))
+        return bucket_source_ip_addresses
+    condition = write_buckets_statement['Condition']
+
+    # Ensure IpAddress data exists
+    if 'IpAddress' not in condition.keys():
+        log.warning('Condition found with no IpAddress: {c}'.format(c=str(condition)))
+        return bucket_source_ip_addresses
+    ip_address_data = condition['IpAddress']
+
+    # Ensure aws:SourceIp data exists
+    if 'aws:SourceIp' not in ip_address_data.keys():
+        log.warning('IpAddress found with no aws:SourceIp: {i}'.format(i=str(ip_address_data)))
+        return bucket_source_ip_addresses
+
+    # Get the aws:SourceIp list
+    bucket_source_ip_addresses = list(ip_address_data['aws:SourceIp'])
+    log.info('Found IP address source list in policy [{n}]: {i}'.format(
+        n=policy_name, i=','.join(bucket_source_ip_addresses)
+    ))
+    return bucket_source_ip_addresses
+
+
 ############################################################################
 # Update an existing role
 ############################################################################
@@ -1463,6 +1655,7 @@ def update_all_access_keys_for_user(client, user_name, status):
 
     :param client: boto3.client object
     :param user_name: (str) user name
+    :param status: (str) status of the access key
     :return: (list) Deleted access Key data
     :raises: IamUtilError
     """
