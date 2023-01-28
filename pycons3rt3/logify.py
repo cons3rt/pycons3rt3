@@ -153,6 +153,7 @@ class Logify(object):
         log.info('stream loglevel set to: {s}'.format(s=log_level))
         return True
 
+    @classmethod
     def set_log_level_for_file(cls, log_level):
         """Sets the log level for cons3rt assets
 
