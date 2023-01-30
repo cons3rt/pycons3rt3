@@ -415,7 +415,7 @@ def source(script):
     if not os.path.isfile(script):
         raise CommandError('File not found: {f}'.format(f=script))
     log.debug('Attempting to source script: {f}'.format(f=script))
-    command = ['bash', '-c', '. {s}; env;'.format(s=script)]
+    command = ['bash', '-c', '. {s} >> /dev/null 2>&1; env;'.format(s=script)]
     try:
         result = run_command(command, timeout_sec=10.0, output=True, print_output=False)
     except CommandError as exc:
@@ -428,7 +428,7 @@ def source(script):
     for env_var in env_vars:
         entry = env_var.split("=", 1)
         if len(entry) != 2:
-            log.debug('Not in prop=value format, skipping: {p}'.format(p=env_var))
+            log.debug('Line not in prop=value format, skipping: {p}'.format(p=env_var))
             continue
         try:
             env[entry[0]] = entry[1]
