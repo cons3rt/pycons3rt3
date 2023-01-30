@@ -25,14 +25,40 @@ mod_logger = Logify.get_name() + '.route53util'
 class Route53Util(object):
     """Utility for interacting with the AWS Route53
     """
-    def __init__(self, domain, private=False, vpc_id=None, vpc_region=None,
-                 region_name=None, aws_access_key_id=None, aws_secret_access_key=None):
+    def __init__(self, domain=None, private=False, vpc_id=None, vpc_region=None,
+                 region_name=None, aws_access_key_id=None, aws_secret_access_key=None, reverse_zone=False,
+                 subnet_cidr=None):
         self.cls_logger = mod_logger + '.Route53Util'
-        self.domain = domain + '.'
+        self.reverse_zone = reverse_zone
+        self.subnet_cidr = subnet_cidr
+
+        # Validate and compute the domain for a reverse lookup zone
+        if self.reverse_zone:
+            if not self.subnet_cidr:
+                msg = 'subnet_cidr is required for reverse zones'
+                raise Route53UtilError(msg)
+
+            # Determine the zone name
+            parts = self.subnet_cidr.split('/')
+            if len(parts) != 2:
+                msg = 'Invalid subnet CIDR provided, expected format x.x.x.x/y: {s}'.format(s=subnet_cidr)
+                raise Route53UtilError(msg)
+            octets = parts[0].split('.')
+            if len(octets) != 4:
+                msg = 'Invalid subnet CIDR provided, expected format x.x.x.x/y: {s}'.format(s=subnet_cidr)
+                raise Route53UtilError(msg)
+            self.domain = octets[2] + '.' + octets[1] + '.' + octets[0] + '.' + 'in-addr.arpa'
+        else:
+            # Otherwise ensure domain was provided for forward lookup zone
+            if not domain:
+                msg = 'domain arg is required for forward lookup zones'
+                raise Route53UtilError(msg)
+            self.domain = domain + '.'
         self.private = private
         self.vpc_id = vpc_id
         self.vpc_region = vpc_region
         self.hosted_zone_id = None
+
         if self.vpc_id:
             self.private = True
         try:
@@ -59,8 +85,9 @@ class Route53Util(object):
             name = self.domain
         elif name == '.':
             name = self.domain
-        elif self.domain not in name:
-            name = name + '.' + self.domain
+        elif not self.reverse_zone:
+            if self.domain not in name:
+                name = name + '.' + self.domain
         log.info('Adding record: [ {t} | {n} | {v} | {x} ]'.format(t=record_type, n=name, v=value, x=str(time_to_live)))
         self.dns_records.append(
             create_simple_change_record(
@@ -69,6 +96,16 @@ class Route53Util(object):
         )
 
     def create_hosted_zone(self):
+        """Create either a forward or reverse lookup zone
+
+        :return:
+        """
+        if self.reverse_zone:
+            return self.create_reverse_lookup_zone()
+        else:
+            return self.create_forward_lookup_zone()
+
+    def create_forward_lookup_zone(self):
         """Creates a hosted zone
 
         :return: (dict) host zone (see boto3 docs)
@@ -112,6 +149,31 @@ class Route53Util(object):
         self.hosted_zone_id = hosted_zone['Id']
         return hosted_zone
 
+    def create_reverse_lookup_zone(self):
+        """Given a subnet ID, create a reverse lookup zone
+
+        :return: (dict) host zone (see boto3 docs)
+        :raises: Route53UtilError
+        """
+        log = logging.getLogger(self.cls_logger + '.create_reverse_lookup_zone')
+
+        if not self.private:
+            msg = 'Only create private reverse lookup zones'
+            raise Route53UtilError(msg)
+
+        # Ensure private params are provided
+        if not all([self.vpc_id, self.region]):
+            msg = 'Cannot create private reverse lookup zone without both VPC ID and region'
+            raise Route53UtilError(msg)
+
+        # Create the reverse lookup zone
+        log.info('Creating private reverse lookup zone: {z}'.format(z=self.domain))
+        hosted_zone = create_private_hosted_zone(
+            client=self.client, domain=self.domain, vpc_id=self.vpc_id, vpc_region=self.vpc_region
+        )
+        self.hosted_zone_id = hosted_zone['Id']
+        return hosted_zone
+
     def delete_record(self, record_type, name, value):
         """Returns a formatted simple record for adding to Route53
 
@@ -122,8 +184,9 @@ class Route53Util(object):
         :raises: Route53UtilError
         """
         log = logging.getLogger(self.cls_logger + '.delete_record')
-        if self.domain not in name:
-            name = name + '.' + self.domain
+        if not self.reverse_zone:
+            if self.domain not in name:
+                name = name + '.' + self.domain
         log.info('Deleting record: [ {t} | {n} | {v} ]'.format(t=record_type, n=name, v=value))
         delete_record = create_simple_change_record(record_type=record_type, name=name, value=value, action='DELETE')
         if not self.hosted_zone_id:
