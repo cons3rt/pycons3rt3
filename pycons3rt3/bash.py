@@ -428,7 +428,7 @@ def source(script):
     for env_var in env_vars:
         entry = env_var.split("=", 1)
         if len(entry) != 2:
-            log.warning('Not in prop=value format, skipping: {p}'.format(p=env_var))
+            log.debug('Not in prop=value format, skipping: {p}'.format(p=env_var))
             continue
         try:
             env[entry[0]] = entry[1]
