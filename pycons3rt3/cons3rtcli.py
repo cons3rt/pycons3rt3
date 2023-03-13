@@ -1145,6 +1145,7 @@ class ProjectCli(Cons3rtCli):
     def __init__(self, args, subcommands):
         Cons3rtCli.__init__(self, args=args, subcommands=subcommands)
         self.valid_subcommands = [
+            'get',
             'list',
             'members',
             'run'
@@ -1158,6 +1159,11 @@ class ProjectCli(Cons3rtCli):
         if self.subcommands[0] not in self.valid_subcommands:
             self.err('Unrecognized command: {c}'.format(c=self.subcommands[0]))
             return False
+        if self.subcommands[0] == 'get':
+            try:
+                self.get_project()
+            except Cons3rtCliError:
+                return False
         if self.subcommands[0] == 'list':
             try:
                 self.list_projects()
@@ -1174,6 +1180,21 @@ class ProjectCli(Cons3rtCli):
             except Cons3rtCliError:
                 return False
         return True
+
+    def get_project(self):
+        if not self.ids:
+            msg = '--id or --ids arg required to specify the project ID(s)'
+            self.err(msg)
+            raise Cons3rtCliError(msg)
+        for project_id in self.ids:
+            try:
+                project_details = self.c5t.get_project_details(project_id=project_id)
+            except Cons3rtApiError as exc:
+                msg = 'There was a problem getting details for project: {i}\n{e}'.format(i=str(project_id), e=str(exc))
+                self.err(msg)
+                raise Cons3rtCliError(msg) from exc
+            # TODO Do something better here
+            print(str(project_details))
 
     def members(self):
         if not self.ids:
