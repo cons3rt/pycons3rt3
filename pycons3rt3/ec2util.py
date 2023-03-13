@@ -32,7 +32,7 @@ mod_logger = Logify.get_name() + '.ec2util'
 
 # NAT AMI IDs used for cons3rt NAT VMs
 nat_vm_ami = {
-    'us-gov-west-1': 'ami-b62917d7',
+    'us-gov-west-1': 'ami-074217ed4c80a6267',
     'us-gov-east-1': 'ami-5623cd27',
     'us-east-1': 'ami-01ef31f9f39c5aaed',
     'us-east-2': 'ami-06064740484d375de',
