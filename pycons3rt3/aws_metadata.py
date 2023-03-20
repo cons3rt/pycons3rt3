@@ -1,9 +1,9 @@
-#!/usr/bin/python
+#!/usr/bin/env python3
 
 """Module: aws_metadata
 
 This module provides utilities for interacting with the AWS
-meta data service.
+metadata service.
 
 """
 import logging
@@ -46,7 +46,7 @@ def is_aws():
     log = logging.getLogger(mod_logger + '.is_aws')
     log.info('Querying AWS meta data URL to determine if this system is on AWS: {u}'.format(u=metadata_url))
 
-    # Re-try logic for checking the AWS meta data URL
+    # Re-try logic for checking the AWS metadata URL
     attempt_num = 1
 
     while True:
@@ -54,7 +54,7 @@ def is_aws():
             log.info('Unable to query the AWS meta data URL, this system appears to be not running on AWS')
             return False
 
-        # Query the AWS meta data URL
+        # Query the AWS metadata URL
         try:
             response = requests.get(metadata_url, timeout=query_timeout_sec)
         except(IOError, OSError) as ex:
@@ -125,7 +125,7 @@ def get_vpc_id_from_mac_address():
     #     log.info('This machine is not running in AWS, exiting...')
     #     return
 
-    # Get the primary interface MAC address to query the meta data service
+    # Get the primary interface MAC address to query the metadata service
     log.debug('Attempting to determine the primary interface MAC address...')
     try:
         mac_address = get_primary_mac_address()
@@ -166,7 +166,7 @@ def get_owner_id_from_mac_address():
         log.info('This machine is not running in AWS, exiting...')
         return
 
-    # Get the primary interface MAC address to query the meta data service
+    # Get the primary interface MAC address to query the metadata service
     log.debug('Attempting to determine the primary interface MAC address...')
     try:
         mac_address = get_primary_mac_address()
@@ -249,12 +249,11 @@ def get_region():
 
 def get_primary_mac_address():
     """Determines the MAC address to use for querying the AWS
-    meta data service for network related queries
+    metadata service for network related queries
 
     :return: (str) MAC address for the eth0 interface
     :raises: AWSMetaDataError
     """
-    log = logging.getLogger(mod_logger + '.get_primary_mac_address')
     try:
         mac_addresses = get_mac_addresses()
     except CommandError as exc:
