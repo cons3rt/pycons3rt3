@@ -119,13 +119,12 @@ def is_azure():
 
     :return: bool True if this system is running on Azure, False otherwise
     """
-    log = logging.getLogger(mod_logger + '.is_azure')
     is_azure_vm, _ = get_azure_instance_metadata()
     return is_azure_vm
 
 
 def get_mac_address_for_ip_address(desired_ip_address):
-    """Determines the MAC address for the provided IP addrss by querying the Azure
+    """Determines the MAC address for the provided IP address by querying the Azure
     metadata service
 
     :return: (str) MAC address for the eth0 interface, or None
@@ -136,7 +135,7 @@ def get_mac_address_for_ip_address(desired_ip_address):
     if is_azure_vm and instance_metadata:
         if 'network' in instance_metadata.keys():
             if 'interface' in instance_metadata['network'].keys():
-                if isinstance(instance_metadata['network']['instance']):
+                if isinstance(instance_metadata['network']['interface'], list):
                     for interface in instance_metadata['network']['interface']:
                         if 'ipv4' in interface.keys():
                             if 'ipAddress' in interface['ipv4'].keys():
