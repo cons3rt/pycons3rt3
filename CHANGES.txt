@@ -14,6 +14,7 @@
 * Added methods for deleting subnets, deleting internet gateways, deleting VPCs, and deleting the default VPC
 * Added methods for getting a list of cons3rt bucket source IPs, and adding IPs to the list
 * Added methods for creating and managing reverse lookup zones in AWS Route53
+* Added a module for integrating with the Azure metadata service
 
 0.0.12
 ======
