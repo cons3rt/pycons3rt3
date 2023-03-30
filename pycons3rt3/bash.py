@@ -138,7 +138,7 @@ def run_command_large_buffer(command, timeout_sec=3600.0):
     if not isinstance(command, list):
         raise CommandError('command arg must be a list')
     command_str = ' '.join(command)
-    log.error('Running command: {c}'.format(c=command_str))
+    log.info('Running command: {c}'.format(c=command_str))
     print('Running command: {c}'.format(c=command_str))
     subproc = subprocess.Popen(command, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
     pid = subproc.pid
