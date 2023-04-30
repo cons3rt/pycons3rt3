@@ -70,7 +70,7 @@ class RunMonitor(object):
         self.stop_monitoring = True
 
     def monitor(self, func_tasks, slack_webhook_url=None, slack_channel_monitor=None, slack_channel_alert=None,
-                slack_text=None):
+                slack_text=None, slack_icon=None):
         """Monitors for the GO file
 
         :return: None
@@ -81,7 +81,8 @@ class RunMonitor(object):
             self.slack_msg = SlackMessage(
                 slack_webhook_url,
                 channel=slack_channel_monitor,
-                text=self.timestamp + ': ' + slack_text
+                text=self.timestamp + ': ' + slack_text,
+                icon_url=slack_icon
             )
 
         if self.slack_msg:
