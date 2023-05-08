@@ -1,7 +1,7 @@
 0.0.14
 ======
 
-* TBD
+* Added cloudwatchutil.py module for handling AWS cloudwatch
 
 0.0.13
 ======

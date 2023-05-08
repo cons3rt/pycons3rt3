@@ -4984,7 +4984,7 @@ class Cons3rtApi(object):
         return self.process_run_snapshots_multiple(drs=drs, action='CREATE_SNAPSHOT')
 
     def process_run_snapshots_multiple(self, drs, action):
-        """Attempts to creates snapshots for all hosts in the provided DR list
+        """Attempts to create snapshots for all hosts in the provided DR list
 
         :param drs: (list) deployment runs dicts of DR data
         :param action: (str) CREATE_SNAPSHOT | RESTORE_SNAPSHOT

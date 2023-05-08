@@ -139,7 +139,11 @@ class AWSAPIError(Exception):
 
 
 class AWSMetaDataError(Exception):
-    """There was a problem encountered with the AWS meta data service"""
+    """There was a problem encountered with the AWS metadata service"""
+
+
+class CloudwatchUtilError(Exception):
+    """There was a problem with an AWS Cloudwatch operation"""
 
 
 class EC2UtilError(Exception):

@@ -290,7 +290,7 @@ def create_user(client, user_name, path='/'):
     """Creates the specified user, if it already exists returns it
 
     :param client: boto3.client object
-    :param user_name: (str) user name
+    :param user_name: (str) username
     :param path: (str) path to the user
     :return: (dict) group data (specified in boto3)
     :raises: IamUtilError
