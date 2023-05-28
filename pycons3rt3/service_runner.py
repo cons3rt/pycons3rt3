@@ -21,11 +21,12 @@ service_runner.RunMonitor.monitor takes the arg: func_tasks has the following re
 """
 import datetime
 import logging
+import multiprocessing
 import os
-import threading
 import time
 import traceback
 
+from .awsutil import read_service_config as read_aws_service_config
 from .exceptions import ServiceRunnerError
 from .logify import Logify
 from .slack import SlackAttachment, SlackMessage
@@ -45,13 +46,21 @@ class RunMonitor(object):
     """Monitors for Script ETT execution
     """
 
-    def __init__(self, runner_dir=runner_dir_default):
+    def __init__(self,
+                 runner_dir=runner_dir_default,
+                 check_interval_sec=15,
+                 thread_monitor_interval_sec=30,
+                 thread_monitor_warn_time_sec=3600,
+                 thread_kill_time_sec=86400,
+                 run_release_time_sec=600,
+                 ):
         self.cls_logger = mod_logger + '.RunMonitor'
         self.stop_monitoring = False
-        self.check_interval_sec = 15
-        self.thread_monitor_interval_sec = 30
-        self.thread_monitor_warn_time_sec = 3600
-        self.run_release_time_sec = 600
+        self.check_interval_sec = check_interval_sec
+        self.thread_monitor_interval_sec = thread_monitor_interval_sec
+        self.thread_monitor_warn_time_sec = thread_monitor_warn_time_sec
+        self.thread_kill_time_sec = thread_kill_time_sec
+        self.run_release_time_sec = run_release_time_sec
 
         # Directories and files
         self.runner_dir = runner_dir
@@ -119,14 +128,28 @@ class RunMonitor(object):
                 runner.start()
                 start_time = time.time()
 
+                # Set kill time to 2 monitor intervals after the thread kill time for warning
+                kill_time_sec = self.thread_kill_time_sec + (2 * self.thread_monitor_interval_sec)
+                log.info('Setting kill time in seconds at: {k}'.format(k=str(kill_time_sec)))
+
                 while runner.is_alive():
                     elapsed_time_sec = round((time.time() - start_time))
 
                     if elapsed_time_sec <= self.thread_monitor_warn_time_sec:
-                        log.info('Deployment in progress, time elapsed: {t}'.format(t=str(elapsed_time_sec)))
-                    else:
-                        log.warning('Deployment in progress may be delayed, time elapsed: {t}'.format(
-                            t=str(elapsed_time_sec)))
+                        log.info('In progress, time elapsed: {t}'.format(t=str(elapsed_time_sec)))
+                    elif self.thread_monitor_warn_time_sec < elapsed_time_sec < self.thread_kill_time_sec:
+                        msg = 'In progress but may be delayed, will be killed after {k}, time elapsed: {t}'.format(
+                            k=str(self.thread_kill_time_sec), t=str(elapsed_time_sec))
+                        log.warning(msg)
+                    elif self.thread_kill_time_sec < elapsed_time_sec < kill_time_sec:
+                        msg = 'Killing this thread at {k}, time elapsed: {t}'.format(
+                            k=str(kill_time_sec), t=str(elapsed_time_sec))
+                        log.warning(msg)
+                    elif elapsed_time_sec > kill_time_sec:
+                        msg = 'Kill this thread older than {k}, time elapsed: {t}'.format(
+                            k=str(kill_time_sec), t=str(elapsed_time_sec))
+                        log.error(msg)
+                        runner.terminate()
                     time.sleep(self.thread_monitor_interval_sec)
             time.sleep(self.check_interval_sec)
 
@@ -137,13 +160,13 @@ class RunMonitor(object):
             self.slack_msg.send()
 
 
-class ScriptRunner(threading.Thread):
+class ScriptRunner(multiprocessing.Process):
     """Performs an execution of tasks for this script ETT via the passed function
     """
 
     def __init__(self, func_tasks, results_dir, error_marker_file, complete_marker_file, slack_webhook_url=None,
                  slack_channel_monitor=None, slack_channel_alert=None, slack_text=None):
-        threading.Thread.__init__(self)
+        multiprocessing.Process.__init__(self)
         self.cls_logger = mod_logger + '.ScriptRunner'
         self.timestamp = datetime.datetime.now().strftime('%Y%m%d_%H%M%S')
         self.func_tasks = func_tasks
@@ -278,32 +301,7 @@ def read_service_config(service_config_file):
     :return: (dict) key-value pairs from the properties file
     """
     log = logging.getLogger(mod_logger + '.read_service_config')
-    properties = {}
-
-    # Ensure the Service config props file exists
-    if not os.path.isfile(service_config_file):
-        log.error('Service config file not found: {f}'.format(f=service_config_file))
-        return properties
-
-    log.info('Reading Service config properties file: {r}'.format(r=service_config_file))
-    with open(service_config_file, 'r') as f:
-        for line in f:
-            if line.startswith('#'):
-                continue
-            elif '=' in line:
-                split_line = line.strip().split('=', 1)
-                if len(split_line) == 2:
-                    prop_name = split_line[0].strip()
-                    prop_value = split_line[1].strip()
-                    if prop_name is None or not prop_name or prop_value is None or not prop_value:
-                        log.info('Property name <{n}> or value <v> is none or blank, not including it'.format(
-                            n=prop_name, v=prop_value))
-                    else:
-                        log.debug('Adding property {n} with value {v}...'.format(n=prop_name, v=prop_value))
-                        unescaped_prop_value = prop_value.replace('\\', '')
-                        properties[prop_name] = unescaped_prop_value
-                else:
-                    log.warning('Skipping line that did not split into 2 part on an equal sign...')
+    properties = read_aws_service_config(service_config_file)
     log.info('Successfully read in service config properties')
     log.info('Removing: {f}'.format(f=service_config_file))
     os.remove(service_config_file)

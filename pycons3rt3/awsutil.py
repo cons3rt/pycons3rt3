@@ -5,11 +5,18 @@ API, common to other AWS utils in this project.
 
 """
 import boto3
+import logging
+import os
 from botocore.client import ClientError
 
 from .exceptions import AWSAPIError
+from .logify import Logify
+
 
 __author__ = 'Joe Yennaco'
+
+# Set up logger name for this module
+mod_logger = Logify.get_name() + '.awsutil'
 
 
 # Global list of all AWS regions divided into useful lists
@@ -746,3 +753,42 @@ def get_linux_nat_config_user_data_script_contents():
     :return: (str) Content of the user data script
     """
     return linux_nat_config_user_data_script_contents
+
+
+def read_service_config(service_config_file):
+    """Reads the AWS service config properties file
+
+    This method reads the config properties file and returns a dict
+
+    :param service_config_file: (str) path to the AWS service config file
+    :return: (dict) key-value pairs from the properties file
+    """
+    log = logging.getLogger(mod_logger + '.read_service_config')
+    properties = {}
+
+    # Ensure the RDS config props file exists
+    if not os.path.isfile(service_config_file):
+        log.error('RDS config file not found: {f}'.format(f=service_config_file))
+        return properties
+
+    log.info('Reading RDS config properties file: {r}'.format(r=service_config_file))
+    with open(service_config_file, 'r') as f:
+        for line in f:
+            if line.startswith('#'):
+                continue
+            elif '=' in line:
+                split_line = line.strip().split('=', 1)
+                if len(split_line) == 2:
+                    prop_name = split_line[0].strip()
+                    prop_value = split_line[1].strip()
+                    if prop_name is None or not prop_name or prop_value is None or not prop_value:
+                        log.info('Property name <{n}> or value <v> is none or blank, not including it'.format(
+                            n=prop_name, v=prop_value))
+                    else:
+                        log.debug('Adding property {n} with value {v}...'.format(n=prop_name, v=prop_value))
+                        unescaped_prop_value = prop_value.replace('\\', '')
+                        properties[prop_name] = unescaped_prop_value
+                else:
+                    log.warning('Skipping line that did not split into 2 part on an equal sign...')
+    log.info('Successfully read in RDS config properties, verifying required props...')
+    return properties

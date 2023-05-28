@@ -30,6 +30,23 @@ class Cons3rtCli(object):
             self.err('Missing or incomplete authentication information, run [cons3rt config] to fix\n{e}'.format(
                 e=str(exc)))
 
+    def dump_json_file(self, data):
+        # Export the data to a JSON file
+        if not self.args.json:
+            return
+        json_path = self.args.json
+
+        # Create JSON content
+        try:
+            json.dump(data, open(json_path, 'w'), sort_keys=True, indent=2, separators=(',', ': '))
+        except SyntaxError as exc:
+            msg = 'Problem converting data to JSON: {d}'.format(d=str(data))
+            raise Cons3rtCliError(msg) from exc
+        except (OSError, IOError) as exc:
+            msg = 'Problem creating JSON output file: {f}'.format(f=json_path)
+            raise Cons3rtCliError(msg) from exc
+        print('Created output JSON file: {f}'.format(f=json_path))
+
     def process_args(self):
         if not self.validate_args():
             return False
@@ -78,20 +95,24 @@ class Cons3rtCli(object):
         traceback.print_exc()
 
     @staticmethod
-    def print_deployments(deployment_list):
+    def print_item_name_and_id(item_list):
         msg = 'ID\tName\n'
-        for deployment in deployment_list:
-            if 'id' in deployment:
-                msg += str(deployment['id'])
+        for item in item_list:
+            if 'id' in item:
+                msg += str(item['id'])
             else:
                 msg += '      '
             msg += '\t'
-            if 'name' in deployment:
-                msg += deployment['name']
+            if 'name' in item:
+                msg += item['name']
             else:
                 msg += '                '
             msg += '\n'
         print(msg)
+
+    @staticmethod
+    def print_deployments(deployment_list):
+        return Cons3rtCli.print_item_name_and_id(deployment_list)
 
     @staticmethod
     def print_drs(dr_list):
@@ -127,19 +148,7 @@ class Cons3rtCli(object):
 
     @staticmethod
     def print_projects(project_list):
-        msg = 'ID\tName\n'
-        for project in project_list:
-            if 'id' in project:
-                msg += str(project['id'])
-            else:
-                msg += '      '
-            msg += '\t'
-            if 'name' in project:
-                msg += project['name']
-            else:
-                msg += '                '
-            msg += '\n'
-        print(msg)
+        return Cons3rtCli.print_item_name_and_id(project_list)
 
     @staticmethod
     def print_project_members(member_list):
@@ -230,35 +239,11 @@ class Cons3rtCli(object):
 
     @staticmethod
     def print_scenarios(scenario_list):
-        msg = 'ID\tName\n'
-        for scenario in scenario_list:
-            if 'id' in scenario:
-                msg += str(scenario['id'])
-            else:
-                msg += '      '
-            msg += '\t'
-            if 'name' in scenario:
-                msg += scenario['name']
-            else:
-                msg += '                '
-            msg += '\n'
-        print(msg)
+        return Cons3rtCli.print_item_name_and_id(scenario_list)
 
     @staticmethod
     def print_system_designs(system_design_list):
-        msg = 'ID\tName\n'
-        for system in system_design_list:
-            if 'id' in system:
-                msg += str(system['id'])
-            else:
-                msg += '      '
-            msg += '\t'
-            if 'name' in system:
-                msg += system['name']
-            else:
-                msg += '                '
-            msg += '\n'
-        print(msg)
+        return Cons3rtCli.print_item_name_and_id(system_design_list)
 
     @staticmethod
     def print_teams(teams_list):
@@ -540,19 +525,7 @@ class CloudCli(Cons3rtCli):
                 raise Cons3rtCliError(msg) from exc
 
         # Export the clouds to a JSON file
-        if self.args.json:
-            json_path = self.args.json
-
-            # Create JSON content
-            try:
-                json.dump(clouds, open(json_path, 'w'), sort_keys=True, indent=2, separators=(',', ': '))
-            except SyntaxError as exc:
-                msg = 'Problem converting clouds data to JSON: {d}'.format(d=str(clouds))
-                raise Cons3rtCliError(msg) from exc
-            except (OSError, IOError) as exc:
-                msg = 'Problem creating JSON output file: {f}'.format(f=json_path)
-                raise Cons3rtCliError(msg) from exc
-            print('Created output JSON file containing cloud data: {f}'.format(f=json_path))
+        self.dump_json_file(clouds)
 
         # Output the cloud data to terminal
         for cloud in clouds:
@@ -683,7 +656,7 @@ class CloudspaceCli(Cons3rtCli):
             self.err(msg)
             raise Cons3rtCliError(msg)
         if not self.args.json:
-            msg = '--json arg required to specify the json file to use for cloudspaace allocation data'
+            msg = '--json arg required to specify the json file to use for cloudspace allocation data'
             self.err(msg)
             raise Cons3rtCliError(msg)
         cloud_id = self.ids[0]
@@ -731,7 +704,7 @@ class CloudspaceCli(Cons3rtCli):
 
     def delete_inactive_runs_from_cloudspace(self, cloudspace_id):
         try:
-            deleted_runs, not_deleted_runs  = self.c5t.delete_inactive_runs_in_virtualization_realm(vr_id=cloudspace_id)
+            deleted_runs, not_deleted_runs = self.c5t.delete_inactive_runs_in_virtualization_realm(vr_id=cloudspace_id)
         except Cons3rtApiError as exc:
             msg = 'There was a problem deleting inactive runs from cloudspace ID: {i}\n{e}'.format(
                 i=str(cloudspace_id), e=str(exc))
@@ -936,19 +909,7 @@ class CloudspaceCli(Cons3rtCli):
                 raise Cons3rtCliError(msg) from exc
 
         # Export the clouds to a JSON file
-        if self.args.json:
-            json_path = self.args.json
-
-            # Create JSON content
-            try:
-                json.dump(cloudspaces, open(json_path, 'w'), sort_keys=True, indent=2, separators=(',', ': '))
-            except SyntaxError as exc:
-                msg = 'Problem converting clouds data to JSON: {d}'.format(d=str(cloudspaces))
-                raise Cons3rtCliError(msg) from exc
-            except (OSError, IOError) as exc:
-                msg = 'Problem creating JSON output file: {f}'.format(f=json_path)
-                raise Cons3rtCliError(msg) from exc
-            print('Created output JSON file containing cloud data: {f}'.format(f=json_path))
+        self.dump_json_file(cloudspaces)
 
         # Output the cloud data to terminal
         for cloudspace in cloudspaces:
@@ -1458,7 +1419,7 @@ class ScenarioCli(Cons3rtCli):
             self.err(msg)
             raise Cons3rtCliError(msg) from exc
         if len(scenarios) > 0:
-            system_designs = self.sort_by_id(scenarios)
+            scenarios = self.sort_by_id(scenarios)
             self.print_scenarios(scenario_list=scenarios)
         print('Total number of scenarios: {n}'.format(n=str(len(scenarios))))
 
@@ -1633,11 +1594,8 @@ class TeamCli(Cons3rtCli):
 
     def generate_report(self, team_id):
         load = False
-        config = None
         if self.args.load:
             load = True
-        if self.args.config:
-            config = self.args.config
         try:
             generate_team_report(team_id=team_id, load=load, cons3rt_api=self.c5t)
         except Cons3rtReportsError as exc:

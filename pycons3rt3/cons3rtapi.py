@@ -387,7 +387,7 @@ class Cons3rtApi(object):
         return target
 
     def get_dependent_assets(self, asset_id):
-        """Returns o list of asset dependent on the provided asset ID
+        """Returns a list of asset dependent on the provided asset ID
 
         :param asset_id: (int) asset ID
         :return: (list) of dependent assets (dict)
@@ -1433,11 +1433,11 @@ class Cons3rtApi(object):
             raise Cons3rtClientError(msg) from exc
 
         # Check for a DR with an active status
-        active_statii = ['SUBMITTED', 'PROVISIONING_HOSTS', 'HOSTS_PROVISIONED', 'RESERVED', 'TESTING', 'TESTED']
+        active_statuses = ['SUBMITTED', 'PROVISIONING_HOSTS', 'HOSTS_PROVISIONED', 'RESERVED', 'TESTING', 'TESTED']
 
         for dr in drs:
             if 'deploymentRunStatus' in dr:
-                if dr['deploymentRunStatus'] in active_statii:
+                if dr['deploymentRunStatus'] in active_statuses:
                     log.info('Found a DR with an active status: {i}'.format(i=str(dr['id'])))
                     return dr['id']
         log.info('No active DR found for deployment ID: {i}'.format(i=str(deployment_id)))
@@ -1467,12 +1467,12 @@ class Cons3rtApi(object):
             raise Cons3rtClientError(msg) from exc
 
         # Check for a DR with an active status
-        active_statii = ['SUBMITTED', 'PROVISIONING_HOSTS', 'HOSTS_PROVISIONED', 'RESERVED', 'TESTING', 'TESTED']
+        active_statuses = ['SUBMITTED', 'PROVISIONING_HOSTS', 'HOSTS_PROVISIONED', 'RESERVED', 'TESTING', 'TESTED']
 
         inactive_drs = []
         for dr in drs:
             if 'deploymentRunStatus' in dr:
-                if dr['deploymentRunStatus'] not in active_statii:
+                if dr['deploymentRunStatus'] not in active_statuses:
                     log.info('Found a DR with an inactive status: {i}'.format(i=str(dr['id'])))
                     inactive_drs.append(dr)
         log.info('Found {n} inactive DRs found for deployment ID: {i}'.format(
@@ -1802,12 +1802,11 @@ class Cons3rtApi(object):
             raise Cons3rtApiError(msg) from exc
         log.info('Successfully updated Asset ID: {i}'.format(i=str(asset_id)))
 
-    def update_asset_state(self, asset_id, state, asset_type=None):
+    def update_asset_state(self, asset_id, state):
         """Updates the asset state
 
         :param asset_id: (int) asset ID to update
         :param state: (str) desired state: IN_DEVELOPMENT, CERTIFIED, DEPRECATED
-        :param asset_type: (str) asset type (scenario, deployment, system, etc) DEPRECATED: NOT USED
         :return: None
         """
         log = logging.getLogger(self.cls_logger + '.update_asset_state')
@@ -1979,7 +1978,7 @@ class Cons3rtApi(object):
         """
         log = logging.getLogger(self.cls_logger + '.disable_remote_access')
 
-        already_disabled_statii = ['DISABLED', 'DISABLING']
+        already_disabled_statuses = ['DISABLED', 'DISABLING']
 
         # Ensure the vr_id is an int
         if not isinstance(vr_id, int):
@@ -1999,7 +1998,7 @@ class Cons3rtApi(object):
             log.warning('remoteAccessStatus data not found in VR details, will attempt to disable: {d}'.format(
                 d=str(vr_details)))
         else:
-            if vr_details['remoteAccessStatus'] in already_disabled_statii:
+            if vr_details['remoteAccessStatus'] in already_disabled_statuses:
                 log.info('Remote access for VR ID {i} is already disabled or disabling'.format(i=str(vr_id)))
                 return
 
@@ -2477,7 +2476,7 @@ class Cons3rtApi(object):
         return True
 
     def unassign_roles_from_project_member(self, project_id, username, project_role_list):
-        """Unassigns the all roles for the member in the project ID
+        """Removed the all roles for the member in the project ID
         :param project_id: (int) project ID
         :param username: (str) CONS3RT username
         :param project_role_list (list) List of str roles
@@ -2505,7 +2504,7 @@ class Cons3rtApi(object):
                 raise Cons3rtApiError(msg) from exc
 
         # Get current list of permissions for user in project
-        log.info('Getting current roles for user [{u}] in projec ID: {p}'.format(u=username, p=str(project_id)))
+        log.info('Getting current roles for user [{u}] in project ID: {p}'.format(u=username, p=str(project_id)))
         try:
             project_members = self.list_project_members(project_id=project_id, username=username)
         except Cons3rtApiError as exc:
@@ -2625,30 +2624,30 @@ class Cons3rtApi(object):
     def create_system(
             self,
             name=None,
-            operatingSystem=None,
-            minNumCpus=2,
-            minRam=2000,
-            minBootDiskCapacity=100000,
-            additionalDisks=None,
+            operating_system=None,
+            min_num_cpus=2,
+            min_ram=2000,
+            min_boot_disk_capacity=100000,
+            additional_disks=None,
             components=None,
             subtype='virtualHost',
-            vgpuRequired=False,
-            physicalMachineId=None,
+            vgpu_required=False,
+            physical_machine_id=None,
             json_content=None,
             json_file=None
     ):
         """Creates a system from the provided options
 
         :param name: (str) system name
-        :param operatingSystem: (str) see CONS3RT API docs
-        :param minNumCpus: (int) see CONS3RT API docs
-        :param minRam: (int) see CONS3RT API docs
-        :param minBootDiskCapacity: (int) see CONS3RT API docs
-        :param additionalDisks: (list) see CONS3RT API docs
+        :param operating_system: (str) see CONS3RT API docs
+        :param min_num_cpus: (int) see CONS3RT API docs
+        :param min_ram: (int) see CONS3RT API docs
+        :param min_boot_disk_capacity: (int) see CONS3RT API docs
+        :param additional_disks: (list) see CONS3RT API docs
         :param components: (list) see CONS3RT API docs
         :param subtype: (str) see CONS3RT API docs
-        :param vgpuRequired: (bool) see CONS3RT API docs
-        :param physicalMachineId (int) see CONS3RT API docs
+        :param vgpu_required: (bool) see CONS3RT API docs
+        :param physical_machine_id (int) see CONS3RT API docs
         :param json_content (dict) JSON formatted content for the API call, supersedes other params except json_file
         :param json_file: (str) path to JSON file containing all required data, supersedes any other params
         :return: (int) ID of the system
@@ -2686,33 +2685,33 @@ class Cons3rtApi(object):
             if subtype == 'physicalHost':
                 log.debug('Creating JSON content from params for a physical host...')
 
-                if not isinstance(physicalMachineId, int):
+                if not isinstance(physical_machine_id, int):
                     try:
-                        physicalMachineId = int(physicalMachineId)
+                        physical_machine_id = int(physical_machine_id)
                     except ValueError as exc:
-                        raise Cons3rtApiError('physicalMachineId must be an Integer, found: {t}'.format(
-                            t=physicalMachineId.__class__.__name__)) from exc
+                        raise Cons3rtApiError('physical_machine_id must be an Integer, found: {t}'.format(
+                            t=physical_machine_id.__class__.__name__)) from exc
 
                 content['physicalMachine'] = {}
-                content['physicalMachine']['id'] = physicalMachineId
+                content['physicalMachine']['id'] = physical_machine_id
 
             elif subtype == 'virtualHost':
                 log.debug('Creating JSON content from params for a virtual host template profile...')
                 content['templateProfile'] = {}
-                content['templateProfile']['operatingSystem'] = operatingSystem
-                content['templateProfile']['minNumCpus'] = minNumCpus
-                content['templateProfile']['minRam'] = minRam
+                content['templateProfile']['operatingSystem'] = operating_system
+                content['templateProfile']['minNumCpus'] = min_num_cpus
+                content['templateProfile']['minRam'] = min_ram
                 content['templateProfile']['remoteAccessRequired'] = 'true'
-                content['templateProfile']['minBootDiskCapacity'] = minBootDiskCapacity
-                if vgpuRequired:
+                content['templateProfile']['minBootDiskCapacity'] = min_boot_disk_capacity
+                if vgpu_required:
                     content['templateProfile']['vgpuRequired'] = 'true'
                 else:
                     content['templateProfile']['vgpuRequired'] = 'false'
-                if additionalDisks:
-                    if not isinstance(additionalDisks, list):
-                        raise Cons3rtApiError('additionalDisks must be list, found: {t}'.format(
-                            t=additionalDisks.__class__.__name__))
-                    content['templateProfile']['additionalDisks'] = additionalDisks
+                if additional_disks:
+                    if not isinstance(additional_disks, list):
+                        raise Cons3rtApiError('additional_disks must be list, found: {t}'.format(
+                            t=additional_disks.__class__.__name__))
+                    content['templateProfile']['additionalDisks'] = additional_disks
 
             else:
                 raise Cons3rtApiError('subType must be virtualHost or physicalHost, found: {s}'.format(s=subtype))
@@ -3661,7 +3660,7 @@ class Cons3rtApi(object):
         NOTE: This does not support special permissions
 
         :param vr_id: (int) ID of the virtualization realm
-        :param template_name: (str) actual name of the template in the virtualization realm (or cons3rttemplatename tag)
+        :param template_name: (str) actual name of the template in the virtualization realm
         :param operating_system: (str) operating system type
         :param display_name: (str) optional display name for the template
         :param cons3rt_agent_installed: (bool) set True if cons3rt agent is installed
@@ -4709,7 +4708,7 @@ class Cons3rtApi(object):
         :param dr_id: (int) ID of the deployment run
         :param dr_host_id: (int) ID of the deployment run host
         :param action: (str) host action to perform
-        :param cpu: (int) number of CPUs if the action if the action is resize
+        :param cpu: (int) number of CPUs if the action is resize
         :param ram: (int) amount of ram in megabytes if the action is resize
         :return: None
         :raises Cons3rtApiError
@@ -4788,7 +4787,7 @@ class Cons3rtApi(object):
 
         :param dr_id: (int) ID of the deployment run
         :param action: (str) host action to perform
-        :param cpu: (int) number of CPUs if the action if the action is resize
+        :param cpu: (int) number of CPUs if the action is resize
         :param ram: (int) amount of ram in megabytes if the action is resize
         :param inter_host_action_delay_sec: (int) number of seconds between hosts
         :return: (list) of dict data on request results
@@ -4914,7 +4913,7 @@ class Cons3rtApi(object):
         return all_results
 
     def create_run_snapshots(self, dr_id):
-        """Attempts to creates snapshots for all hosts in the provided DR ID
+        """Attempts to create snapshots for all hosts in the provided DR ID
 
         :param dr_id: (int) ID of the deployment run
         :return: (list) of dict data on request results
@@ -4930,7 +4929,7 @@ class Cons3rtApi(object):
         return results
 
     def restore_run_snapshots(self, dr_id):
-        """Attempts to creates snapshots for all hosts in the provided DR ID
+        """Attempts to create snapshots for all hosts in the provided DR ID
 
         :param dr_id: (int) ID of the deployment run
         :return: (list) of dict data on request results
@@ -5096,13 +5095,13 @@ class Cons3rtApi(object):
         my_run_id = self.get_my_run_id()
 
         # Filter runs to take actions on by status and remove this run ID
-        action_approved_statii = ['RESERVED', 'TESTED']
+        action_approved_statuses = ['RESERVED', 'TESTED']
         action_drs = []
         for dr in drs:
             if my_run_id == dr['id']:
                 log.info('Not including MY OWN run ID on the action DR list: {i}'.format(i=str(my_run_id)))
                 continue
-            if dr['deploymentRunStatus'] not in action_approved_statii:
+            if dr['deploymentRunStatus'] not in action_approved_statuses:
                 log.info('Not including run ID {i} with status {s} on the action DR list'.format(
                     i=str(dr['id']), s=dr['deploymentRunStatus']))
                 continue
@@ -6043,7 +6042,6 @@ class Cons3rtApi(object):
         log = logging.getLogger(self.cls_logger + '.delete_virtualization_realms_for_cloud')
 
         # Store lists of deleted VRs and not deleted VRs
-        deleted_vrs = []
         not_deleted_vrs = []
 
         # Retrieve the list of virtualization realms

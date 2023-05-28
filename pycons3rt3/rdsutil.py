@@ -5,10 +5,10 @@ RDS API, including creating new RDS clusters.
 
 """
 import logging
-import os
 
 from botocore.client import ClientError
 
+from .awsutil import read_service_config
 from .logify import Logify
 from .awsutil import get_boto3_client
 from .ec2util import EC2Util, IpPermission
@@ -103,17 +103,17 @@ class RdsUtil(object):
         log = logging.getLogger(self.cls_logger + '.create_rds_instance')
 
         # Engine-specific params
-        port = None
         if db_engine == 'postgres':
             port = 5432
-            license_model = 'postgresql-license'
+            license_model = 'postgresql-license' if not license_model else license_model
         elif 'sqlserver' in db_engine:
             port = 1433
             db_name = None
-            license_model = 'license-included'
+            license_model = 'license-included' if not license_model else license_model
         else:
             msg = 'DB engine [{d}] is not supported at this time'.format(d=db_engine)
             raise RdsUtilError(msg)
+        log.info('Using license model: {l}'.format(l=license_model))
 
         # Ensure storage is an int
         try:
@@ -430,11 +430,10 @@ class RdsUtil(object):
         :param db_instance_id: (str) RDS DB instance identifier
         :return: (dict)
         """
-        log = logging.getLogger(self.cls_logger + '.wait_for_rds_instance_available')
         while True:
             try:
-                rds_info = self.get_rds_instance_by_id(db_instance_id=db_instance_id)
-            except (ClientError, RdsUtilError) as exc:
+                self.get_rds_instance_by_id(db_instance_id=db_instance_id)
+            except (ClientError, RdsUtilError):
                 pass
 
     def create_db_subnet_group(self, subnet_ids, group_name, group_description='DB subnet group'):
@@ -553,7 +552,7 @@ class RdsUtil(object):
     def delete_rds_instance(self, db_instance_id):
         """Deletes the specified instance ID
 
-        By default this will take a final snapshot before deletion, and erase the automated backups
+        By default, this will take a final snapshot before deletion, and erase the automated backups
 
         :param db_instance_id: (str) identifier of the DB
         :return: (dict) data about the deleted instance
@@ -588,42 +587,12 @@ def get_rds_client(region_name=None, aws_access_key_id=None, aws_secret_access_k
 
 
 def read_rds_config(rds_config_file):
-    """Reads the RDS config properties file
-
-    This method reads the RDS config properties file and returns a dict
+    """Reads and returns the RDS config file
 
     :param rds_config_file: (str) path to the RDS config file
-    :return: (dict) key-value pairs from the properties file
+    :return: (dict) containing RDS config data
     """
-    log = logging.getLogger(mod_logger + '.read_rds_config')
-    properties = {}
-    
-    # Ensure the RDS config props file exists
-    if not os.path.isfile(rds_config_file):
-        log.error('RDS config file not found: {f}'.format(f=rds_config_file))
-        return properties
-    
-    log.info('Reading RDS config properties file: {r}'.format(r=rds_config_file))
-    with open(rds_config_file, 'r') as f:
-        for line in f:
-            if line.startswith('#'):
-                continue
-            elif '=' in line:
-                split_line = line.strip().split('=', 1)
-                if len(split_line) == 2:
-                    prop_name = split_line[0].strip()
-                    prop_value = split_line[1].strip()
-                    if prop_name is None or not prop_name or prop_value is None or not prop_value:
-                        log.info('Property name <{n}> or value <v> is none or blank, not including it'.format(
-                            n=prop_name, v=prop_value))
-                    else:
-                        log.debug('Adding property {n} with value {v}...'.format(n=prop_name, v=prop_value))
-                        unescaped_prop_value = prop_value.replace('\\', '')
-                        properties[prop_name] = unescaped_prop_value
-                else:
-                    log.warning('Skipping line that did not split into 2 part on an equal sign...')
-    log.info('Successfully read in RDS config properties, verifying required props...')
-    return properties
+    return read_service_config(service_config_file=rds_config_file)
 
 
 def validate_rds_properties(rds_config_props):

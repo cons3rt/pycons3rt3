@@ -38,11 +38,7 @@ def generate_team_report(team_id, cons3rt_api, load=False):
     :raises: Cons3rtReportsError
     """
     log = logging.getLogger(mod_logger + '.generate_team_report')
-    try:
-        team_id = int(team_id)
-    except ValueError:
-        msg = 'Team ID provided is not a valid integer: {t}'.format(t=team_id)
-        raise Cons3rtReportsError(msg)
+    validate_team_id(team_id)
     log.info('Generating team VM tally for team ID: {t}'.format(t=str(team_id)))
 
     if not os.path.isdir(report_dir):
@@ -65,26 +61,21 @@ def generate_team_report(team_id, cons3rt_api, load=False):
     return cons3rt_vm_data
 
 
-def generate_team_asset_report(team_id, cons3rt_api):
+def generate_team_asset_report(team_id):
     """Generates reports for the specified team ID
 
     :param team_id: (int) ID of the team
-    :param cons3rt_api: (Cons3rtApi) object
     :return: None
     :raises: Cons3rtReportsError
     """
     log = logging.getLogger(mod_logger + '.generate_team_asset_report')
-    try:
-        team_id = int(team_id)
-    except ValueError:
-        msg = 'Team ID provided is not a valid integer: {t}'.format(t=team_id)
-        raise Cons3rtReportsError(msg)
+    validate_team_id(team_id)
     log.info('Generating team VM tally for team ID: {t}'.format(t=str(team_id)))
 
     if not os.path.isdir(report_dir):
         os.makedirs(report_dir, exist_ok=True)
 
-    asset_data = generate_team_asset_list(team_id=team_id, cons3rt_api=cons3rt_api)
+    asset_data = generate_team_asset_list(team_id=team_id)
 
     # Generate the output
     generate_asset_output(team_id=team_id, asset_data=asset_data)
@@ -100,21 +91,7 @@ def generate_cons3rt_data(team_id, cons3rt_api):
     """
     log = logging.getLogger(mod_logger + '.generate_cons3rt_data')
 
-    log.info('Retrieving team info for team ID: {i}'.format(i=str(team_id)))
-    try:
-        team_details = cons3rt_api.get_team_details(team_id=team_id)
-    except Cons3rtApiError as exc:
-        msg = 'Problem retrieving team details for team ID: {i}'.format(i=str(team_id))
-        raise Cons3rtReportsError(msg) from exc
-    team_name = team_details['name']
-    log.info('Retrieved details on team [{n}] with ID: {i}'.format(n=team_name, i=str(team_id)))
-
-    log.info('Retrieving deployment run and host details for team ID: {i}'.format(i=str(team_id)))
-    try:
-        run_host_list = cons3rt_api.list_host_details_in_team(team_id=team_id)
-    except Cons3rtApiError as exc:
-        msg = 'Problem getting a list of runs and hosts in team ID: {i}'.format(i=str(team_id))
-        raise Cons3rtReportsError(msg) from exc
+    run_host_list, team_name = get_run_host_list(team_id, cons3rt_api)
 
     # Get data from output
     log.info('Generating output from DR host...')
@@ -184,13 +161,12 @@ def generate_cons3rt_data(team_id, cons3rt_api):
     return drh_data
 
 
-def generate_team_asset_list(team_id, cons3rt_api):
+def generate_team_asset_list(team_id):
     """Returns software and container asset data for the specified team ID
 
     Assets used in currently active deployment runs.
 
     :param team_id: (int) ID of the team
-    :param cons3rt_api: (Cons3rtApi) object
     :return: (list) of assets used by the team:
     [
       {
@@ -202,21 +178,7 @@ def generate_team_asset_list(team_id, cons3rt_api):
     log = logging.getLogger(mod_logger + '.generate_team_asset_list')
     cons3rt_api = Cons3rtApi()
 
-    log.info('Retrieving team info for team ID: {i}'.format(i=str(team_id)))
-    try:
-        team_details = cons3rt_api.get_team_details(team_id=team_id)
-    except Cons3rtApiError as exc:
-        msg = 'Problem retrieving team details for team ID: {i}'.format(i=str(team_id))
-        raise Cons3rtReportsError(msg) from exc
-    team_name = team_details['name']
-    log.info('Retrieved details on team [{n}] with ID: {i}'.format(n=team_name, i=str(team_id)))
-
-    log.info('Retrieving deployment run and host details for team ID: {i}'.format(i=str(team_id)))
-    try:
-        run_host_list = cons3rt_api.list_host_details_in_team(team_id=team_id)
-    except Cons3rtApiError as exc:
-        msg = 'Problem getting a list of runs and hosts in team ID: {i}'.format(i=str(team_id))
-        raise Cons3rtReportsError(msg) from exc
+    run_host_list, team_name = get_run_host_list(team_id, cons3rt_api)
 
     # Generate the asset list
     asset_list = []
@@ -310,30 +272,73 @@ def read_cons3rt_data():
 
 
 def generate_cons3rt_output(team_id, cons3rt_data):
-    log = logging.getLogger(mod_logger + '.generate_cons3rt_output')
     csv = str(generate_cons3rt_header()) + '\n'
     for cons3rt_vm in cons3rt_data:
         csv += generate_cons3rt_row(cons3rt_vm=cons3rt_vm) + '\n'
     report_time = datetime.datetime.now()
     report_timestamp = report_time.strftime('%Y%m%d-%H%M%S')
     output_file_name = 'team_{t}_data_{s}.csv'.format(t=str(team_id), s=str(report_timestamp))
-    output_file_path = os.path.join(report_dir, output_file_name)
-    if os.path.isfile(output_file_path):
-        log.info('Removing existing output file: {f}'.format(f=output_file_path))
-        os.remove(output_file_path)
-    log.info('Generating output file: {f}'.format(f=output_file_path))
-    with open(output_file_path, 'w') as f:
-        f.write(csv)
+    write_output_file(output_file_name, csv)
 
 
 def generate_asset_output(team_id, asset_data):
-    log = logging.getLogger(mod_logger + '.generate_asset_output')
     csv = str(generate_asset_header()) + '\n'
     for asset_dict in asset_data:
         csv += generate_asset_row(asset_dict=asset_dict) + '\n'
     report_time = datetime.datetime.now()
     report_timestamp = report_time.strftime('%Y%m%d-%H%M%S')
     output_file_name = 'team_{t}_asset_data_{s}.csv'.format(t=str(team_id), s=str(report_timestamp))
+    write_output_file(output_file_name, csv)
+
+
+def validate_team_id(team_id):
+    """Validates the team ID
+
+    :param team_id: (int) ID of the team
+    :return: None
+    :raises: Cons3rtReportsError
+    """
+    try:
+        team_id = int(team_id)
+    except ValueError:
+        msg = 'Team ID provided is not a valid integer: {t}'.format(t=team_id)
+        raise Cons3rtReportsError(msg)
+
+
+def get_run_host_list(team_id, cons3rt_api):
+    """
+
+    :param team_id: (int) ID of the team
+    :param cons3rt_api: (Cons3rtApi) object
+    :return: (tuple) list of run hosts in the team, and str team name
+    :raises: Cons3rtReportsError
+    """
+    log = logging.getLogger(mod_logger + '.get_run_host_list')
+    log.info('Retrieving team info for team ID: {i}'.format(i=str(team_id)))
+    try:
+        team_details = cons3rt_api.get_team_details(team_id=team_id)
+    except Cons3rtApiError as exc:
+        msg = 'Problem retrieving team details for team ID: {i}'.format(i=str(team_id))
+        raise Cons3rtReportsError(msg) from exc
+    team_name = team_details['name']
+    log.info('Retrieved details on team [{n}] with ID: {i}'.format(n=team_name, i=str(team_id)))
+
+    log.info('Retrieving deployment run and host details for team ID: {i}'.format(i=str(team_id)))
+    try:
+        run_host_list = cons3rt_api.list_host_details_in_team(team_id=team_id)
+    except Cons3rtApiError as exc:
+        msg = 'Problem getting a list of runs and hosts in team ID: {i}'.format(i=str(team_id))
+        raise Cons3rtReportsError(msg) from exc
+    return run_host_list, team_name
+
+
+def write_output_file(output_file_name, csv):
+    """Write the report files
+
+    :param output_file_name: (str) output file name
+    :param csv: (str) comma-separated values
+    """
+    log = logging.getLogger(mod_logger + '.write_output_file')
     output_file_path = os.path.join(report_dir, output_file_name)
     if os.path.isfile(output_file_path):
         log.info('Removing existing output file: {f}'.format(f=output_file_path))

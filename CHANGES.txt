@@ -1,3 +1,9 @@
+0.0.15
+======
+
+* Added the capability to terminate a service runner process by converting from a threading.Thread to a multiprocessing.Process
+* Cleaned up duplicate code fragments
+
 0.0.14
 ======
 
