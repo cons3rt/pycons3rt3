@@ -105,6 +105,7 @@ def main():
     parser.add_argument('--cloud_ato_consent', help='Consent to the cloud ATO', action='store_true')
     parser.add_argument('--cloud_type', help='Type of cloud virtualization technology (awsCloud, azureCloud, '
                                              'openStackCloud, vCloudCloud, vCloudRestCloud)', required=False)
+    parser.add_argument('--cloudspaces', help='Print cloudspaces for a cloud', required=False, action='store_true')
     parser.add_argument('--config', help='Path to a config file to load', required=False)
     parser.add_argument('--delete', help='Delete action relative to the command provided', action='store_true')
     parser.add_argument('--delete_inactive_runs', help='Delete inactive runs from a cloudspace', action='store_true')

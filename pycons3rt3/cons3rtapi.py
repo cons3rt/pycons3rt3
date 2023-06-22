@@ -5909,7 +5909,7 @@ class Cons3rtApi(object):
 
             # TODO when Tracker 4459 is fixed, include the reg_details['templateData']['maxCpu']
             max_ram_mb = 131072
-            max_cpus = 16
+            max_cpus = 32
             if 'templateData' in reg_details.keys():
                 if 'maxRamInMegabytes' in reg_details['templateData']:
                     max_ram_mb = reg_details['templateData']['maxRamInMegabytes']
