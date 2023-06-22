@@ -531,6 +531,11 @@ class CloudCli(Cons3rtCli):
         for cloud in clouds:
             print(str(cloud))
 
+        if self.args.cloudspaces:
+            for cloud in clouds:
+                if 'virtualizationRealms' in cloud.keys():
+                    self.print_cloudspaces(cloud['virtualizationRealms'])
+
     def templates(self):
         if not self.ids:
             msg = '--id or --ids arg required to specify the cloud IDs share templates'
@@ -1111,6 +1116,8 @@ class ProjectCli(Cons3rtCli):
             'members',
             'run'
         ]
+        self.runs = None
+        self.member_list = None
 
     def process_subcommands(self):
         if not self.subcommands:
@@ -1142,6 +1149,20 @@ class ProjectCli(Cons3rtCli):
                 return False
         return True
 
+    def delete_runs(self):
+        runs = []
+        for project_id in self.ids:
+            runs += self.list_runs_for_project(project_id=project_id, search_type='SEARCH_INACTIVE')
+        if len(runs) > 0:
+            runs = self.sort_by_id(runs)
+        else:
+            print('No inactive runs to delete for project IDs: [{i}]'.format(
+                i=','.join(map(str, self.ids))))
+            return
+        print('Total number of inactive runs found to delete: {n}'.format(n=str(len(runs))))
+        for run in runs:
+            self.c5t.delete_inactive_run(dr_id=run['id'])
+
     def get_project(self):
         if not self.ids:
             msg = '--id or --ids arg required to specify the project ID(s)'
@@ -1156,6 +1177,82 @@ class ProjectCli(Cons3rtCli):
                 raise Cons3rtCliError(msg) from exc
             # TODO Do something better here
             print(str(project_details))
+
+    def list_active_runs_for_projects(self):
+        runs = []
+        for project_id in self.ids:
+            runs += self.list_runs_for_project(project_id=project_id, search_type='SEARCH_ACTIVE')
+        return runs
+
+    def list_project_members(self, state=None, role=None, username=None):
+        members = []
+        for project_id in self.ids:
+            try:
+                members += self.c5t.list_project_members(
+                    project_id=project_id, state=state, role=role, username=username
+                )
+            except Cons3rtApiError as exc:
+                msg = 'Problem listing members in project ID: {i}'.format(i=project_id)
+                self.err(msg)
+                raise Cons3rtCliError(msg) from exc
+        if len(members) > 0:
+            members = self.sort_by_id(members)
+            self.print_project_members(member_list=members)
+        print('Number of project members found: {n}'.format(n=str(len(members))))
+
+    def list_projects(self):
+        projects = []
+        try:
+            projects += self.c5t.list_projects()
+        except Cons3rtApiError as exc:
+            msg = 'There was a problem listing projects\n{e}'.format(e=str(exc))
+            self.err(msg)
+            raise Cons3rtCliError(msg) from exc
+        print('You are a member of {n} projects'.format(n=str(len(projects))))
+        if not self.args.my:
+            try:
+                projects += self.c5t.list_expanded_projects()
+            except Cons3rtApiError as exc:
+                msg = 'There was a problem listing projects\n{e}'.format(e=str(exc))
+                self.err(msg)
+                raise Cons3rtCliError(msg) from exc
+        if len(projects) > 0:
+            projects = self.sort_by_id(projects)
+            self.print_projects(project_list=projects)
+        print('Total number of projects found: {n}'.format(n=str(len(projects))))
+
+    def list_runs(self):
+        runs = self.list_runs_for_projects()
+        if len(runs) > 0:
+            self.runs = self.sort_by_id(runs)
+            self.print_drs(dr_list=self.runs)
+        print('Total number of runs found: {n}'.format(n=str(len(runs))))
+
+    def list_runs_for_project(self, project_id, search_type):
+        try:
+            runs = self.c5t.list_runs_in_project(
+                project_id=project_id,
+                search_type=search_type
+            )
+        except Cons3rtApiError as exc:
+            msg = 'Problem listing runs in project ID: {i}\n{e}'.format(i=str(project_id), e=str(exc))
+            self.err(msg)
+            raise Cons3rtCliError(msg) from exc
+        return runs
+
+    def list_runs_for_projects(self):
+        runs = []
+        if self.args.all:
+            search_type = 'SEARCH_ALL'
+        elif self.args.active:
+            search_type = 'SEARCH_ACTIVE'
+        elif self.args.inactive:
+            search_type = 'SEARCH_INACTIVE'
+        else:
+            search_type = 'SEARCH_ALL'
+        for project_id in self.ids:
+            runs += self.list_runs_for_project(project_id=project_id, search_type=search_type)
+        return runs
 
     def members(self):
         if not self.ids:
@@ -1189,109 +1286,37 @@ class ProjectCli(Cons3rtCli):
                 self.err('Unrecognized member command: {c}'.format(c=member_subcommand))
             return False
 
-    def run(self):
-        if not self.ids:
-            msg = '--id or --ids arg required to specify the project ID(s)'
-            self.err(msg)
-            raise Cons3rtCliError(msg)
-        if len(self.subcommands) > 1:
-            project_subcommand = self.subcommands[1]
-            if project_subcommand == 'delete':
-                self.delete_runs()
-                return
-            elif project_subcommand == 'list':
-                self.list_runs()
-                return
-            elif project_subcommand == 'release':
-                self.release_runs()
-                return
-            else:
-                self.err('Unrecognized project command: {c}'.format(c=project_subcommand))
-            return False
+    def power_off_runs(self):
+        """Powers off the project runs
 
-    def list_projects(self):
-        projects = []
+        :return: None
+        :raises: Cons3rtCliError
+        """
+        runs = self.list_active_runs_for_projects()
+        project_id_list = [str(num) for num in self.ids]
+        print('Attempting to power off {n} runs in projects: {p}'.format(
+                n=str(len(runs)), p=','.join(project_id_list)))
         try:
-            projects += self.c5t.list_projects()
+            self.c5t.power_off_multiple_runs(drs=runs)
         except Cons3rtApiError as exc:
-            msg = 'There was a problem listing projects\n{e}'.format(e=str(exc))
-            self.err(msg)
+            msg = 'Problem powering off runs in projects: {p}'.format(p=project_id_list)
             raise Cons3rtCliError(msg) from exc
-        print('You are a member of {n} projects'.format(n=str(len(projects))))
-        if not self.args.my:
-            try:
-                projects += self.c5t.list_expanded_projects()
-            except Cons3rtApiError as exc:
-                msg = 'There was a problem listing projects\n{e}'.format(e=str(exc))
-                self.err(msg)
-                raise Cons3rtCliError(msg) from exc
-        if len(projects) > 0:
-            projects = self.sort_by_id(projects)
-            self.print_projects(project_list=projects)
-        print('Total number of projects found: {n}'.format(n=str(len(projects))))
 
-    def list_project_members(self, state=None, role=None, username=None):
-        members = []
-        for project_id in self.ids:
-            try:
-                members += self.c5t.list_project_members(
-                    project_id=project_id, state=state, role=role, username=username
-                )
-            except Cons3rtApiError as exc:
-                msg = 'Problem listing members in project ID: {i}'.format(i=project_id)
-                self.err(msg)
-                raise Cons3rtCliError(msg) from exc
-        if len(members) > 0:
-            members = self.sort_by_id(members)
-            self.print_project_members(member_list=members)
-        print('Number of project members found: {n}'.format(n=str(len(members))))
+    def power_on_runs(self):
+        """Powers on the project runs
 
-    def list_runs(self):
-        runs = self.list_runs_for_projects()
-        if len(runs) > 0:
-            runs = self.sort_by_id(runs)
-            self.print_drs(dr_list=runs)
-        print('Total number of runs found: {n}'.format(n=str(len(runs))))
-
-    def list_runs_for_projects(self):
-        runs = []
-        if self.args.all:
-            search_type = 'SEARCH_ALL'
-        elif self.args.active:
-            search_type = 'SEARCH_ACTIVE'
-        elif self.args.inactive:
-            search_type = 'SEARCH_INACTIVE'
-        else:
-            search_type = 'SEARCH_ALL'
-        for project_id in self.ids:
-            runs += self.list_runs_for_project(project_id=project_id, search_type=search_type)
-        return runs
-
-    def list_runs_for_project(self, project_id, search_type):
+        :return: None
+        :raises: Cons3rtCliError
+        """
+        runs = self.list_active_runs_for_projects()
+        project_id_list = [str(num) for num in self.ids]
+        print('Attempting to power on {n} runs in projects: {p}'.format(
+            n=str(len(runs)), p=','.join(project_id_list)))
         try:
-            runs = self.c5t.list_runs_in_project(
-                project_id=project_id,
-                search_type=search_type
-            )
+            self.c5t.power_on_multiple_runs(drs=runs)
         except Cons3rtApiError as exc:
-            msg = 'Problem listing runs in project ID: {i}\n{e}'.format(i=str(project_id), e=str(exc))
-            self.err(msg)
+            msg = 'Problem powering on runs in projects: {p}'.format(p=project_id_list)
             raise Cons3rtCliError(msg) from exc
-        return runs
-
-    def delete_runs(self):
-        runs = []
-        for project_id in self.ids:
-            runs += self.list_runs_for_project(project_id=project_id, search_type='SEARCH_INACTIVE')
-        if len(runs) > 0:
-            runs = self.sort_by_id(runs)
-        else:
-            print('No inactive runs to delete for project IDs: [{i}]'.format(
-                i=','.join(map(str, self.ids))))
-            return
-        print('Total number of inactive runs found to delete: {n}'.format(n=str(len(runs))))
-        for run in runs:
-            self.c5t.delete_inactive_run(dr_id=run['id'])
 
     def release_runs(self):
         runs = []
@@ -1314,6 +1339,70 @@ class ProjectCli(Cons3rtCli):
                 print('WARNING: id not found in run: {r}'.format(r=str(run)))
                 continue
             self.c5t.release_deployment_run(dr_id=run['id'])
+
+    def restore_runs(self):
+        """Restore the project runs from snapshots
+
+        :return: None
+        :raises: Cons3rtCliError
+        """
+        runs = self.list_active_runs_for_projects()
+        project_id_list = [str(num) for num in self.ids]
+        print('Attempting to restore {n} runs in projects: {p}'.format(
+            n=str(len(runs)), p=','.join(project_id_list)))
+        try:
+            self.c5t.restore_run_snapshots_multiple(drs=runs)
+        except Cons3rtApiError as exc:
+            msg = 'Problem restoring runs from snapshots in projects: {p}'.format(p=project_id_list)
+            raise Cons3rtCliError(msg) from exc
+
+    def run(self):
+        if not self.ids:
+            msg = '--id or --ids arg required to specify the project ID(s)'
+            self.err(msg)
+            raise Cons3rtCliError(msg)
+        if len(self.subcommands) > 1:
+            project_subcommand = self.subcommands[1]
+            if project_subcommand == 'delete':
+                self.delete_runs()
+                return
+            elif project_subcommand == 'list':
+                self.list_runs()
+                return
+            elif project_subcommand == 'off':
+                self.power_off_runs()
+                return
+            elif project_subcommand == 'on':
+                self.power_on_runs()
+                return
+            elif project_subcommand == 'release':
+                self.release_runs()
+                return
+            elif project_subcommand == 'restore':
+                self.restore_runs()
+                return
+            elif project_subcommand == 'snapshot':
+                self.snapshot_runs()
+                return
+            else:
+                self.err('Unrecognized project command: {c}'.format(c=project_subcommand))
+            return False
+
+    def snapshot_runs(self):
+        """Snapshots the project runs
+
+        :return: None
+        :raises: Cons3rtCliError
+        """
+        runs = self.list_active_runs_for_projects()
+        project_id_list = [str(num) for num in self.ids]
+        print('Attempting to snapshot {n} runs in projects: {p}'.format(
+            n=str(len(runs)), p=','.join(project_id_list)))
+        try:
+            self.c5t.create_run_snapshots_multiple(drs=runs)
+        except Cons3rtApiError as exc:
+            msg = 'Problem creating snapshots for runs in projects: {p}'.format(p=project_id_list)
+            raise Cons3rtCliError(msg) from exc
 
 
 class RunCli(Cons3rtCli):
@@ -1605,7 +1694,7 @@ class TeamCli(Cons3rtCli):
 
     def generate_asset_report(self, team_id):
         try:
-            generate_team_asset_report(team_id=team_id, cons3rt_api=self.c5t)
+            generate_team_asset_report(team_id=team_id)
         except Cons3rtReportsError as exc:
             msg = 'Problem generating asset report for team ID: {i}\n{e}'.format(i=str(team_id), e=str(exc))
             self.err(msg)
