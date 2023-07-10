@@ -2136,15 +2136,7 @@ class Cons3rtApi(object):
         :return: (list) containing all site users
         :raises: Cons3rtApiError
         """
-        log = logging.getLogger(self.cls_logger + '.query_all_users')
-        log.info('Attempting to query CONS3RT to retrieve all users...')
-        try:
-            users = self.cons3rt_client.retrieve_all_users()
-        except Cons3rtClientError as exc:
-            msg = 'There was a problem querying for all users'
-            raise Cons3rtApiError(msg) from exc
-        log.info('Successfully retrieved all site users')
-        return users
+        return self.list_users()
 
     def list_all_users(self):
         """Retrieve all users from the CONS3RT site
@@ -2152,7 +2144,58 @@ class Cons3rtApi(object):
         :return: (list) containing all site users
         :raises: Cons3rtApiError
         """
-        return self.retrieve_all_users()
+        return self.list_users()
+
+    def list_active_users(self):
+        """Retrieve active users from the CONS3RT site
+
+        :return: (list) containing all site users
+        :raises: Cons3rtApiError
+        """
+        return self.list_users(state='ACTIVE')
+
+    def list_inactive_users(self):
+        """Retrieve inactive users from the CONS3RT site
+
+        :return: (list) containing all site users
+        :raises: Cons3rtApiError
+        """
+        return self.list_users(state='INACTIVE')
+
+    def list_requested_users(self):
+        """Retrieve requested users from the CONS3RT site
+
+        :return: (list) containing all site users
+        :raises: Cons3rtApiError
+        """
+        return self.list_users(state='REQUESTED')
+
+    def list_users(self, state=None, created_before=None, created_after=None, max_results=500):
+        """Query CONS3RT to list site users
+
+        :param state: (state) user state "REQUESTED" "ACTIVE" "INACTIVE"
+        :param created_before: (int) Date (seconds since epoch) to filter on
+        :param created_after: (int) Date (seconds since epoch) to filter on
+        :param max_results: (int) maximum results to return per page
+        :return: (list) Containing all site users
+        :raises: Cons3rtApiError
+        """
+        log = logging.getLogger(self.cls_logger + '.list_users')
+        if state:
+            state_str = state
+        else:
+            state_str = 'ALL_STATES'
+        log.info('Attempting to list site users: {s}'.format(s=state_str))
+
+        # Get a list of users
+        try:
+            users = self.cons3rt_client.list_users(state=state, created_before=created_before,
+                                                   created_after=created_after, max_results=max_results)
+        except Cons3rtClientError as exc:
+            msg = 'Problem getting a list of users'
+            raise Cons3rtApiError(msg) from exc
+        log.info('Found {n} users with state: {s}'.format(n=str(len(users)), s=state_str))
+        return users
 
     def list_team_managers(self, active_only=False, not_expired=False):
         """Retrieves a list of team managers for all teams

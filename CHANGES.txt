@@ -4,6 +4,8 @@
 * Added the capability to terminate a service runner process by converting from a threading.Thread to a multiprocessing.Process
 * Cleaned up duplicate code fragments
 * Added CLI commands cons3rt project run off, on, snapshot, and restore to manage runs at the project level
+* Expanded the methods for listing site users via a new method list_users which take more options like user state and creation dates,
+and added the ability to set max_results, and set the default to 500, which should significant speed up this query
 
 0.0.14
 ======
