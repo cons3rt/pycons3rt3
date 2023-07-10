@@ -7,7 +7,14 @@ Notes:
     - Currently only the "on" command is supported
 
 Usage:
-    migrate on --cloudtype aws --host 'h-12345' --id='i-12345' --size='m5.huge'
+    # Migrate a deployment run host on to a dedicated host
+    migrate on --cloudtype aws --host 'h-12345' --id 'i-12345' --size 'm5.large'
+
+    # Migrate a deployment run host off of a dedicated host
+    migrate off --cloudtype aws --id 'i-12345' --size 'm5.large'
+
+    # Migrate a deployment run host on to a dedicated host from a specific ami ID
+    migrate on --cloudtype aws --host 'h-12345' --id 'i-12345' --size 'm5.large' --ami 'ami-12345'
 
 """
 
@@ -474,10 +481,13 @@ def main():
         return 1
 
     # Get the subcommands
+    subcommands = None
     if args.subcommands:
         subcommands = args.subcommands
-    else:
-        subcommands = None
+        for subcommand in subcommands:
+            if subcommand not in valid_subcommands:
+                print('Invalid subcommand found [{c}]\n'.format(c=subcommand) + valid_subcommands_str)
+                return 1
 
     # Get the AMI ID
     ami_id = None
