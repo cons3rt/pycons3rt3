@@ -11,6 +11,8 @@ from .logify import Logify
 
 from .cloud import Cloud
 from .cons3rtclient import Cons3rtClient
+from .cons3rtenums import cons3rt_deployment_run_status_active
+from .cons3rtwaiters import RunWaiter
 from .deployment import Deployment
 from .pycons3rtlibs import HostActionResult, RestUser
 from .cons3rtconfig import cons3rtapi_config_file, get_pycons3rt_conf_dir
@@ -1432,12 +1434,9 @@ class Cons3rtApi(object):
             msg = 'Problem listing runs for deployment ID: {i}'.format(i=str(deployment_id))
             raise Cons3rtClientError(msg) from exc
 
-        # Check for a DR with an active status
-        active_statuses = ['SUBMITTED', 'PROVISIONING_HOSTS', 'HOSTS_PROVISIONED', 'RESERVED', 'TESTING', 'TESTED']
-
         for dr in drs:
             if 'deploymentRunStatus' in dr:
-                if dr['deploymentRunStatus'] in active_statuses:
+                if dr['deploymentRunStatus'] in cons3rt_deployment_run_status_active:
                     log.info('Found a DR with an active status: {i}'.format(i=str(dr['id'])))
                     return dr['id']
         log.info('No active DR found for deployment ID: {i}'.format(i=str(deployment_id)))
@@ -1466,13 +1465,10 @@ class Cons3rtApi(object):
             msg = 'Problem listing runs for deployment ID: {i}'.format(i=str(deployment_id))
             raise Cons3rtClientError(msg) from exc
 
-        # Check for a DR with an active status
-        active_statuses = ['SUBMITTED', 'PROVISIONING_HOSTS', 'HOSTS_PROVISIONED', 'RESERVED', 'TESTING', 'TESTED']
-
         inactive_drs = []
         for dr in drs:
             if 'deploymentRunStatus' in dr:
-                if dr['deploymentRunStatus'] not in active_statuses:
+                if dr['deploymentRunStatus'] not in cons3rt_deployment_run_status_active:
                     log.info('Found a DR with an inactive status: {i}'.format(i=str(dr['id'])))
                     inactive_drs.append(dr)
         log.info('Found {n} inactive DRs found for deployment ID: {i}'.format(
@@ -3142,22 +3138,27 @@ class Cons3rtApi(object):
             msg = 'unlock arg must be a bool, found: {t}'.format(t=unlock.__class__.__name__)
             raise Cons3rtApiError(msg)
 
+        # List of desired deployment run status for completed/cancelled runs
+        desired_status_list = ['CANCELED', 'COMPLETED']
+
         # Store the released and not released runs
         released_runs = []
         not_released_runs = []
+        released_runs_threads = []
 
         # List active runs in the virtualization realm
         try:
-            drs = self.list_deployment_runs_in_virtualization_realm(vr_id=vr_id, search_type='SEARCH_ACTIVE')
+            initial_active_drs = self.list_deployment_runs_in_virtualization_realm(
+                vr_id=vr_id, search_type='SEARCH_ACTIVE')
         except Cons3rtApiError as exc:
             msg = 'Cons3rtApiError: There was a problem listing active deployment runs in VR ID: {i}'.format(
                 i=str(vr_id))
             raise Cons3rtApiError(msg) from exc
 
         # Release or cancel each active run
-        log.debug('Found active runs in VR ID {i}:\n{r}'.format(i=str(vr_id), r=str(drs)))
+        log.debug('Found active runs in VR ID {i}:\n{r}'.format(i=str(vr_id), r=str(initial_active_drs)))
         log.info('Attempting to release or cancel active runs from VR ID: {i}'.format(i=str(vr_id)))
-        for dr in drs:
+        for dr in initial_active_drs:
             if 'id' not in dr.keys():
                 log.warning('Unable to determine the run ID: {r}'.format(r=str(dr)))
                 not_released_runs.append(dr)
@@ -3214,19 +3215,51 @@ class Cons3rtApi(object):
                 try:
                     self.release_deployment_run(dr_id=dr['id'])
                 except Cons3rtApiError as exc:
-                    log.warning('Unable to release or cancel run ID: {i}\n{e}'.format(
-                        i=str(dr['id']), e=str(exc)))
+                    log.warning('Unable to release or cancel run ID: {i}\n{e}'.format(i=str(dr['id']), e=str(exc)))
                     not_released_runs.append(dr)
                     continue
                 else:
                     log.info('Released run [{d}] from virtualization realm [{v}]'.format(d=str(dr['id']), v=str(vr_id)))
                     released_runs.append(dr)
+                    run_waiter = RunWaiter(
+                        cons3rt_api=self,
+                        dr_id=dr['id'],
+                        desired_status_list=desired_status_list,
+                        max_wait_time_sec=43200,
+                        check_interval_sec=60
+                    )
+                    log.info('Starting a thread to wait for DR to release: {d}'.format(d=str(dr['id'])))
+                    run_waiter.start()
+                    released_runs_threads.append(run_waiter)
         log.info('Completed releasing or cancelling active DRs in VR ID: {i}'.format(i=str(vr_id)))
 
+        # Wait until all deployment threads are completed
+        log.info('Waiting until all {n} released DRs have completed releasing'.format(
+            n=str(len(released_runs_threads))))
+        time.sleep(1)
+        for t in released_runs_threads:
+            t.join()
+        log.info('All {n} runs have completed releasing, checking for failures...'.format(
+            n=str(len(released_runs_threads))))
+
+        # Check the threads for failures, and build a list of error messages
+        error_messages = []
+        for t in released_runs_threads:
+            if t.error:
+                error_messages.append(
+                    'Releasing DR [{d}] failed with message: {m}'.format(d=str(t.dr_id), m=t.error_msg)
+                )
+        if len(error_messages) > 0:
+            msg = '{n} DRs failed to release with messages: {m}'.format(
+                n=str(len(error_messages)), m='\n'.join(error_messages))
+            raise Cons3rtApiError(msg)
+        log.info('No failures detected releasing {n} DRs'.format(n=str(len(released_runs_threads))))
+
+        # Print the final status
         processed_runs = len(released_runs) + len(not_released_runs)
-        if len(drs) != processed_runs:
+        if len(initial_active_drs) != processed_runs:
             log.warning('The total runs [{t}] in virtualization realm {v} did not equal the number of runs processed'
-                        'for release: {p}'.format(t=str(len(drs)), v=str(vr_id), p=str(processed_runs)))
+                        'for release: {p}'.format(t=str(len(initial_active_drs)), v=str(vr_id), p=str(processed_runs)))
         return released_runs, not_released_runs
 
     def clean_all_runs_in_virtualization_realm(self, vr_id, unlock=False):
@@ -3269,8 +3302,12 @@ class Cons3rtApi(object):
                 raise Cons3rtApiError(msg)
             log.info('Attempting to release active runs from VR ID {i}, attempt #{n} of {m}'.format(
                 i=str(vr_id), n=str(attempt_num), m=str(max_attempts)))
-            released_runs, not_released_runs = self.release_active_runs_in_virtualization_realm(
-                vr_id=vr_id, unlock=unlock)
+            try:
+                released_runs, not_released_runs = self.release_active_runs_in_virtualization_realm(
+                    vr_id=vr_id, unlock=unlock)
+            except Cons3rtApiError as exc:
+                msg = 'Problem releasing active runs in VR: {v}'.format(v=str(vr_id))
+                raise Cons3rtApiError(msg) from exc
             log.info('Released {n} runs from VR ID: {v}'.format(n=str(len(released_runs)), v=str(vr_id)))
             if (len(released_runs) + len(not_released_runs)) == 0:
                 log.info('Completed releasing active runs from VR ID: {i}'.format(i=str(vr_id)))
