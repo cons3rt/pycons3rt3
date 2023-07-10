@@ -1,6 +1,7 @@
 #!/usr/bin/python
 
 import json
+import logging
 
 from .httpclient import Client
 from .exceptions import Cons3rtClientError
@@ -1721,17 +1722,33 @@ class Cons3rtClient:
             msg = 'The HTTP response contains a bad status code'
             raise Cons3rtClientError(msg) from exc
 
-    def retrieve_all_users(self):
-        """Query CONS3RT to retrieve all site users
+    def list_users(self, state=None, created_before=None, created_after=None, max_results=500):
+        """Query CONS3RT to list site users
 
+        :param state: (state) user state "REQUESTED" "ACTIVE" "INACTIVE"
+        :param created_before: (int) Date (seconds since epoch) to filter on
+        :param created_after: (int) Date (seconds since epoch) to filter on
+        :param max_results: (int) maximum results to return per page
         :return: (list) Containing all site users
         :raises: Cons3rtClientError
         """
         users = []
         page_num = 0
+        params = ''
+        if state:
+            if state not in ['REQUESTED', 'ACTIVE', 'INACTIVE']:
+                msg = 'Invalid state, must be REQUESTED, ACTIVE, or INACTIVE: {s}'.format(s=state)
+                raise Cons3rtClientError(msg)
+            params += '&state={s}'.format(s=state)
+        if created_before:
+            params += '&createdbefore={t}'.format(t=str(created_before))
+        if created_after:
+            params += '&createdafter={t}'.format(t=str(created_after))
+        params += '&maxresults={m}'.format(m=str(max_results))
+        base_target = 'users?' + params.lstrip('&')
         while True:
             print('Retrieving users: page {p}'.format(p=str(page_num)))
-            target = 'users?maxresults=100&page={p}'.format(p=str(page_num))
+            target = base_target + '&page={p}'.format(p=str(page_num))
             try:
                 response = self.http_client.http_get(
                     rest_user=self.user,
@@ -1749,6 +1766,22 @@ class Cons3rtClient:
                 page_num += 1
             print('Found {n} users...'.format(n=str(len(users))))
         return users
+
+    def list_all_users(self):
+        """Query CONS3RT to retrieve all site users
+
+        :return: (list) Containing all site users
+        :raises: Cons3rtClientError
+        """
+        return self.list_users()
+
+    def retrieve_all_users(self):
+        """Query CONS3RT to retrieve all site users
+
+        :return: (list) Containing all site users
+        :raises: Cons3rtClientError
+        """
+        return self.list_users()
 
     def retrieve_container_asset(self, asset_id):
         """Retrieves details for the container asset
