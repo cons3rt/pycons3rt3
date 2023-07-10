@@ -17,9 +17,10 @@ Python3 integration for CONS3RT
 
 #### Install from pip
 
-If you have Python 3.5+ installed, you can run:
+If you have Python 3.5+ installed, you can run one of the following:
 
-`pip install pycons3rt3`
+`pip3 install pycons3rt3`
+`python3 -m pip install pycons3rt3`
 
 #### Install from source
 
@@ -30,28 +31,39 @@ pip install -r cfg/requirements.txt
 python setup.py install
 ~~~
 
+## Directories
+
 When installed, pycons3rt determines and creates a system directory (`pycons3rt_system_home`) and 
-a local user directory (`pycons3rt_user_home`).  
+a local user directory (`pycons3rt_user_home`).
 
-Set the `PYCONS3RT_HOME` environment variable to point pycons3rt3 to a desired
-directory.  If set, `PYCONS3RT_HOME` is used for `pycons3rt_system_home` and 
-`pycons3rt_user_home`.
-
-The `pycons3rt_system_home` directory is located on your system here:
+The default locations for `pycons3rt_system_home` are here:
 
 * Linux: `~/.cons3rt`
 * MacOS: `~/.cons3rt`
 * Windows: `C:\cons3rt`
 
-The `pycons3rt_user_home` is always: `~/.cons3rt` on all OS types.
+The default locations for `pycons3rt_user_home` is: `~/.cons3rt` on all OS types.
+
+### PYCONS3RT_HOME environment variable
+
+To change the location of `pycons3rt_system_home` and `pycons3rt_user_home`, set the environment variable  
+`PYCONS3RT_HOME` to an existing directory.  This directory will be used for both system and user home directories.
+
+To do this on Linux or macOS, add the following to `~/.bash_profile`:
+
+```
+export PYCONS3RT_HOME="/path/to/desired/directory"
+```
+
+On Windows, add the `PYCONS3RT_HOME` environment variable to the system settings.
 
 The following directories are also created:
 
-* System pycons3rt config dir: `pycons3rt_system_home/conf/`
-* User log dir (default): `pycons3rt_user_home/log/`
-* Pycons3rt source dir: `pycons3rt_user_home/src/`
+* Config: `pycons3rt_system_home/conf/`
+* Logs: `pycons3rt_user_home/log/`
+* Source: `pycons3rt_user_home/src/`
 
-The asset clones the pycons3rt source code here for installation:
+If installed from source via asset, the asset clones the pycons3rt source code here for installation:
 
 * `pycons3rt_user_home/src/pycons3rt`
 
@@ -67,25 +79,18 @@ By default, pycons3rt log files will output here:
 
 ## CONS3RT ReST API and CLI
 
-pycons3rt3 provides a python3 SDK for using the CONS3RT ReST API.  
-
-> There is an official verison coming soon with full support.  This
-version does not support all API calls, email support@cons3rt.com to 
-request a call added.
+pycons3rt3 provides a python3 SDK for using the CONS3RT ReST API.
 
 To access the ReST API you will need:
 
-* An active account on HmC or cons3rt.com
+* An active CONS3RT Account
 * Access to a project
-* A ReST API token ([click here for instructions](https://kb.cons3rt.com/kb/accounts/api-tokens))
-* For sites that require **Certificate Authentication** you will require an 
-[ECA certificate](https://kb.cons3rt.com/kb/accounts/obtain-an-eca-certificate) or a machine 
-certificate.  Contact [support@cons3rt.com](mailto:support@cons3rt.com) to request a machine 
-certificate.
+* A CONS3RT project-based ReST API token
+* For sites that require Client Certificate Authentication you will need a valid PKI certificate (ECA) 
 
 > pycons3rt3 does **not** support CAC authentication at this time
 
-If you have a certificate in p12 or pfx format, convert it to a passwordless pem file:
+If you have an ECA certificate in p12 or pfx format, convert it to a password-less pem file:
 
 `openssl pkcs12 -in certfile.pfx -out certfile.pem -nodes`
 
@@ -99,19 +104,19 @@ After entering your info, a config file is created here:
 
 `pycons3rt_user_home/conf/config.json`
 
-This configuration will automatically loaded for ReST API calls.
+This configuration will automatically load for ReST API calls.
 
 # asset CLI
 
 The asset CLI command helps you automatically create and import assets:
 
-Validate your asset directory, and check for errors:
+```
+# Validate an asset structure
+asset validate --asset_dir=/path/to/asset
 
-`asset validate --asset_dir=/path/to/asset`
-
-Validate and create an asset zip file for import in your Downloads directory (default):
-
-`asset create --asset_dir=/path/to/asset`
+# Create a valid asset zip file
+asset create --asset_dir=/path/to/asset
+```
 
 * Creates an asset zip file `AssetName.zip` in your Downloads directory
 
