@@ -162,27 +162,104 @@ Use the `queryids` command to query for just the latest asset ID for asset with 
 
 # cons3rt CLI
 
-Configure the API authentication info:
+Usage:
+
+`cons3rt <command> <subcommands> <args>`
+
+Interactive command to create a `config.json` file:
 
 `cons3rt config`
 
+> This creates a config file at the default location: `~/.cons3rt/conf/config.json`
+
+> If `PYCONS3RT_HOME` environment variable is defined, config file location: `${PYCONS3RT_HOME}/conf/config.json`
+
+Specify a config file location:
+
+`cons3rt --config /path/to/config.json <command> <subcommands> <args>`
+
+## cons3rt cloud CLI
+
+Permissions:
+* **Team Manager** role
+
+The `--id=1` or `--ids=1,2,3` args indicate cloud IDs
+
+```
+# Delete a cloud
+cons3rt cloud delete --id=1
+
+# List clouds
+cons3rt cloud list
+
+# Retrieve cloud details
+cons3rt cloud retrieve --id=1
+
+# Share a template from the cloud template provider to all other cloudspaces in the cloud
+cons3rt cloud template --id=1 --share --name 'cons3rt-redhat-8'
+
+# Share all templates from the cloud template provider to all other cloudspaces in the cloud
+cons3rt cloud template --id=1 --share --all
+```
+
 ## cons3rt cloudspace CLI
 
-> Cloudspace CLI calls require the caller to have the **Team Manager** role in CONS3RT.
+Permissions:
+* **Team Manager** role
 
 The `--id=1` or `--ids=1,2,3` args can be used to indicate which cloudspace IDs.
 
-List active runs in a cloudspace:
+```
+# Release active runs from multiple cloudspaces:
+cons3rt cloudspace --release_active_runs --ids=123,124
 
-`cons3rt cloudspace --list_active_runs --id=123`
+# Delete inactive runs from your cloudspace
+cons3rt cloudspace --delete_inactive_runs --id=123
 
-Release active runs from multiple cloudspaces:
+# Deallocate a cloudspace
+cons3rt cloudspace deallocate --id 123
 
-`cons3rt cloudspace --release_active_runs --ids=123,124`
+# List cloudspaces
+cons3rt cloudspace list
 
-Delete inactive runs from your cloudspace
+# List active runs in a cloudspace:
+cons3rt cloudspace --list_active_runs --id=123
 
-`cons3rt cloudspace --delete_inactive_runs --id=123`
+# Delete a specific template
+cons3rt cloudspace template delete --id=1 --name 'cons3rt-redhat-8'
+
+# Delete all templates in a cloudspace
+cons3rt cloudspace template delete --id=1 --all
+
+# List templates in a cloudspace
+cons3rt cloudspace template list --id=1
+
+# Register template in a cloudspace
+cons3rt cloudspace template register --id=1 --name 'cons3rt-redhat-8'
+
+# Register multiple templates
+cons3rt cloudspace template register --id=1 --names 'cons3rt-redhat-8,cons3rt-redhat-9'
+
+# Register all unregistered templates
+cons3rt cloudspace template register --all
+
+# Retrieve cloudpace details
+cons3rt cloudspace retrieve --id=16
+
+# Share a specific template from one cloudspace to another
+cons3rt cloudspace template share --provider_id=1 --ids=2,3,4,5,6 --name 'cons3rt-redhat-8'
+
+# Share multiple templates from one cloudspace to another
+cons3rt cloudspace template share --provider_id=1 --ids=2,3,4,5,6 --names 'cons3rt-redhat-8,cons3rt-redhat-9'
+
+# Share all templates from one cloudspace to another
+cons3rt cloudspace template share --provider_id=1 --ids=2,3,4,5,6 --all
+
+# Unregister a cloudspace
+cons3rt cloudspace unregister --id 123
+```
+
+
 
 
 # Use pycons3rt3 in python3
