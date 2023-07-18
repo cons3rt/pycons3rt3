@@ -1410,8 +1410,10 @@ class RunCli(Cons3rtCli):
     def __init__(self, args, subcommands):
         Cons3rtCli.__init__(self, args=args, subcommands=subcommands)
         self.valid_subcommands = [
+            'cancel',
             'off',
             'on',
+            'release',
             'restore',
             'snapshot'
         ]
@@ -1424,6 +1426,11 @@ class RunCli(Cons3rtCli):
         if self.subcommands[0] not in self.valid_subcommands:
             self.err('Unrecognized command: {c}'.format(c=self.subcommands[0]))
             return False
+        if self.subcommands[0] == 'cancel':
+            try:
+                self.cancel()
+            except Cons3rtCliError:
+                return False
         if self.subcommands[0] == 'off':
             try:
                 self.power_off()
@@ -1432,6 +1439,11 @@ class RunCli(Cons3rtCli):
         if self.subcommands[0] == 'on':
             try:
                 self.power_on()
+            except Cons3rtCliError:
+                return False
+        if self.subcommands[0] == 'release':
+            try:
+                self.cancel()
             except Cons3rtCliError:
                 return False
         if self.subcommands[0] == 'restore':
@@ -1445,6 +1457,11 @@ class RunCli(Cons3rtCli):
             except Cons3rtCliError:
                 return False
         return True
+
+    def cancel(self):
+        for run_id in self.ids:
+            self.c5t.release_deployment_run(dr_id=run_id)
+            print('Attempted to cancel deployment run: {r}'.format(r=str(run_id)))
 
     def power_off(self):
         results = []
