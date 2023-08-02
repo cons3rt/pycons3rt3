@@ -4209,6 +4209,7 @@ class Cons3rtApi(object):
 
         :param vr_id: (int) VR ID
         :return: (dict) VR details
+        :raises: Cons3rtApiError
         """
         log = logging.getLogger(self.cls_logger + '.get_virtualization_realm_details')
 
@@ -4229,6 +4230,18 @@ class Cons3rtApi(object):
                 i=str(vr_id))
             raise Cons3rtApiError(msg) from exc
         return vr_details
+
+    def get_virtualization_realm_details_multiple(self, vr_ids):
+        """Queries for details of a list of virtualization realms by ID
+
+        :param vr_ids: (list) of int VR IDs
+        :return: (list) of virtualization realm details
+        :raises: Cons3rtApiError
+        """
+        virtualization_realm_details = []
+        for vr_id in vr_ids:
+            virtualization_realm_details.append(self.get_virtualization_realm_details(vr_id=vr_id))
+        return virtualization_realm_details
 
     def set_deployment_run_lock(self, dr_id, lock):
         """Sets the run lock on the DR ID

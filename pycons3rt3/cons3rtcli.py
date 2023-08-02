@@ -1,5 +1,6 @@
 #!/usr/bin/env python
 
+import datetime
 import json
 import traceback
 
@@ -336,6 +337,18 @@ class Cons3rtCli(object):
             msg += '\n'
         print(msg)
 
+    @staticmethod
+    def print_users(users_list):
+        msg = 'ID\t\tUserName\t\tEmail\n'
+        for user in users_list:
+            msg += str(user['id']) + '\t\t' + user['username']
+            if 'email' in user.keys():
+                msg += '\t' + user['email']
+            else:
+                msg += '                           '
+            msg += '\n'
+        print(msg)
+
 
 class CloudCli(Cons3rtCli):
 
@@ -589,11 +602,13 @@ class CloudspaceCli(Cons3rtCli):
             'deallocate',
             'delete_inactive_runs',
             'list',
-            'template',
+            'project',
             'register',
             'release_active_runs',
             'retrieve',
-            'unregister'
+            'template',
+            'unregister',
+            'user'
         ]
 
     def process_subcommands(self):
@@ -624,6 +639,11 @@ class CloudspaceCli(Cons3rtCli):
                 self.list_cloudspace()
             except Cons3rtCliError:
                 return False
+        elif self.subcommands[0] == 'project':
+            try:
+                self.list_multiple_cloudspace_projects()
+            except Cons3rtCliError:
+                return False
         elif self.subcommands[0] == 'register':
             try:
                 self.register_cloudspace()
@@ -647,6 +667,11 @@ class CloudspaceCli(Cons3rtCli):
         elif self.subcommands[0] == 'unregister':
             try:
                 self.unregister_cloudspace()
+            except Cons3rtCliError:
+                return False
+        elif self.subcommands[0] == 'user':
+            try:
+                self.list_multiple_cloudspace_users()
             except Cons3rtCliError:
                 return False
         return True
@@ -773,6 +798,67 @@ class CloudspaceCli(Cons3rtCli):
             self.delete_inactive_runs()
         if self.args.clean_all_runs:
             self.clean_all_runs(unlock=unlock)
+
+    def list_cloudspace_projects(self, cloudspace_id):
+        try:
+            cloudspace_projects = self.c5t.list_projects_in_virtualization_realm(vr_id=cloudspace_id)
+        except Cons3rtApiError as exc:
+            msg = 'Problem listing projects in cloudspace: {c}'.format(c=str(cloudspace_id))
+            self.err(msg)
+            raise Cons3rtCliError(msg) from exc
+        self.print_projects(project_list=cloudspace_projects)
+        return cloudspace_projects
+
+    def list_cloudspace_users(self, cloudspace_id):
+        cloudspace_users = []
+        project_members = []
+        cloudspace_projects = self.list_cloudspace_projects(cloudspace_id=cloudspace_id)
+
+        # Get the active members from each project
+        for cloudspace_project in cloudspace_projects:
+            try:
+                project_members += self.c5t.list_project_members(project_id=cloudspace_project['id'], state='ACTIVE')
+            except Cons3rtApiError as exc:
+                msg = 'Problem listing members for project ID: {i}'.format(i=str(cloudspace_project['id']))
+                self.err(msg)
+                raise Cons3rtCliError(msg) from exc
+
+        # Get the members from each project, and add only unique ones to the list
+        for member in project_members:
+            found_member_in_list = False
+            for cloudspace_user in cloudspace_users:
+                if cloudspace_user['id'] == member['id']:
+                    found_member_in_list = True
+            if not found_member_in_list:
+                cloudspace_users.append(member)
+        print('Cloudspace ID [{i}] has [{n}] active users'.format(i=str(cloudspace_id), n=str(len(cloudspace_users))))
+        self.print_users(users_list=cloudspace_users)
+
+    def list_multiple_cloudspace_projects(self):
+        if self.args.all:
+            self.set_ids_to_all_cloudspaces()
+        else:
+            if not self.ids:
+                msg = '--id or --ids arg required to specify the cloudspace ID(s)'
+                self.err(msg)
+                raise Cons3rtCliError(msg)
+
+        # Get the projects in the cloudspace
+        for cloudspace_id in self.ids:
+            self.list_cloudspace_projects(cloudspace_id=cloudspace_id)
+
+    def list_multiple_cloudspace_users(self):
+        if self.args.all:
+            self.set_ids_to_all_cloudspaces()
+        else:
+            if not self.ids:
+                msg = '--id or --ids arg required to specify the cloudspace ID(s)'
+                self.err(msg)
+                raise Cons3rtCliError(msg)
+
+        # Get the users in the cloudspace
+        for cloudspace_id in self.ids:
+            self.list_cloudspace_users(cloudspace_id=cloudspace_id)
 
     def list_cloudspaces(self):
         cloudspaces = []
@@ -940,6 +1026,18 @@ class CloudspaceCli(Cons3rtCli):
                 provider_vr_id=self.args.provider_id,
                 vr_ids=self.ids
             )
+
+    def set_ids_to_all_cloudspaces(self):
+        try:
+            all_cloudspaces = self.c5t.list_virtualization_realms()
+        except Cons3rtApiError as exc:
+            msg = 'There was a problem listing cloudspaces\n{e}'.format(e=str(exc))
+            self.err(msg)
+            raise Cons3rtCliError(msg) from exc
+
+        # Collect the list of cloudspace IDs from querying the whole site
+        for cloudspace in all_cloudspaces:
+            self.ids.append(cloudspace['id'])
 
     def templates(self):
         if not self.ids:
@@ -1752,6 +1850,65 @@ class TeamCli(Cons3rtCli):
             teams = self.sort_by_id(teams)
             self.print_teams(teams_list=teams)
         print('Total number of teams: {n}'.format(n=str(len(teams))))
+
+
+class UserCli(Cons3rtCli):
+
+    def __init__(self, args, subcommands=None):
+        Cons3rtCli.__init__(self, args=args, subcommands=subcommands)
+        self.valid_subcommands = [
+            'list',
+        ]
+
+    def process_subcommands(self):
+        if not self.subcommands:
+            return True
+        if len(self.subcommands) < 1:
+            return True
+        if self.subcommands[0] not in self.valid_subcommands:
+            self.err('Unrecognized command: {c}'.format(c=self.subcommands[0]))
+            return False
+        if self.subcommands[0] == 'list':
+            try:
+                self.list_users()
+            except Cons3rtCliError:
+                return False
+        return True
+
+    def list_users(self):
+        users = []
+        epoch = datetime.datetime(1970, 1, 1)
+        state = None
+        after = None
+        before = None
+        if self.args.state:
+            state = self.args.state
+        if self.args.after:
+            try:
+                after_dt = datetime.datetime.strptime("2023-01-01", "%Y-%m-%d")
+            except ValueError as exc:
+                msg = 'Invalid --after detected, must be format YYYY-MM-DD\n{e}'.format(e=str(exc))
+                self.err(msg)
+                raise Cons3rtCliError(msg) from exc
+            after = int((after_dt - epoch).total_seconds())
+        if self.args.before:
+            try:
+                before_dt = datetime.datetime.strptime("2023-01-01", "%Y-%m-%d")
+            except ValueError as exc:
+                msg = 'Invalid --before detected, must be format YYYY-MM-DD\n{e}'.format(e=str(exc))
+                self.err(msg)
+                raise Cons3rtCliError(msg) from exc
+            before = int((before_dt - epoch).total_seconds())
+        try:
+            users += self.c5t.list_users(state=state, created_before=before, created_after=after)
+        except Cons3rtApiError as exc:
+            msg = 'There was a problem listing users\n{e}'.format(e=str(exc))
+            self.err(msg)
+            raise Cons3rtCliError(msg) from exc
+        if len(users) > 0:
+            users = self.sort_by_id(users)
+            self.print_users(users_list=users)
+        print('Total number of users: {n}'.format(n=str(len(users))))
 
 
 def validate_ids(args):

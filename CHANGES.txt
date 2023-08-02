@@ -2,6 +2,7 @@
 ======
 
 * Added the "cons3rt run cancel" and "cons3rt run release" CLI commands
+* Added the "cons3rt cloudspace project list", "cons3rt cloudspace user list", and "cons3rt user list" CLI commands
 
 0.0.16
 ======

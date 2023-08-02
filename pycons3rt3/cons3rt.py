@@ -13,7 +13,8 @@ import sys
 import argparse
 
 from .cons3rtconfig import manual_config
-from .cons3rtcli import CloudCli, CloudspaceCli, DeploymentCli, ProjectCli, RunCli, ScenarioCli, SystemCli, TeamCli
+from .cons3rtcli import CloudCli, CloudspaceCli, DeploymentCli, ProjectCli, RunCli, ScenarioCli, SystemCli, TeamCli, \
+    UserCli
 
 # Commands for setting up the cons3rtapi configuration
 setup_command_options = [
@@ -94,13 +95,22 @@ def team_cli(args, subcommands):
     return 1
 
 
+def user_cli(args, subcommands):
+    c = UserCli(args, subcommands)
+    if c.process_args():
+        return 0
+    return 1
+
+
 def main():
     parser = argparse.ArgumentParser(description='CONS3RT command line interface (CLI)')
     parser.add_argument('command', help='Command for the cons3rt CLI')
     parser.add_argument('subcommands', help='Optional command subtype', nargs='*')
     parser.add_argument('--active', help='Process only active items', required=False, action='store_true')
+    parser.add_argument('--after', help='After a specified date, format: YYYY-MM-DD', required=False)
     parser.add_argument('--all', help='All action relative to the command provided', action='store_true')
     parser.add_argument('--assets', help='Specify to run the asset reports', action='store_true')
+    parser.add_argument('--before', help='Before a specified date, format: YYYY-MM-DD', required=False)
     parser.add_argument('--clean_all_runs', help='Clean all runs from a cloudspace', action='store_true')
     parser.add_argument('--cloud_ato_consent', help='Consent to the cloud ATO', action='store_true')
     parser.add_argument('--cloud_type', help='Type of cloud virtualization technology (awsCloud, azureCloud, '
@@ -130,7 +140,7 @@ def main():
     parser.add_argument('--run', help='Run ID relative to the command provided', required=False)
     parser.add_argument('--runs', help='Run ID(s) relative to the command provided', required=False)
     parser.add_argument('--share', help='Share templates', action='store_true')
-    parser.add_argument('--state', help='Project membership state')
+    parser.add_argument('--state', help='Project membership state, user state')
     parser.add_argument('--unexpired', help='Process only unexpired items', required=False, action='store_true')
     parser.add_argument('--unlock', help='Remove run locks before taking action', action='store_true')
     parser.add_argument('--username', help='username relative to the CLI call', required=False)
@@ -166,6 +176,8 @@ def main():
         return system_cli(args, subcommands)
     elif args.command == 'team':
         return team_cli(args, subcommands)
+    elif args.command == 'user':
+        return user_cli(args, subcommands)
     else:
         print('Command is not yet supported: {c}'.format(c=args.command))
     return 0
