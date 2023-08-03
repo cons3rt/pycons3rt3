@@ -117,6 +117,7 @@ def main():
                                              'openStackCloud, vCloudCloud, vCloudRestCloud)', required=False)
     parser.add_argument('--cloudspaces', help='Print cloudspaces for a cloud', required=False, action='store_true')
     parser.add_argument('--config', help='Path to a config file to load', required=False)
+    parser.add_argument('--csv', help='Use csv format for the output', required=False, action='store_true')
     parser.add_argument('--delete', help='Delete action relative to the command provided', action='store_true')
     parser.add_argument('--delete_inactive_runs', help='Delete inactive runs from a cloudspace', action='store_true')
     parser.add_argument('--expired', help='Process only expired items', required=False, action='store_true')

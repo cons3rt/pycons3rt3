@@ -25,6 +25,9 @@ class Cons3rtCli(object):
         self.ids = None
         self.names = None
         self.runs = None
+        self.csv = False
+        if args.csv:
+            self.csv = True
         try:
             self.c5t = Cons3rtApi(config_file=self.config)
         except Cons3rtApiError as exc:
@@ -72,6 +75,15 @@ class Cons3rtCli(object):
         self.runs = validate_runs(self.args)
         return True
 
+    def get_separator(self, num=1):
+        if self.csv:
+            return ','
+        return '\t' * num
+
+    @staticmethod
+    def get_spaces(num=1):
+        return ' ' * num
+
     @staticmethod
     def dict_id_comparator(element):
         if not isinstance(element, dict):
@@ -95,64 +107,81 @@ class Cons3rtCli(object):
         print('ERROR: {m}'.format(m=msg))
         traceback.print_exc()
 
-    @staticmethod
-    def print_item_name_and_id(item_list):
-        msg = 'ID\tName\n'
-        for item in item_list:
-            if 'id' in item:
-                msg += str(item['id'])
-            else:
-                msg += '      '
-            msg += '\t'
-            if 'name' in item:
-                msg += item['name']
-            else:
-                msg += '                '
-            msg += '\n'
-        print(msg)
+    def print_formatted_list(self, item_list, included_columns=None):
+        print('')
+        if not included_columns:
+            # Collect unique keys from all dictionaries to get column names
+            included_columns = sorted({key for row in item_list for key in row})
 
-    @staticmethod
-    def print_deployments(deployment_list):
-        return Cons3rtCli.print_item_name_and_id(deployment_list)
+        if self.csv:
+            # Format and print the columns in csv format
+            print(",".join(included_columns))
+            for row in item_list:
+                formatted_row = [str(row.get(key, "")) for key in included_columns]
+                print(','.join(formatted_row))
+        else:
+            # Print table format
+            # Calculate the maximum width for each column based on column names and values
+            column_widths = {
+                key: max(len(key), max(len(str(row.get(key, ""))) for row in item_list)) for key in included_columns
+            }
 
-    @staticmethod
-    def print_drs(dr_list):
-        msg = 'ID\tName\t\t\t\t\t\tStatus\t\tProject\t\tCreator\n'
-        for dr_info in dr_list:
+            # Format and print the columns
+            header_row = [f"{name:{column_widths[name]}}" for name in included_columns]
+            print(" | ".join(header_row))
+            print("-" * (sum(column_widths.values()) + (len(column_widths) - 1) * 3))
+            for row in item_list:
+                formatted_row = [f"{str(row.get(name, '')):{column_widths[name]}}" for name in included_columns]
+                print(" | ".join(formatted_row))
+        print('')
 
-            if 'id' in dr_info:
-                msg += str(dr_info['id'])
-            else:
-                msg += '      '
-            msg += '\t'
-            if 'name' in dr_info:
-                msg += dr_info['name']
-            else:
-                msg += '                '
-            msg += '\t\t\t\t\t\t'
-            if 'fapStatus' in dr_info:
-                msg += dr_info['fapStatus']
-            else:
-                msg += '              '
-            msg += '\t\t'
-            if 'project' in dr_info:
-                msg += dr_info['project']['name']
-            else:
-                msg += '                 '
-            msg += '\t\t'
-            if 'creator' in dr_info:
-                msg += dr_info['creator']['username']
-            else:
-                msg += '         '
-            msg += '\n'
-        print(msg)
+    def print_item_name_and_id(self, item_list):
+        self.print_formatted_list(
+            item_list=item_list,
+            included_columns=['id', 'name']
+        )
 
-    @staticmethod
-    def print_projects(project_list):
-        return Cons3rtCli.print_item_name_and_id(project_list)
+    def print_deployments(self, deployment_list):
+        return self.print_item_name_and_id(deployment_list)
 
-    @staticmethod
-    def print_project_members(member_list):
+    def print_drs(self, dr_list):
+
+        # Build the roles_list item string and add it to the printable dict
+        for dr in dr_list:
+            creator_username = ''
+            project_name = ''
+            if 'creator' in dr:
+                if 'username' in dr['creator']:
+                    creator_username += dr['creator']['username']
+            if 'project' in dr:
+                if 'name' in dr['project']:
+                    project_name += dr['project']['name']
+            dr['creatorUsername'] = creator_username
+            dr['projectName'] = project_name
+
+        self.print_formatted_list(
+            item_list=dr_list,
+            included_columns=['id', 'name', 'fapStatus', 'projectName', 'creatorUsername']
+        )
+
+    def print_projects(self, project_list):
+        return self.print_item_name_and_id(project_list)
+
+    def print_project_members(self, member_list):
+
+        # Build the roles_list item string and add it to the printable dict
+        for member in member_list:
+            role_list_str = ''
+            for role in member['roles']:
+                role_list_str += role + ':'
+            role_list_str = role_list_str.rstrip(':')
+            member['projectRoles'] = role_list_str
+
+        self.print_formatted_list(
+            item_list=member_list,
+            included_columns=['id', 'username', 'email', 'membershipState', 'projectRoles']
+        )
+        '''
         msg = 'ID\tUsername\t\tEmail\t\t\t\t\tState\t\t\tRoles\n'
         for member in member_list:
             if 'id' in member:
@@ -183,53 +212,19 @@ class Cons3rtCli(object):
                 msg += '                '
             msg += '\n'
         print(msg)
+        '''
 
-    @staticmethod
-    def print_clouds(cloud_list):
-        msg = 'ID\tName\t\t\t\tType\n'
-        for cloud in cloud_list:
-            if 'id' in cloud:
-                msg += str(cloud['id'])
-            else:
-                msg += '      '
-            msg += '\t'
-            if 'name' in cloud:
-                msg += cloud['name']
-            else:
-                msg += '                '
-            msg += '\t\t\t'
-            if 'cloudType' in cloud:
-                msg += cloud['cloudType']
-            else:
-                msg += '           '
-            msg += '\n'
-        print(msg)
+    def print_clouds(self, cloud_list):
+        self.print_formatted_list(
+            item_list=cloud_list,
+            included_columns=['id', 'name', 'cloudType']
+        )
 
-    @staticmethod
-    def print_cloudspaces(cloudspaces_list):
-        msg = 'ID\tName\t\t\t\tType\n'
-        for cloudspace in cloudspaces_list:
-            if 'id' in cloudspace:
-                msg += str(cloudspace['id'])
-            else:
-                msg += '      '
-            msg += '\t'
-            if 'name' in cloudspace:
-                msg += cloudspace['name']
-            else:
-                msg += '                '
-            msg += '\t\t\t\t'
-            if 'virtualizationRealmType' in cloudspace:
-                msg += cloudspace['virtualizationRealmType']
-            else:
-                msg += '           '
-            msg += '\t\t'
-            if 'state' in cloudspace:
-                msg += cloudspace['state']
-            else:
-                msg += '           '
-            msg += '\n'
-        print(msg)
+    def print_cloudspaces(self, cloudspaces_list):
+        self.print_formatted_list(
+            item_list=cloudspaces_list,
+            included_columns=['id', 'name', 'virtualizationRealmType', 'state']
+        )
 
     @staticmethod
     def print_host_action_results_list(host_action_results_list):
@@ -238,116 +233,69 @@ class Cons3rtCli(object):
             msg += str(host_action_result) + '\n'
         print(msg)
 
-    @staticmethod
-    def print_scenarios(scenario_list):
-        return Cons3rtCli.print_item_name_and_id(scenario_list)
+    def print_scenarios(self, scenario_list):
+        return self.print_item_name_and_id(scenario_list)
 
-    @staticmethod
-    def print_system_designs(system_design_list):
-        return Cons3rtCli.print_item_name_and_id(system_design_list)
+    def print_system_designs(self, system_design_list):
+        return self.print_item_name_and_id(system_design_list)
 
-    @staticmethod
-    def print_teams(teams_list):
-        msg = 'ID\tName\t\t\tState\t\tExpiration\n'
-        for team in teams_list:
-            if 'id' in team.keys():
-                msg += str(team['id'])
-            else:
-                msg += '      '
-            msg += '\t'
-            if 'name' in team.keys():
-                msg += team['name']
-            else:
-                msg += '                '
-            msg += '\t\t'
-            if 'state' in team.keys():
-                msg += team['state']
-            else:
-                msg += '        '
-            msg += '\t\t'
-            if 'expirationDate' in team.keys():
-                msg += team['expirationDate']
-            else:
-                msg += '                '
-            msg += '\n'
-        print(msg)
+    def print_teams(self, teams_list):
+        self.print_formatted_list(
+            item_list=teams_list,
+            included_columns=['id', 'name', 'state', 'expirationDate']
+        )
 
-    @staticmethod
-    def print_team_managers(team_manager_list):
-        msg = 'ID\t\tUserName\t\tEmail\t\t\tTeamIds\t\t\tTeamNames\n'
+    def print_team_managers(self, team_manager_list):
+
+        # Build the team IDs and team names list strings separated by :
         for team_manager in team_manager_list:
-            msg += str(team_manager['id']) + '\t\t' + team_manager['username']
-            if 'email' in team_manager.keys():
-                msg += '\t' + team_manager['email']
-            else:
-                msg += '                           '
+            team_ids_str = ''
+            team_names_str = ''
             if 'teamIds' in team_manager.keys():
-                msg += '\t' + ','.join(map(str, team_manager['teamIds']))
-            else:
-                msg += '         '
+                team_ids_str += ':'.join(map(str, team_manager['teamIds']))
             if 'teamNames' in team_manager.keys():
-                msg += '\t\t\t' + ','.join(map(str, team_manager['teamNames']))
-            else:
-                msg += '                      '
-            msg += '\n'
-        print(msg)
+                team_names_str += ':'.join(map(str, team_manager['teamNames']))
+            team_ids_str = team_ids_str.rstrip(':')
+            team_names_str = team_names_str.rstrip(':')
+            team_manager['teamIdList'] = team_ids_str
+            team_manager['teamNameList'] = team_names_str
 
-    @staticmethod
-    def print_templates(template_list):
-        msg = 'CloudspaceID\t\tName\t\t\t\tosType\t\tTemplateID\t\tTemplateRegistrationId\tTemplateUUID\tOffline\n'
+        self.print_formatted_list(
+            item_list=team_manager_list,
+            included_columns=['id', 'username', 'email', 'teamIdList', 'teamNameList']
+        )
+
+    def print_templates(self, template_list):
+
+        # Build the strings for template registration ID, template UUID, and offline
         for template in template_list:
-            if 'virtRealmId' in template:
-                msg += str(template['virtRealmId'])
-            else:
-                msg += '    '
-            msg += '\t\t\t'
-            if 'virtRealmTemplateName' in template:
-                msg += template['virtRealmTemplateName']
-            else:
-                msg += '                   '
-            msg += '\t\t'
-            if 'operatingSystem' in template:
-                msg += template['operatingSystem']
-            else:
-                msg += '                 '
-            msg += '\t\t'
-            if 'id' in template:
-                msg += str(template['id'])
-            else:
-                msg += '    '
-            msg += '\t\t'
-            if 'templateRegistration' in template:
+            template_registration_id = ''
+            template_uuid = ''
+            template_offline = ''
+            if 'templateRegistration' in template.keys():
                 if 'id' in template['templateRegistration']:
-                    msg += str(template['templateRegistration']['id'])
-                else:
-                    msg += '    '
-                msg += '\t\t\t'
+                    template_registration_id += str(template['templateRegistration']['id'])
                 if 'templateUuid' in template['templateRegistration']:
-                    msg += template['templateRegistration']['templateUuid']
-                else:
-                    msg += '                              '
-                msg += '\t\t'
+                    template_uuid += template['templateRegistration']['templateUuid']
                 if 'offline' in template['templateRegistration']:
-                    msg += str(template['templateRegistration']['offline'])
-                else:
-                    msg += '                              '
-                msg += '\t\t'
-            else:
-                msg += '                                                                \t\t\t'
-            msg += '\n'
-        print(msg)
+                    template_offline += str(template['templateRegistration']['offline'])
+            template['templateRegistrationId'] = template_registration_id
+            template['templateUuid'] = template_uuid
+            template['templateOffline'] = template_offline
 
-    @staticmethod
-    def print_users(users_list):
-        msg = 'ID\t\tUserName\t\tEmail\n'
-        for user in users_list:
-            msg += str(user['id']) + '\t\t' + user['username']
-            if 'email' in user.keys():
-                msg += '\t' + user['email']
-            else:
-                msg += '                           '
-            msg += '\n'
-        print(msg)
+        self.print_formatted_list(
+            item_list=template_list,
+            included_columns=[
+                'virtRealmId', 'virtRealmTemplateName', 'operatingSystem', 'id', 'templateRegistrationId',
+                'templateUuid', 'templateOffline'
+            ]
+        )
+
+    def print_users(self, users_list):
+        self.print_formatted_list(
+            item_list=users_list,
+            included_columns=['id', 'username', 'email']
+        )
 
 
 class CloudCli(Cons3rtCli):
@@ -806,7 +754,8 @@ class CloudspaceCli(Cons3rtCli):
             msg = 'Problem listing projects in cloudspace: {c}'.format(c=str(cloudspace_id))
             self.err(msg)
             raise Cons3rtCliError(msg) from exc
-        self.print_projects(project_list=cloudspace_projects)
+        cloudspace_projects = self.sort_by_id(cloudspace_projects)
+        self.print_formatted_list(item_list=cloudspace_projects, included_columns=['id', 'name'])
         return cloudspace_projects
 
     def list_cloudspace_users(self, cloudspace_id):
@@ -832,7 +781,9 @@ class CloudspaceCli(Cons3rtCli):
             if not found_member_in_list:
                 cloudspace_users.append(member)
         print('Cloudspace ID [{i}] has [{n}] active users'.format(i=str(cloudspace_id), n=str(len(cloudspace_users))))
-        self.print_users(users_list=cloudspace_users)
+        cloudspace_users = self.sort_by_id(cloudspace_users)
+        self.print_formatted_list(item_list=cloudspace_users, included_columns=['id', 'username', 'email'])
+        return cloudspace_users
 
     def list_multiple_cloudspace_projects(self):
         if self.args.all:
@@ -856,9 +807,23 @@ class CloudspaceCli(Cons3rtCli):
                 self.err(msg)
                 raise Cons3rtCliError(msg)
 
+        # List of cloudspace IDs and the list of users
+        cloudspaces = []
+
         # Get the users in the cloudspace
         for cloudspace_id in self.ids:
-            self.list_cloudspace_users(cloudspace_id=cloudspace_id)
+            cloudspace = self.c5t.get_virtualization_realm_details(vr_id=cloudspace_id)
+            cloudspace['users'] = self.list_cloudspace_users(cloudspace_id=cloudspace_id)
+            cloudspace['user_count'] = len(cloudspace['users'])
+            cloudspaces.append(cloudspace)
+
+        # Print the results
+        cloudspaces = self.sort_by_id(cloudspaces)
+        self.print_formatted_list(
+            item_list=cloudspaces,
+            included_columns=['id', 'name', 'state', 'virtualizationRealmType', 'user_count']
+        )
+        return cloudspaces
 
     def list_cloudspaces(self):
         cloudspaces = []
@@ -1028,6 +993,7 @@ class CloudspaceCli(Cons3rtCli):
             )
 
     def set_ids_to_all_cloudspaces(self):
+        self.ids = []
         try:
             all_cloudspaces = self.c5t.list_virtualization_realms()
         except Cons3rtApiError as exc:
@@ -1830,7 +1796,9 @@ class TeamCli(Cons3rtCli):
             # Generate a list for each team ID specified
             for team_id in self.ids:
                 results += self.c5t.list_team_managers_for_team(team_id=team_id)
-        self.print_team_managers(team_manager_list=results)
+        if len(results) > 0:
+            results = self.sort_by_id(results)
+            self.print_team_managers(team_manager_list=results)
 
     def list_teams(self):
         teams = []
