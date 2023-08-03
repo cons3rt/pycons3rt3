@@ -181,38 +181,6 @@ class Cons3rtCli(object):
             item_list=member_list,
             included_columns=['id', 'username', 'email', 'membershipState', 'projectRoles']
         )
-        '''
-        msg = 'ID\tUsername\t\tEmail\t\t\t\t\tState\t\t\tRoles\n'
-        for member in member_list:
-            if 'id' in member:
-                msg += str(member['id'])
-            else:
-                msg += '      '
-            msg += '\t'
-            if 'username' in member:
-                msg += member['username']
-            else:
-                msg += '                '
-            msg += '\t\t'
-            if 'email' in member:
-                msg += member['email']
-            else:
-                msg += '                '
-            msg += '\t\t\t'
-            if 'membershipState' in member:
-                msg += member['membershipState']
-            else:
-                msg += '                '
-            msg += '\t\t'
-            if 'roles' in member:
-                for role in member['roles']:
-                    msg += role + ':'
-                msg = msg.rstrip(':')
-            else:
-                msg += '                '
-            msg += '\n'
-        print(msg)
-        '''
 
     def print_clouds(self, cloud_list):
         self.print_formatted_list(
