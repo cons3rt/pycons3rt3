@@ -905,8 +905,9 @@ class RemoteAccessController(object):
         log = logging.getLogger(self.cls_logger + '.read_remote_access_run_data_from_file')
 
         if not self.load_data:
-            log.info('--load not specified, removing existing data file')
-            os.remove(out_file)
+            if os.path.isfile(out_file):
+                log.info('--load not specified, removing existing data file')
+                os.remove(out_file)
 
         if not os.path.isfile(out_file):
             log.info('No remote access run data exists to read, creating with header...')
