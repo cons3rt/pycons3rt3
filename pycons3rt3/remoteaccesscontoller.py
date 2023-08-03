@@ -18,7 +18,7 @@ level =    'cloud', 'cloudspace', 'site'
 args =
     --id               cloud/cloudspace ID
     --ids              comma separated list of cloud/cloudspace IDs
-    --load             load data from the previous run
+    --load             loads data from the previous run
     --skip             List of cloudspace IDs to skip acting upon
     --slackchannel     Slack channel for status posting
     --slackurl         Slack webhook URL
@@ -99,7 +99,9 @@ class EnabledStatus(object):
 
 class EnabledRemoteAccess(object):
     def __init__(self, cloud_id, cloud_name, cloud_type, cloudspace_id, cloudspace_name, active_status,
-                 enabled=None, run_id=None, run_name=None, instance_type=None, locked_status=None):
+                 enabled=None, run_id=None, run_name=None, instance_type=None, locked_status=None,
+                 remote_access_external_ip=None, remote_access_internal_ip=None, remote_access_port=None,
+                 rdp_proxy_enabled=None, template_name=None):
         self.cloud_id = cloud_id
         self.cloud_name = cloud_name
         self.cloud_type = cloud_type
@@ -111,11 +113,16 @@ class EnabledRemoteAccess(object):
         self.run_name = run_name
         self.instance_type = instance_type
         self.locked_status = locked_status
+        self.remote_access_external_ip = remote_access_external_ip
+        self.remote_access_internal_ip = remote_access_internal_ip
+        self.remote_access_port = remote_access_port
+        self.rdp_proxy_enabled = rdp_proxy_enabled
+        self.template_name = template_name
 
     @staticmethod
     def header_row():
         return 'CloudId,CloudName,CloudType,CloudspaceId,CloudspaceName,ActiveStatus,EnabledStatus,RaRunId,RaRunName,' \
-               'Size,LockedStatus'
+               'Size,LockedStatus,ExternalIp,InternalIp,Port,RdpProxyEnabled,TemplateName'
 
     def __str__(self):
         out_str = ''
@@ -160,7 +167,27 @@ class EnabledRemoteAccess(object):
         else:
             out_str += 'None,'
         if self.locked_status:
-            out_str += 'ENABLED'
+            out_str += 'ENABLED' + ','
+        else:
+            out_str += 'None,'
+        if self.remote_access_external_ip:
+            out_str += self.remote_access_external_ip + ','
+        else:
+            out_str += 'None'
+        if self.remote_access_internal_ip:
+            out_str += self.remote_access_internal_ip + ','
+        else:
+            out_str += 'None'
+        if self.remote_access_port:
+            out_str += str(self.remote_access_port) + ','
+        else:
+            out_str += 'None,'
+        if self.rdp_proxy_enabled:
+            out_str += str(self.rdp_proxy_enabled) + ','
+        else:
+            out_str += 'None,'
+        if self.template_name:
+            out_str += str(self.template_name)
         else:
             out_str += 'None'
         return out_str
@@ -203,7 +230,7 @@ class RemoteAccessController(object):
         self.remote_access_run_info = []
 
     def send_slack(self, msg, color='good'):
-        """Sends slack message if URL and channel were provided
+        """Sends Slack message if URL and channel were provided
 
         :param msg: (str) message to send
         :param color: (str) color of the attachment
@@ -226,8 +253,8 @@ class RemoteAccessController(object):
                     {
                         'state': 'ACTIVE',
                         'cloudType': 'VCloudCloud',
-                        'id': 7,
-                        'name': 'Hanscom Cloud'
+                        'id': 1,
+                        'name': 'arc1'
                     }
                 ]
 
@@ -319,6 +346,22 @@ class RemoteAccessController(object):
                 log.info('Found cloudspace data already for cloudspace: {i}'.format(i=str(cloudspace['id'])))
                 continue
 
+            # Get the boundary IP
+            boundary_ip = None
+            if 'accessPoint' in cloudspace.keys():
+                boundary_ip = cloudspace['accessPoint']
+            else:
+                if 'networks' in cloudspace.keys():
+                    for network in cloudspace['networks']:
+                        if 'networkFunction' in network.keys():
+                            if network['networkFunction'] == 'CONS3RT':
+                                if 'boundaryIpAddress' in network.keys():
+                                    boundary_ip = network['boundaryIpAddress']
+
+            # Print the boundary IP
+            if boundary_ip:
+                log.info('Using cloudspace boundary IP address: {i}'.format(i=boundary_ip))
+
             # Add cloudspace data
             log.info('Adding cloudspace data for cloudspace ID: {i}'.format(i=str(cloudspace['id'])))
             self.remote_access_run_info.append(
@@ -328,7 +371,12 @@ class RemoteAccessController(object):
                     cloud_type=cloudspace['cloud']['cloudType'],
                     cloudspace_id=cloudspace['id'],
                     cloudspace_name=cloudspace['name'],
-                    active_status=cloudspace['state']
+                    active_status=cloudspace['state'],
+                    remote_access_external_ip=boundary_ip,
+                    remote_access_internal_ip=cloudspace['remoteAccessConfig']['remoteAccessIpAddress'],
+                    remote_access_port=cloudspace['remoteAccessConfig']['remoteAccessPort'],
+                    rdp_proxy_enabled=cloudspace['remoteAccessConfig']['rdpProxyClientEnabled'],
+                    template_name=cloudspace['remoteAccessConfig']['templateName']
                 )
             )
         log.info('Found {n} total cloudspaces'.format(n=str(len(self.remote_access_run_info))))
@@ -426,12 +474,12 @@ class RemoteAccessController(object):
         self.get_cloudspace_data()
 
         # RA data will be queried for VRs with this state
-        active_statii = ['ACTIVE', 'ENTERING_MAINTENANCE', 'MAINTENANCE']
+        active_status = ['ACTIVE', 'ENTERING_MAINTENANCE', 'MAINTENANCE']
 
         for ra_data in self.remote_access_run_info:
 
             # Skip if the cloudspace is not active
-            if ra_data.active_status not in active_statii:
+            if ra_data.active_status not in active_status:
                 log.info('Skipping RA data retrieval for cloudspace ID {i} with state: {s}'.format(
                     i=str(ra_data.cloudspace_id), s=ra_data.active_status))
                 RemoteAccessController.append_remote_access_run(ra_run_data=ra_data)
@@ -1005,7 +1053,7 @@ def main():
     if args.slackurl:
         slack_url = args.slackurl
 
-    # Parse the unlock arg
+    # Parse the "unlock" arg
     unlock = False
     if args.unlock:
         unlock = True
