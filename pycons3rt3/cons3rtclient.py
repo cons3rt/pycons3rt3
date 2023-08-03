@@ -2,6 +2,7 @@
 
 import json
 import logging
+import os.path
 
 from .httpclient import Client
 from .exceptions import Cons3rtClientError
@@ -15,6 +16,25 @@ class Cons3rtClient:
 
     def set_user(self, user):
         self.user = user
+
+    @staticmethod
+    def get_file_content(content_file):
+        """Returns dict content from the provided file
+
+        :param content_file: (str) path to the file
+        :return: (dict) or None
+        """
+        # Read data from the file if provided
+        if not os.path.isfile(content_file):
+            return
+        try:
+            with open(content_file, 'r') as f:
+                content = f.read()
+        except (OSError, IOError) as exc:
+            msg = 'Unable to read contents of file: {f}\n{e}'.format(f=content_file, e=str(exc))
+            logging.warning(msg)
+            return
+        return content
 
     def create_cloud(self, cloud_ato_consent, cloud_data):
         """Created a cloud using the provided cloud data
@@ -148,19 +168,29 @@ class Cons3rtClient:
             raise Cons3rtClientError(msg) from exc
         return team_id
 
-    def create_user(self, user_file):
+    def create_user(self, user_file=None, user_content=None):
         """Creates a CONS3RT User using info in the provided JSON file
 
         :param user_file: (str) path to JSON file
+        :param user_content: (str or dict) user content
         :return:  None
         :raises: Cons3rtClientError
         """
+        if user_file:
+            user_content = Cons3rtClient.get_file_content(content_file=user_file)
+
+        # Create JSON content
+        try:
+            json_content = json.dumps(user_content)
+        except SyntaxError as exc:
+            msg = 'There was a problem converting data to JSON: {d}'.format(d=str(user_content))
+            raise Cons3rtClientError(msg) from exc
+
         # Create the user
         try:
-            response = self.http_client.http_post(rest_user=self.user, target='users', content_file=user_file)
+            response = self.http_client.http_post(rest_user=self.user, target='users', content_data=json_content)
         except Cons3rtClientError as exc:
-            msg = 'Unable to create a User from file: {f}'.format(
-                f=user_file)
+            msg = 'Unable to create a user from content: {d}'.format(d=str(user_content))
             raise Cons3rtClientError(msg) from exc
 
         # Get the Team ID from the response

@@ -4,6 +4,7 @@
 * Added the "cons3rt run cancel" and "cons3rt run release" CLI commands
 * Added the "cons3rt cloudspace project list", "cons3rt cloudspace user list", and "cons3rt user list" CLI commands
 * Greatly enhanced CLI output formatting!!!!
+* Added a create_user() method for easy creation of users over rest api
 
 0.0.16
 ======

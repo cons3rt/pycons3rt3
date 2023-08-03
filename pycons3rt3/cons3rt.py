@@ -32,7 +32,8 @@ valid_commands = setup_command_options + [
     'system',
     'scenario',
     'run',
-    'team'
+    'team',
+    'user'
 ]
 
 # String representation of valid commands

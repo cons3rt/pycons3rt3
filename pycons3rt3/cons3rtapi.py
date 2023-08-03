@@ -2320,6 +2320,34 @@ class Cons3rtApi(object):
             team_managers.append(team_manager)
         return team_managers
 
+    def create_user(self, username, email, first_name, last_name):
+        """Creates a user using the specified parameters
+
+        :param username: (str) Username
+        :param email: (str) email address
+        :param first_name: (str) first name
+        :param last_name: (str) last name
+        :return: None
+        :raises: Cons3rtApiError
+        """
+        log = logging.getLogger(self.cls_logger + '.create_user')
+
+        # Create the dict containing the user content
+        user_content = {
+            'username': username,
+            'email': email,
+            'firstname': first_name,
+            'lastname': last_name
+        }
+
+        # Attempt to create the user
+        try:
+            self.cons3rt_client.create_user(user_content=user_content)
+        except Cons3rtClientError as exc:
+            msg = 'Unable to create user from data: {d}'.format(d=str(user_content))
+            raise Cons3rtApiError(msg) from exc
+        log.info('Successfully created user with username: {u}'.format(u=username))
+
     def create_user_from_json(self, json_file):
         """Creates a single CONS3RT user using data from a JSON file
 
@@ -2340,9 +2368,9 @@ class Cons3rtApi(object):
             msg = 'JSON file not found: {f}'.format(f=json_file)
             raise OSError(msg)
 
-        # Attempt to create the team
+        # Attempt to create the user
         try:
-            self.cons3rt_client.create_user(user_file=json_file)
+            self.cons3rt_client.create_user_from_json(user_file=json_file)
         except Cons3rtClientError as exc:
             msg = 'Unable to create a User using JSON file: {f}'.format(
                 f=json_file)

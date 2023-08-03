@@ -216,7 +216,7 @@ class Client:
         :param rest_user: (RestUser) user info
         :param target: (str) ReST API target URL
         :param content_file: (str) path to the content file
-        :param content_data: (str) body data
+        :param content_data: (str or dict) body data
         :param content_type: (str) Content-Type, default is application/json
         :return: (str) HTTP Response or None
         :raises: Cons3rtClientError
@@ -282,7 +282,7 @@ class Client:
 
         :param rest_user: (RestUser) user info
         :param target: (str) ReST API target URL
-        :param content_data: (str) body data
+        :param content_data: (str or dict) body data
         :param content_file: (str) path to the content file containing body data
         :param content_type: (str) Content-Type, default is application/json
         :return: (str) HTTP Response or None
