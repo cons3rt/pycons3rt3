@@ -727,27 +727,13 @@ class CloudspaceCli(Cons3rtCli):
         return cloudspace_projects
 
     def list_cloudspace_users(self, cloudspace_id):
-        cloudspace_users = []
-        project_members = []
-        cloudspace_projects = self.list_cloudspace_projects(cloudspace_id=cloudspace_id)
+        try:
+            cloudspace_users = self.c5t.list_users_in_virtualization_realm(vr_id=cloudspace_id)
+        except Cons3rtApiError as exc:
+            msg = 'Problem listing users for cloudspace ID: {i}'.format(i=str(cloudspace_id))
+            self.err(msg)
+            raise Cons3rtCliError(msg) from exc
 
-        # Get the active members from each project
-        for cloudspace_project in cloudspace_projects:
-            try:
-                project_members += self.c5t.list_project_members(project_id=cloudspace_project['id'], state='ACTIVE')
-            except Cons3rtApiError as exc:
-                msg = 'Problem listing members for project ID: {i}'.format(i=str(cloudspace_project['id']))
-                self.err(msg)
-                raise Cons3rtCliError(msg) from exc
-
-        # Get the members from each project, and add only unique ones to the list
-        for member in project_members:
-            found_member_in_list = False
-            for cloudspace_user in cloudspace_users:
-                if cloudspace_user['id'] == member['id']:
-                    found_member_in_list = True
-            if not found_member_in_list:
-                cloudspace_users.append(member)
         print('Cloudspace ID [{i}] has [{n}] active users'.format(i=str(cloudspace_id), n=str(len(cloudspace_users))))
         cloudspace_users = self.sort_by_id(cloudspace_users)
         self.print_formatted_list(item_list=cloudspace_users, included_columns=['id', 'username', 'email'])
@@ -1665,6 +1651,7 @@ class TeamCli(Cons3rtCli):
     def __init__(self, args, subcommands=None):
         Cons3rtCli.__init__(self, args=args, subcommands=subcommands)
         self.valid_subcommands = [
+            'collabtools',
             'list',
             'managers',
             'report'
@@ -1690,7 +1677,12 @@ class TeamCli(Cons3rtCli):
         if self.subcommands[0] not in self.valid_subcommands:
             self.err('Unrecognized command: {c}'.format(c=self.subcommands[0]))
             return False
-        if self.subcommands[0] == 'list':
+        if self.subcommands[0] == 'collabtools':
+            try:
+                self.collab_tools()
+            except Cons3rtCliError:
+                return False
+        elif self.subcommands[0] == 'list':
             try:
                 self.list_teams()
             except Cons3rtCliError:
@@ -1713,6 +1705,12 @@ class TeamCli(Cons3rtCli):
                 except Cons3rtCliError:
                     return False
         return True
+
+    def collab_tools(self):
+        valid_subcommands = [
+            'list',
+            'user'
+        ]
 
     def generate_reports(self):
         if not self.ids:

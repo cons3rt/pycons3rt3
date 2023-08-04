@@ -2370,7 +2370,7 @@ class Cons3rtApi(object):
 
         # Attempt to create the user
         try:
-            self.cons3rt_client.create_user_from_json(user_file=json_file)
+            self.cons3rt_client.create_user(user_file=json_file)
         except Cons3rtClientError as exc:
             msg = 'Unable to create a User using JSON file: {f}'.format(
                 f=json_file)
@@ -3485,6 +3485,36 @@ class Cons3rtApi(object):
             return vr_details
         else:
             log.warning('Unregister of VR ID {v} from cloud ID {c} failed'.format(v=str(vr_id), c=str(cloud_id)))
+
+    def list_users_in_virtualization_realm(self, vr_id):
+        """Return a list of unique users that belong to projects that have access to the provided VR ID
+
+        :param vr_id: (int) ID of the virtualization realm
+        :return: (list) of unique users
+        :raises: Cons3rtApiError
+        """
+        vr_users = []
+        project_members = []
+        vr_projects = self.list_projects_in_virtualization_realm(vr_id=vr_id)
+
+        # Get the active members from each project
+        for vr_project in vr_projects:
+            try:
+                project_members += self.list_project_members(project_id=vr_project['id'], state='ACTIVE')
+            except Cons3rtApiError as exc:
+                msg = 'Problem listing members for project ID: {i}'.format(i=str(vr_project['id']))
+                raise Cons3rtApiError(msg) from exc
+
+        # Get the members from each project, and add only unique ones to the list
+        for member in project_members:
+            found_member_in_list = False
+            for vr_user in vr_users:
+                if vr_user['id'] == member['id']:
+                    found_member_in_list = True
+            if not found_member_in_list:
+                vr_users.append(member)
+        print('Cloudspace ID [{i}] has [{n}] active users'.format(i=str(vr_id), n=str(len(vr_users))))
+        return vr_users
 
     def list_networks_in_virtualization_realm(self, vr_id):
         """Lists all networks in a virtualization realm

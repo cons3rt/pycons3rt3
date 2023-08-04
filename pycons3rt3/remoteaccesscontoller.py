@@ -101,7 +101,7 @@ class EnabledRemoteAccess(object):
     def __init__(self, cloud_id, cloud_name, cloud_type, cloudspace_id, cloudspace_name, active_status,
                  enabled=None, run_id=None, run_name=None, instance_type=None, locked_status=None,
                  remote_access_external_ip=None, remote_access_internal_ip=None, remote_access_port=None,
-                 rdp_proxy_enabled=None, template_name=None):
+                 rdp_proxy_enabled=None, template_name=None, user_count=None):
         self.cloud_id = cloud_id
         self.cloud_name = cloud_name
         self.cloud_type = cloud_type
@@ -118,11 +118,12 @@ class EnabledRemoteAccess(object):
         self.remote_access_port = remote_access_port
         self.rdp_proxy_enabled = rdp_proxy_enabled
         self.template_name = template_name
+        self.user_count = user_count
 
     @staticmethod
     def header_row():
         return 'CloudId,CloudName,CloudType,CloudspaceId,CloudspaceName,ActiveStatus,EnabledStatus,RaRunId,RaRunName,' \
-               'Size,LockedStatus,ExternalIp,InternalIp,Port,RdpProxyEnabled,TemplateName'
+               'Size,LockedStatus,ExternalIp,InternalIp,Port,RdpProxyEnabled,TemplateName,UserCount'
 
     def __str__(self):
         out_str = ''
@@ -187,7 +188,11 @@ class EnabledRemoteAccess(object):
         else:
             out_str += 'None,'
         if self.template_name:
-            out_str += str(self.template_name)
+            out_str += str(self.template_name) + ','
+        else:
+            out_str += 'None,'
+        if self.user_count:
+            out_str += str(self.user_count)
         else:
             out_str += 'None'
         return out_str
@@ -346,6 +351,29 @@ class RemoteAccessController(object):
                 log.info('Found cloudspace data already for cloudspace: {i}'.format(i=str(cloudspace['id'])))
                 continue
 
+            # Get the cloudspace data
+            cloudspace_id = 'NotFound'
+            cloudspace_name = 'NotFound'
+            cloudspace_state = 'NotFound'
+            if 'id' in cloudspace.keys():
+                cloudspace_id = cloudspace['id']
+            if 'name' in cloudspace.keys():
+                cloudspace_name = cloudspace['name']
+            if 'state' in cloudspace.keys():
+                cloudspace_state = cloudspace['state']
+
+            # Get the cloud data
+            cloud_id = 'NotSpecified'
+            cloud_name = 'NotSpecified'
+            cloud_type = 'NotSpecified'
+            if 'cloud' in cloudspace.keys():
+                if 'id' in cloudspace['cloud'].keys():
+                    cloud_id = cloudspace['cloud']['id']
+                if 'name' in cloudspace['cloud'].keys():
+                    cloud_name = cloudspace['cloud']['name']
+                if 'cloudType' in cloudspace['cloud'].keys():
+                    cloud_type = cloudspace['cloud']['cloudType']
+
             # Get the boundary IP
             boundary_ip = None
             if 'accessPoint' in cloudspace.keys():
@@ -362,21 +390,45 @@ class RemoteAccessController(object):
             if boundary_ip:
                 log.info('Using cloudspace boundary IP address: {i}'.format(i=boundary_ip))
 
+            # Get the remote access config data
+            remote_access_ip = 'NotSpecified'
+            remote_access_port = 'NotSpecified'
+            rdp_proxy_enabled = 'NotSpecified'
+            template_name = 'NotSpecified'
+            if 'remoteAccessConfig' in cloudspace.keys():
+                if 'remoteAccessIpAddress' in cloudspace['remoteAccessConfig'].keys():
+                    remote_access_ip = cloudspace['remoteAccessConfig']['remoteAccessIpAddress']
+                if 'remoteAccessPort' in cloudspace['remoteAccessConfig'].keys():
+                    remote_access_port = cloudspace['remoteAccessConfig']['remoteAccessPort']
+                if 'rdpProxyClientEnabled' in cloudspace['remoteAccessConfig'].keys():
+                    rdp_proxy_enabled = cloudspace['remoteAccessConfig']['rdpProxyClientEnabled']
+                if 'templateName' in cloudspace['remoteAccessConfig'].keys():
+                    template_name = cloudspace['remoteAccessConfig']['templateName']
+
+            # Get the user count for the cloudspace
+            try:
+                cloudspace_users = self.c5t.list_users_in_virtualization_realm(vr_id=cloudspace_id)
+            except Cons3rtApiError as exc:
+                msg = 'Problem listing users for cloudspace ID: {i}'.format(i=str(cloudspace_id))
+                raise RemoteAccessControllerError(msg) from exc
+            cloudspace_user_count = len(cloudspace_users)
+
             # Add cloudspace data
             log.info('Adding cloudspace data for cloudspace ID: {i}'.format(i=str(cloudspace['id'])))
             self.remote_access_run_info.append(
                 EnabledRemoteAccess(
-                    cloud_id=cloudspace['cloud']['id'],
-                    cloud_name=cloudspace['cloud']['name'],
-                    cloud_type=cloudspace['cloud']['cloudType'],
-                    cloudspace_id=cloudspace['id'],
-                    cloudspace_name=cloudspace['name'],
-                    active_status=cloudspace['state'],
+                    cloud_id=cloud_id,
+                    cloud_name=cloud_name,
+                    cloud_type=cloud_type,
+                    cloudspace_id=cloudspace_id,
+                    cloudspace_name=cloudspace_name,
+                    active_status=cloudspace_state,
                     remote_access_external_ip=boundary_ip,
-                    remote_access_internal_ip=cloudspace['remoteAccessConfig']['remoteAccessIpAddress'],
-                    remote_access_port=cloudspace['remoteAccessConfig']['remoteAccessPort'],
-                    rdp_proxy_enabled=cloudspace['remoteAccessConfig']['rdpProxyClientEnabled'],
-                    template_name=cloudspace['remoteAccessConfig']['templateName']
+                    remote_access_internal_ip=remote_access_ip,
+                    remote_access_port=remote_access_port,
+                    rdp_proxy_enabled=rdp_proxy_enabled,
+                    template_name=template_name,
+                    user_count=cloudspace_user_count
                 )
             )
         log.info('Found {n} total cloudspaces'.format(n=str(len(self.remote_access_run_info))))
