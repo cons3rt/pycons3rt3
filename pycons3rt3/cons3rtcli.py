@@ -1774,7 +1774,7 @@ class TeamCli(Cons3rtCli):
             team_ids = self.ids
         for team_id in team_ids:
             try:
-                collab_tools_projects = self.c5t.list_collab_tools_projects_in_team(team_id=team_id)
+                _, collab_tools_projects = self.c5t.list_collab_tools_projects_in_team(team_id=team_id)
             except Cons3rtApiError as exc:
                 msg = 'Problem listing collab tools projects in team: {i}'.format(i=str(team_id))
                 self.err(msg)
@@ -1797,7 +1797,7 @@ class TeamCli(Cons3rtCli):
             team_ids = self.ids
         for team_id in team_ids:
             try:
-                collab_tools_projects = self.c5t.list_collab_tools_projects_in_team(team_id=team_id)
+                team_details, collab_tools_projects = self.c5t.list_collab_tools_projects_in_team(team_id=team_id)
             except Cons3rtApiError as exc:
                 msg = 'Problem listing collab tools projects in team: {i}'.format(i=str(team_id))
                 self.err(msg)
@@ -1819,6 +1819,7 @@ class TeamCli(Cons3rtCli):
                 tool_project_members = self.sort_by_id(tool_project_members)
                 collab_tool_users.append({
                     'team_id': str(team_id),
+                    'team_name': team_details['name'],
                     'tool_name': self.c5t.get_collab_tool_for_project_name(collab_tools_project['name']),
                     'active_user_count': str(len(tool_project_members)),
                     'users': tool_project_members
@@ -1827,7 +1828,7 @@ class TeamCli(Cons3rtCli):
         if len(collab_tool_users) > 0:
             self.print_formatted_list(
                 item_list=collab_tool_users,
-                included_columns=['team_id', 'tool_name', 'active_user_count']
+                included_columns=['team_id', 'team_name', 'tool_name', 'active_user_count']
             )
         return collab_tool_users
 
@@ -1905,7 +1906,7 @@ class TeamCli(Cons3rtCli):
             team_ids = self.ids
 
         for team_id in team_ids:
-            team_projects = self.c5t.list_projects_in_team(team_id=team_id)
+            _, team_projects = self.c5t.list_projects_in_team(team_id=team_id)
             if len(team_projects) > 0:
                 team_projects = self.sort_by_id(team_projects)
                 self.print_projects(project_list=team_projects)

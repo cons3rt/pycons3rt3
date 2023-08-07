@@ -1192,7 +1192,8 @@ class Cons3rtApi(object):
         """Returns a list of project IDs
 
         :param team_id: (int) ID of the team
-        :return: (list) of dict containing owned project data
+        :return: (tuple) team details and list of owned projects
+        :raises: Cons3rtApiError
         """
         log = logging.getLogger(self.cls_logger + '.list_projects_in_team')
 
@@ -1241,19 +1242,19 @@ class Cons3rtApi(object):
             owned_projects.append(owned_project)
         log.info('Found {n} projects owned by team [{t}] with ID: {i}'.format(
             n=str(len(owned_projects)), t=team_name, i=str(team_id)))
-        return owned_projects
+        return team_details, owned_projects
 
     def list_collab_tools_projects_in_team(self, team_id):
         """Returns a list of collab tools projects in a team
 
         :param team_id: (int) team ID
-        :return: (list) of (dict) collab tools projects
+        :return: (tuple) (dict) team details, (list) of (dict) collab tools projects
         :raises: Cons3rtApiError
         """
         log = logging.getLogger(self.cls_logger + '.list_collab_tools_projects_in_team')
         log.info('Getting a list of collab tools projects in team: {i}'.format(i=str(team_id)))
         collab_tools_projects = []
-        team_projects = self.list_projects_in_team(team_id=team_id)
+        team_details, team_projects = self.list_projects_in_team(team_id=team_id)
         for project in team_projects:
             for collab_tools_project_name in collab_tools_project_names:
                 if project['name'].endswith(collab_tools_project_name):
@@ -1261,7 +1262,7 @@ class Cons3rtApi(object):
                     log.info('Found collab tools project: {n}'.format(n=project['name']))
         log.info('Found {n} collab tools projects in team ID: {i}'.format(
             n=str(len(collab_tools_projects)), i=str(team_id)))
-        return collab_tools_projects
+        return team_details, collab_tools_projects
 
     @staticmethod
     def get_collab_tool_for_project_name(project_name):
@@ -5453,7 +5454,7 @@ class Cons3rtApi(object):
         log.info('Attempting to get a list of projects in team ID: {i}'.format(i=str(team_id)))
         project_names = []
         try:
-            projects = self.list_projects_in_team(team_id=team_id)
+            _, projects = self.list_projects_in_team(team_id=team_id)
         except Cons3rtApiError as exc:
             msg = 'Problem getting a list of projects in team ID: {i}'.format(i=str(team_id))
             raise Cons3rtApiError(msg) from exc
