@@ -1654,6 +1654,7 @@ class TeamCli(Cons3rtCli):
             'collabtools',
             'list',
             'managers',
+            'project',
             'report'
         ]
 
@@ -1692,6 +1693,11 @@ class TeamCli(Cons3rtCli):
                 self.list_team_managers()
             except Cons3rtCliError:
                 return False
+        elif self.subcommands[0] == 'project':
+            try:
+                self.project()
+            except Cons3rtCliError:
+                return False
         elif self.subcommands[0] == 'report':
             # If --assets was specified, run the asset report, otherwise run the full team report
             if self.args.assets:
@@ -1707,10 +1713,21 @@ class TeamCli(Cons3rtCli):
         return True
 
     def collab_tools(self):
-        valid_subcommands = [
-            'list',
-            'user'
-        ]
+        if len(self.subcommands) < 2:
+            msg = 'team collabtools command not provided'
+            self.err(msg)
+            raise Cons3rtCliError(msg)
+        if self.subcommands[1] == 'list':
+            self.list_team_collab_tools()
+        elif self.subcommands[1] == 'users':
+            if self.args.unique:
+                self.list_team_unique_collab_tool_users()
+            else:
+                self.list_team_collab_tool_users()
+        else:
+            msg = 'Unrecognized command: {c}'.format(c=self.subcommands[1])
+            self.err(msg)
+            raise Cons3rtCliError(msg)
 
     def generate_reports(self):
         if not self.ids:
@@ -1747,15 +1764,106 @@ class TeamCli(Cons3rtCli):
             self.err(msg)
             raise Cons3rtCliError(msg) from exc
 
+    def list_team_collab_tools(self):
+        team_ids = []
+        if not self.ids:
+            teams = self.list_teams()
+            for team in teams:
+                team_ids.append(team['id'])
+        else:
+            team_ids = self.ids
+        for team_id in team_ids:
+            try:
+                collab_tools_projects = self.c5t.list_collab_tools_projects_in_team(team_id=team_id)
+            except Cons3rtApiError as exc:
+                msg = 'Problem listing collab tools projects in team: {i}'.format(i=str(team_id))
+                self.err(msg)
+                raise Cons3rtCliError(msg) from exc
+            if len(collab_tools_projects) > 0:
+                collab_tools_projects = self.sort_by_id(collab_tools_projects)
+                for collab_tools_project in collab_tools_projects:
+                    collab_tools_project['tool_name'] = self.c5t.get_collab_tool_for_project_name(
+                        collab_tools_project['name'])
+                self.print_formatted_list(item_list=collab_tools_projects, included_columns=['id', 'tool_name'])
+
+    def list_team_collab_tool_users(self):
+        team_ids = []
+        collab_tool_users = []
+        if not self.ids:
+            teams = self.list_teams()
+            for team in teams:
+                team_ids.append(team['id'])
+        else:
+            team_ids = self.ids
+        for team_id in team_ids:
+            try:
+                collab_tools_projects = self.c5t.list_collab_tools_projects_in_team(team_id=team_id)
+            except Cons3rtApiError as exc:
+                msg = 'Problem listing collab tools projects in team: {i}'.format(i=str(team_id))
+                self.err(msg)
+                raise Cons3rtCliError(msg) from exc
+
+            for collab_tools_project in collab_tools_projects:
+                try:
+                    tool_project_members = self.c5t.list_project_members(
+                        project_id=collab_tools_project['id'], state='ACTIVE'
+                    )
+                except Cons3rtApiError as exc:
+                    msg = 'Problem getting project members from: {n}'.format(n=collab_tools_project['name'])
+                    self.err(msg)
+                    raise Cons3rtCliError(msg) from exc
+                print('In team {i}, found {n} users in tool: {t}'.format(
+                    i=str(team_id), n=str(len(tool_project_members)),
+                    t=self.c5t.get_collab_tool_for_project_name(collab_tools_project['name']))
+                )
+                tool_project_members = self.sort_by_id(tool_project_members)
+                collab_tool_users.append({
+                    'team_id': str(team_id),
+                    'tool_name': self.c5t.get_collab_tool_for_project_name(collab_tools_project['name']),
+                    'active_user_count': str(len(tool_project_members)),
+                    'users': tool_project_members
+                })
+
+        if len(collab_tool_users) > 0:
+            self.print_formatted_list(
+                item_list=collab_tool_users,
+                included_columns=['team_id', 'tool_name', 'active_user_count']
+            )
+        return collab_tool_users
+
+    def list_team_unique_collab_tool_users(self):
+        # Storge the list of unique collab tools users
+        unique_collab_tool_users = []
+
+        # Get the list of collab tool users for each team specified (or all teams)
+        collab_tool_users = self.list_team_collab_tool_users()
+
+        # Make a unique list
+        for collab_tool_user in collab_tool_users:
+            for user in collab_tool_user['users']:
+                already_added = False
+                for unique_collab_tool_user in unique_collab_tool_users:
+                    if user['username'] == unique_collab_tool_user['username']:
+                        already_added = True
+                if not already_added:
+                    unique_collab_tool_users.append(user)
+
+        self.print_users(users_list=unique_collab_tool_users)
+        print('Found {n} unique collab tools users'.format(n=str(len(unique_collab_tool_users))))
+        return unique_collab_tool_users
+
     def list_team_managers(self):
         results = []
         not_expired = False
         active_only = False
+        username = None
         if self.args.unexpired:
             not_expired = True
         if self.args.active:
             active_only = True
-        if not self.ids:
+        if self.args.username:
+            username = self.args.username
+        if not self.ids or username:
             # No ids specified, getting a list for all teams
             results += self.c5t.list_team_managers(not_expired=not_expired, active_only=active_only)
         else:
@@ -1763,8 +1871,44 @@ class TeamCli(Cons3rtCli):
             for team_id in self.ids:
                 results += self.c5t.list_team_managers_for_team(team_id=team_id)
         if len(results) > 0:
-            results = self.sort_by_id(results)
-            self.print_team_managers(team_manager_list=results)
+            if username:
+                user_info = None
+                for result in results:
+                    if result['username'] == username:
+                        user_info = result
+                        break
+                if not user_info:
+                    print('User is not found as a team manager: {u}'.format(u=username))
+                    return
+                user_teams = []
+                print(user_info['teamIds'])
+                for team_id, team_name in zip(user_info['teamIds'], user_info['teamNames']):
+                    user_teams.append({
+                        'id': team_id,
+                        'name': team_name
+                    })
+                user_teams = self.sort_by_id(user_teams)
+                self.print_item_name_and_id(item_list=user_teams)
+                print('User {u} is a manager of {n} teams'.format(u=username, n=str(len(user_teams))))
+            else:
+                results = self.sort_by_id(results)
+                self.print_team_managers(team_manager_list=results)
+                print('Found {n} team managers'.format(n=str(len(results))))
+
+    def list_team_projects(self):
+        team_ids = []
+        if not self.ids:
+            teams = self.list_teams()
+            for team in teams:
+                team_ids.append(team['id'])
+        else:
+            team_ids = self.ids
+
+        for team_id in team_ids:
+            team_projects = self.c5t.list_projects_in_team(team_id=team_id)
+            if len(team_projects) > 0:
+                team_projects = self.sort_by_id(team_projects)
+                self.print_projects(project_list=team_projects)
 
     def list_teams(self):
         teams = []
@@ -1784,6 +1928,19 @@ class TeamCli(Cons3rtCli):
             teams = self.sort_by_id(teams)
             self.print_teams(teams_list=teams)
         print('Total number of teams: {n}'.format(n=str(len(teams))))
+        return teams
+
+    def project(self):
+        if len(self.subcommands) < 2:
+            msg = 'team project command not provided'
+            self.err(msg)
+            raise Cons3rtCliError(msg)
+        if self.subcommands[1] == 'list':
+            self.list_team_projects()
+        else:
+            msg = 'Unrecognized command: {c}'.format(c=self.subcommands[1])
+            self.err(msg)
+            raise Cons3rtCliError(msg)
 
 
 class UserCli(Cons3rtCli):

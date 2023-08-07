@@ -5,6 +5,9 @@
 * Added the "cons3rt cloudspace project list", "cons3rt cloudspace user list", and "cons3rt user list" CLI commands
 * Greatly enhanced CLI output formatting!!!!
 * Added a create_user() method for easy creation of users over rest api
+* Added user counts to the `ractl print` command
+* Added methods to counts the list collab tools and count collab tool users for a team
+* Added the `team collabtools` subcommand for the team CLI
 
 0.0.16
 ======

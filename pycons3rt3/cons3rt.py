@@ -144,6 +144,7 @@ def main():
     parser.add_argument('--share', help='Share templates', action='store_true')
     parser.add_argument('--state', help='Project membership state, user state')
     parser.add_argument('--unexpired', help='Process only unexpired items', required=False, action='store_true')
+    parser.add_argument('--unique', help='Return unique items', required=False, action='store_true')
     parser.add_argument('--unlock', help='Remove run locks before taking action', action='store_true')
     parser.add_argument('--username', help='username relative to the CLI call', required=False)
     parser.add_argument('--yaml', help='Path to YAML input/output file for to the CLI call', required=False)

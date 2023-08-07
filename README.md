@@ -257,6 +257,30 @@ cons3rt cloudspace template share --provider_id=1 --ids=2,3,4,5,6 --all
 
 # Unregister a cloudspace
 cons3rt cloudspace unregister --id 123
+
+# Get a count of users using various collabd tools like Jira\
+cons3rt team collabtools users --id=2
+
+# Get a unique list of users in collab tools projects for a team or list of teams
+cons3rt team collabtools users --ids=2,5 --unique
+
+# Get a list of active users
+cons3rt user list --state=ACTIVE
+
+# Get a list of active team managers
+cons3rt team managers
+
+# Get a list of team managers for specific teams
+cons3rt team managers --ids=2,5
+
+# Get a list of teams managed by a specific user
+cons3rt team managers --username=johndoe
+
+# Create a csv file with remote access info for a specific cloudspace
+ractl print cloudspace --id=116
+
+# Create a csv file with remote access info for the CONS3RT site
+ractl print site
 ```
 
 
