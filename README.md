@@ -258,11 +258,14 @@ cons3rt cloudspace template share --provider_id=1 --ids=2,3,4,5,6 --all
 # Unregister a cloudspace
 cons3rt cloudspace unregister --id 123
 
-# Get a count of users using various collabd tools like Jira\
+# Get a count of ACTIVE users using various collabd tools like Jira
 cons3rt team collabtools users --id=2
 
-# Get a unique list of users in collab tools projects for a team or list of teams
+# Get a unique list of ACTIVE users in collab tools projects for a team or list of teams
 cons3rt team collabtools users --ids=2,5 --unique
+
+# Get a unique list of ACTIVE + BLOCKED users in collab tools projects for a team or list of teams
+cons3rt team collabtools users --ids=2,5 --unique --blocked
 
 # Get a list of active users
 cons3rt user list --state=ACTIVE

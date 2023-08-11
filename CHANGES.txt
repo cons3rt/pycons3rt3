@@ -8,6 +8,7 @@
 * Added user counts to the `ractl print` command
 * Added methods to counts the list collab tools and count collab tool users for a team
 * Added the `team collabtools` subcommand for the team CLI
+* Added a `--blocked` arg to include blocked users in output
 
 0.0.16
 ======

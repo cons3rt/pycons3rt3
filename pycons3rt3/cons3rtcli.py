@@ -1804,14 +1804,29 @@ class TeamCli(Cons3rtCli):
                 raise Cons3rtCliError(msg) from exc
 
             for collab_tools_project in collab_tools_projects:
+                tool_project_members = []
+
+                # Add active members
                 try:
-                    tool_project_members = self.c5t.list_project_members(
+                    tool_project_members += self.c5t.list_project_members(
                         project_id=collab_tools_project['id'], state='ACTIVE'
                     )
                 except Cons3rtApiError as exc:
-                    msg = 'Problem getting project members from: {n}'.format(n=collab_tools_project['name'])
+                    msg = 'Problem getting active project members from: {n}'.format(n=collab_tools_project['name'])
                     self.err(msg)
                     raise Cons3rtCliError(msg) from exc
+
+                # Add blocked members
+                if self.args.blocked:
+                    try:
+                        tool_project_members += self.c5t.list_project_members(
+                            project_id=collab_tools_project['id'], state='BLOCKED'
+                        )
+                    except Cons3rtApiError as exc:
+                        msg = 'Problem getting blocked project members from: {n}'.format(n=collab_tools_project['name'])
+                        self.err(msg)
+                        raise Cons3rtCliError(msg) from exc
+
                 print('In team {i}, found {n} users in tool: {t}'.format(
                     i=str(team_id), n=str(len(tool_project_members)),
                     t=self.c5t.get_collab_tool_for_project_name(collab_tools_project['name']))

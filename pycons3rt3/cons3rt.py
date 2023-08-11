@@ -112,6 +112,7 @@ def main():
     parser.add_argument('--all', help='All action relative to the command provided', action='store_true')
     parser.add_argument('--assets', help='Specify to run the asset reports', action='store_true')
     parser.add_argument('--before', help='Before a specified date, format: YYYY-MM-DD', required=False)
+    parser.add_argument('--blocked', help='Include blocked users', required=False, action='store_true')
     parser.add_argument('--clean_all_runs', help='Clean all runs from a cloudspace', action='store_true')
     parser.add_argument('--cloud_ato_consent', help='Consent to the cloud ATO', action='store_true')
     parser.add_argument('--cloud_type', help='Type of cloud virtualization technology (awsCloud, azureCloud, '
