@@ -5993,8 +5993,10 @@ class Cons3rtApi(object):
             raise Cons3rtApiError(msg)
 
     def share_template_to_vrs(self, provider_vr_id, template, vr_ids, subscribe=True, online=True,
-                              subscriber_vrs_subscriptions=None):
+                              subscriber_vrs_subscriptions=None, max_cpus=32, max_ram_mb=131072):
         """Share a template to virtualization realms
+
+        # TODO when Tracker 4459 is fixed, include max_cpus and max_ram_mb from reg_details['templateData']['maxCpu']
 
         :param provider_vr_id: (int) ID of the virtualization realm where the template is registered
         :param template: (dict) of template data
@@ -6002,6 +6004,8 @@ class Cons3rtApi(object):
         :param subscribe: (bool) Set True to have the shared virtualization realm also subscribe to the template
         :param online: (bool) Set True to bring the template online in the subscriber virtualization realm
         :param subscriber_vrs_subscriptions: (list) of dict subscription data for each subscriber VR ID
+        :param max_cpus: (int) maximum number of CPUs to include in the template subscription
+        :param max_ram_mb: (int) maximum RAM in MB to include in the template subscription
         :return: None
         :raises: Cons3rtApiError
         """
@@ -6115,9 +6119,6 @@ class Cons3rtApi(object):
                 log.info('Template [{n}] will not set online in VR ID: {i}'.format(n=template_name, i=str(vr_id)))
                 continue
 
-            # TODO when Tracker 4459 is fixed, include the reg_details['templateData']['maxCpu']
-            max_ram_mb = 131072
-            max_cpus = 32
             if 'templateData' in reg_details.keys():
                 if 'maxRamInMegabytes' in reg_details['templateData']:
                     max_ram_mb = reg_details['templateData']['maxRamInMegabytes']
@@ -6141,7 +6142,8 @@ class Cons3rtApi(object):
         log.info('Completed sharing and subscribing template [{n}] from VR ID: {i}'.format(
             n=template_name, i=str(provider_vr_id)))
 
-    def share_templates_to_vrs(self, provider_vr_id, templates, vr_ids, subscribe=True, online=True):
+    def share_templates_to_vrs(self, provider_vr_id, templates, vr_ids, subscribe=True, online=True, max_cpus=32,
+                               max_ram_mb=131072):
         """Share a template to virtualization realms
 
         :param provider_vr_id: (int) ID of the virtualization realm where the template is registered
@@ -6149,6 +6151,8 @@ class Cons3rtApi(object):
         :param vr_ids: (list) VR IDs to share the templates with
         :param subscribe: (bool) Set True to have the shared virtualization realm also subscribe to the template
         :param online: (bool) Set True to bring the template online in the subscriber virtualization realm
+        :param max_cpus: (int) maximum number of CPUs to include in the template subscription
+        :param max_ram_mb: (int) maximum RAM in MB to include in the template subscription
         :return: None
         :raises: Cons3rtApiError
         """
@@ -6176,18 +6180,24 @@ class Cons3rtApi(object):
                     vr_ids=vr_ids,
                     subscribe=subscribe,
                     online=online,
-                    subscriber_vrs_subscriptions=subscriber_vrs_subscriptions
+                    subscriber_vrs_subscriptions=subscriber_vrs_subscriptions,
+                    max_cpus=max_cpus,
+                    max_ram_mb=max_ram_mb
                 )
             except Cons3rtApiError as exc:
                 msg = 'Problem sharing template to VRs\n{e}\n{t}'.format(e=str(exc), t=traceback.format_exc())
                 log.warning(msg)
 
-    def share_templates_to_vrs_by_name(self, provider_vr_id, vr_ids, template_names=None):
+    def share_templates_to_vrs_by_name(self, provider_vr_id, vr_ids, template_names=None, max_cpus=32,
+                                       max_ram_mb=131072):
         """Shares template by name from the provider VR ID to the list of target VR IDs
 
         :param provider_vr_id: (int) ID of the template provider virtualization realm
         :param template_names: (list) name of the template names to share, None to share all templates
         :param vr_ids: (list) of IDs (int) of virtualization realms to share with
+        :param max_cpus: (int) maximum number of CPUs to include in the template subscription
+        :param max_ram_mb: (int) maximum RAM in MB to include in the template subscription
+        131072
         :return: bool
         :raises: Cons3rtApiError
         """
@@ -6236,7 +6246,9 @@ class Cons3rtApi(object):
         self.share_templates_to_vrs(
             provider_vr_id=provider_vr_id,
             templates=templates_to_share,
-            vr_ids=vr_ids
+            vr_ids=vr_ids,
+            max_cpus=max_cpus,
+            max_ram_mb=max_ram_mb
         )
 
     def delete_virtualization_realms_for_cloud(self, cloud_id, unlock=False):
@@ -6269,7 +6281,8 @@ class Cons3rtApi(object):
             self.clean_all_runs_in_virtualization_realm(vr_id=cloud_vr_id, unlock=unlock)
 
     def share_templates_to_vrs_in_cloud(self, cloud_id, provider_vr_id=None, templates_registration_data=None,
-                                        template_names=None, subscribe=True, online=True):
+                                        template_names=None, subscribe=True, online=True, max_cpus=32,
+                                        max_ram_mb=131072):
         """Shares a list of templates from a provider VR to all VRs in the provided cloud ID
 
         :param cloud_id: (int) ID of the cloud to share with
@@ -6278,6 +6291,8 @@ class Cons3rtApi(object):
         :param template_names: (list) of template names (str)
         :param subscribe: (bool) Set True to have the shared virtualization realm also subscribe to the template
         :param online: (bool) Set True to bring the template online in the subscriber virtualization realm
+        :param max_cpus: (int) maximum number of CPUs to include in the template subscription
+        :param max_ram_mb: (int) maximum RAM in MB to include in the template subscription
         :return: None
         :raises: Cons3rtApiError
         """
@@ -6362,6 +6377,8 @@ class Cons3rtApi(object):
             templates=templates,
             vr_ids=subscriber_vr_ids,
             subscribe=subscribe,
-            online=online
+            online=online,
+            max_cpus=max_cpus,
+            max_ram_mb=max_ram_mb
         )
         log.info('Completed sharing templates in cloud ID: {i}'.format(i=str(cloud_id)))

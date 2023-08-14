@@ -5,6 +5,7 @@ import json
 import traceback
 
 from .cons3rtapi import Cons3rtApi
+from .cons3rtdefaults import default_template_subscription_max_cpus
 from .exceptions import Cons3rtApiError, Cons3rtReportsError
 from .pycons3rtlibs import HostActionResult
 from .reports import generate_team_report, generate_team_asset_report
@@ -50,6 +51,19 @@ class Cons3rtCli(object):
             msg = 'Problem creating JSON output file: {f}'.format(f=json_path)
             raise Cons3rtCliError(msg) from exc
         print('Created output JSON file: {f}'.format(f=json_path))
+
+    def get_max_cpu(self):
+        if self.args.cpu:
+            try:
+                max_cpus = int(self.args.cpu)
+            except ValueError as exc:
+                msg = 'Invalid --cpu arg provided, must be an int: {c}\n{e}'.format(c=str(self.args.cpu), e=str(exc))
+                self.err(msg)
+                raise Cons3rtCliError(msg) from exc
+            else:
+                return max_cpus
+        else:
+            return default_template_subscription_max_cpus
 
     def process_args(self):
         if not self.validate_args():
@@ -474,10 +488,11 @@ class CloudCli(Cons3rtCli):
             msg = '--share arg is required for cloud template actions'
             self.err(msg)
             raise Cons3rtCliError(msg)
+        max_cpus = self.get_max_cpu()
         if self.args.all:
             for cloud_id in self.ids:
                 try:
-                    self.c5t.share_templates_to_vrs_in_cloud(cloud_id=cloud_id)
+                    self.c5t.share_templates_to_vrs_in_cloud(cloud_id=cloud_id, max_cpus=max_cpus)
                 except Cons3rtApiError as exc:
                     msg = 'Problem sharing templates in cloud ID: {c}\n{e}'.format(c=str(cloud_id), e=str(exc))
                     self.err(msg)
@@ -485,7 +500,8 @@ class CloudCli(Cons3rtCli):
         elif self.names:
             for cloud_id in self.ids:
                 try:
-                    self.c5t.share_templates_to_vrs_in_cloud(cloud_id=cloud_id, template_names=self.names)
+                    self.c5t.share_templates_to_vrs_in_cloud(cloud_id=cloud_id, template_names=self.names,
+                                                             max_cpus=max_cpus)
                 except Cons3rtApiError as exc:
                     msg = 'Problem sharing templates in cloud ID: {c}\n{e}'.format(c=str(cloud_id), e=str(exc))
                     self.err(msg)
@@ -934,16 +950,19 @@ class CloudspaceCli(Cons3rtCli):
             msg = '--id or --ids arg required list of VR IDs to share templates to'
             self.err(msg)
             raise Cons3rtCliError(msg)
+        max_cpus = self.get_max_cpu()
         if self.names:
             self.c5t.share_templates_to_vrs_by_name(
                 provider_vr_id=self.args.provider_id,
                 template_names=self.names,
-                vr_ids=self.ids
+                vr_ids=self.ids,
+                max_cpus=max_cpus
             )
         elif self.args.all:
             self.c5t.share_templates_to_vrs_by_name(
                 provider_vr_id=self.args.provider_id,
-                vr_ids=self.ids
+                vr_ids=self.ids,
+                max_cpus=max_cpus
             )
 
     def set_ids_to_all_cloudspaces(self):

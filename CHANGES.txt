@@ -9,6 +9,7 @@
 * Added methods to counts the list collab tools and count collab tool users for a team
 * Added the `team collabtools` subcommand for the team CLI
 * Added a `--blocked` arg to include blocked users in output
+* Added a `--cpu` arg to specify the max number of CPU when subscribing to a template
 
 0.0.16
 ======
