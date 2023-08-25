@@ -6,16 +6,17 @@ import logging
 import os
 import time
 import traceback
+import yaml
 
 from .logify import Logify
 
 from .cloud import Cloud
 from .cons3rtclient import Cons3rtClient
-from .cons3rtenums import cons3rt_deployment_run_status_active
+from .cons3rtenums import cons3rt_deployment_run_status_active, valid_search_type
 from .cons3rtwaiters import RunWaiter
 from .deployment import Deployment
 from .pycons3rtlibs import HostActionResult, RestUser
-from .cons3rtconfig import cons3rtapi_config_file, get_pycons3rt_conf_dir
+from .cons3rtconfig import cons3rtapi_config_file, get_pycons3rt_conf_dir, get_data_dir
 from .exceptions import Cons3rtClientError, Cons3rtApiError, DeploymentError, InvalidCloudError, \
     InvalidOperatingSystemTemplate
 from .ostemplates import OperatingSystemTemplate, OperatingSystemType
@@ -377,6 +378,38 @@ class Cons3rtApi(object):
                                                                            t=self.rest_user.token))
         else:
             log.warning('Matching ReST User not found for project: {p}'.format(p=project_name))
+
+    def save_cons3rt_data(self, cons3rt_data, data_name):
+        """Save cons3rt data to a file name that includes the provided data_name
+
+        :param cons3rt_data: (list) or (dict) of cons3rt data
+        :param data_name: (str) unique string to identify one kind of data
+        :return: None
+        """
+        log = logging.getLogger(self.cls_logger + '.save_cons3rt_data')
+        file_name = self.cons3rt_client.user.rest_api_url.lstrip('https://').split('/')[0] + '_' + data_name + '.yml'
+        save_file_path = os.path.join(get_data_dir(), file_name)
+        if os.path.isfile(save_file_path):
+            os.remove(save_file_path)
+        log.debug('Saving cons3rt data to: {f}'.format(f=save_file_path))
+        with open(save_file_path, 'w') as f:
+            yaml.dump(cons3rt_data, f, sort_keys=True)
+
+    def load_cons3rt_data(self, data_name):
+        """Loads cons3rt data from a filename derived from the site URL and the provided data name
+
+        :param data_name: (str) unique string to identify one kind of data
+        :return: (dict) or (list) containing the specified data or None
+        """
+        log = logging.getLogger(self.cls_logger + '.load_cons3rt_data')
+        file_name = self.cons3rt_client.user.rest_api_url.lstrip('https://').split('/')[0] + '_' + data_name + '.yml'
+        save_file_path = os.path.join(get_data_dir(), file_name)
+        if not os.path.isfile(save_file_path):
+            log.debug('Saved file does not exist for data name: {d}'.format(d=data_name))
+            return
+        log.info('Reading cons3rt data from file: {f}'.format(f=save_file_path))
+        with open(save_file_path, 'r') as f:
+            return yaml.load(f, Loader=yaml.FullLoader)
 
     def get_asset_type(self, asset_type):
         """Translates the user-provided asset type to an actual ReST target
@@ -1555,10 +1588,6 @@ class Cons3rtApi(object):
             raise Cons3rtApiError('Arg search_type must be a string, found type: {t}'.format(
                 t=search_type.__class__.__name__))
 
-        valid_search_type = ['SEARCH_ACTIVE', 'SEARCH_ALL', 'SEARCH_AVAILABLE', 'SEARCH_COMPOSING',
-                             'SEARCH_DECOMPOSING', 'SEARCH_INACTIVE', 'SEARCH_PROCESSING', 'SEARCH_SCHEDULED',
-                             'SEARCH_TESTING', 'SEARCH_SCHEDULED_AND_ACTIVE']
-
         search_type = search_type.upper()
         if search_type not in valid_search_type:
             raise Cons3rtApiError('Arg status provided is not valid, must be one of: {s}'.format(
@@ -1595,6 +1624,185 @@ class Cons3rtApi(object):
             raise Cons3rtApiError('Problem retrieving active runs from virtualization realm ID: {i}'.format(
                 i=str(vr_id))) from exc
         return drs
+
+    def list_deployment_runs_in_cloud(self, cloud_id, search_type='SEARCH_ALL'):
+        """Query each VR in the cloud to get a list of DR
+
+        :param cloud_id: (int) cloud ID to query
+        :param search_type: (str) Search type (see cons3rtenums:valid_search_type)
+        :return: (list) of deployment runs
+        :raises: Cons3rtApiError
+        """
+        log = logging.getLogger(self.cls_logger + '.list_deployment_runs_in_cloud')
+
+        log.info('Getting a list of deployment runs in cloud [{i}] with search type: {s}'.format(
+            i=str(cloud_id), s=search_type))
+        try:
+            vrs = self.list_virtualization_realms_for_cloud(cloud_id=cloud_id)
+        except Cons3rtApiError as exc:
+            msg = 'Problem retrieving the list of virtualization realms for cloud ID: {i}'.format(i=str(cloud_id))
+            raise Cons3rtApiError(msg) from exc
+
+        # Store the list of DRs in the cloud
+        cloud_drs = []
+
+        log.info('Listing deployment runs in each virtualization realm...')
+        for vr in vrs:
+            log.info('Listing deployment runs in virtualization realm ID {i}'.format(i=str(vr['id'])))
+            try:
+                cloud_drs += self.list_deployment_runs_in_virtualization_realm(vr_id=vr['id'], search_type=search_type)
+            except Cons3rtApiError as exc:
+                msg = 'Problem retrieving the list of deployment runs in virtualization realm ID: {i}'.format(
+                    i=str(vr['id']))
+                raise Cons3rtApiError(msg) from exc
+        log.info('Found {n} deployment runs in cloud: {i}'.format(n=str(len(cloud_drs)), i=str(cloud_id)))
+        return cloud_drs
+
+    def list_active_deployment_runs_in_cloud(self, cloud_id):
+        """Query each VR in the cloud to get a list of active DRs
+
+        :param cloud_id: (int) cloud ID to query
+        :return: (list) of deployment runs
+        :raises: Cons3rtApiError
+        """
+        return self.list_deployment_runs_in_cloud(cloud_id=cloud_id, search_type='SEARCH_ACTIVE')
+
+    def list_deployment_run_hosts_in_cloud(self, cloud_id, search_type='SEARCH_ALL', load=False):
+        """Query each VR in the cloud to get a list of DR hosts
+
+        :param cloud_id: (int) cloud ID to query
+        :param search_type: (str) Search type (see cons3rtenums:valid_search_type)
+        :param load (bool) Set True to load local data if found
+        :return: (tuple) of the following:
+            1. (list) of deployment run details, and a list of host details
+            [
+                "run": {run details}
+                "hosts": [{host details}]
+            ]
+            2. (int) count of the deployment run hosts
+            3. (list) of failed DRs not found to get details
+        :raises: Cons3rtApiError
+        """
+        log = logging.getLogger(self.cls_logger + '.list_deployment_run_hosts_in_cloud')
+        log.info('Getting a list of deployment run hosts in cloud [{i}] with search type: {s}'.format(
+            i=str(cloud_id), s=search_type))
+
+        cloud_drs = self.list_deployment_runs_in_cloud(cloud_id=cloud_id, search_type=search_type)
+
+        # Get the list of cloud deployment run host details
+        cloud_drh_list, cloud_drh_count, failed_drs = self.list_host_details_in_dr_list(dr_list=cloud_drs, load=load)
+
+        log.info('Found {n} deployment run hosts in cloud ID: {i}'.format(n=str(len(cloud_drh_list)), i=str(cloud_id)))
+        return cloud_drh_list, cloud_drh_count, failed_drs
+
+    def list_active_deployment_run_hosts_in_cloud(self, cloud_id, load=False):
+        """Query each VR in the cloud to get a list of active DR hosts
+
+        :param cloud_id: (int) cloud ID to query
+        :param load (bool) Set True to load local data if found
+        :return: (tuple) of the following:
+            1. (list) of deployment run details, and a list of host details
+            [
+                "run": {run details}
+                "hosts": [{host details}]
+            ]
+            2. (int) count of the deployment run hosts
+            3. (list) failed drs
+        :raises: Cons3rtApiError
+        """
+        return self.list_deployment_run_hosts_in_cloud(cloud_id=cloud_id, search_type='SEARCH_ACTIVE', load=load)
+
+    def list_cloud_gpu_hosts(self, cloud_id, load=False):
+        """Query each cloud to get a list of deployment run hosts that are using GPU
+
+        :param cloud_id: (int) cloud ID
+        :param load (bool) Set True to load local data if found
+        :return: (list) of dict deployment run and host data:
+            {
+                'run_id': run['run']['id'],
+                'run_owner': run['run']['creator']['username'],
+                'email': run['run']['creator']['email'],
+                'host_id': host['id'],
+                'host_name': host['hostname'],
+                'gpu_type': host['gpuType'],
+                'gpu_profile': host['gpuProfile']
+            }
+        """
+        log = logging.getLogger(self.cls_logger + '.list_cloud_gpu_hosts')
+        log.info('Attempting to get a list of deployment run hosts using GPUs in cloud ID: {i}'.format(i=str(cloud_id)))
+
+        # Get a list of deployment run hosts in the cloud
+        cloud_drhs, cloud_drh_count, _ = self.list_active_deployment_run_hosts_in_cloud(cloud_id=cloud_id, load=load)
+        log.info('Found {n} active deployment run hosts in cloud ID: {i}'.format(
+            n=str(cloud_drh_count), i=str(cloud_id)))
+
+        # Store a list of GPU deployment run hosts
+        gpu_hosts = []
+
+        # Loop through the run hosts, find ones using GPU, and filter collect GPU info
+        for run in cloud_drhs:
+            if 'run' not in run.keys():
+                log.warning('run data not found in entry: {d}'.format(d=str(run)))
+                continue
+            if 'id' not in run['run'].keys():
+                log.warning('id data not found in run data: {d}'.format(d=str(run['run'])))
+                continue
+            if 'creator' not in run['run'].keys():
+                log.warning('creator data not found in run data: {d}'.format(d=str(run['run'])))
+                continue
+            if 'username' not in run['run']['creator'].keys():
+                log.warning('username data not found in creator data: {d}'.format(d=str(run['run']['creator'])))
+                continue
+            if 'hosts' not in run.keys():
+                log.warning('hosts data not found in entry: {d}'.format(d=str(run)))
+                continue
+
+            # Loop through each host in the run
+            for host in run['hosts']:
+                if 'id' not in host.keys():
+                    log.warning('id data not found in host: {d}'.format(d=str(host)))
+                    continue
+                if 'hostname' not in host.keys():
+                    log.warning('hostname data not found in host: {d}'.format(d=str(host)))
+                    continue
+
+                # Check if the host has a GPU
+                # TODO uncomment this when it is fixed -- currently hasGpu returns only false
+                # if not host['hasGpu']:
+                #     log.debug('Host [{i}/{n}] does not use GPU'.format(i=str(host['id']), n=host['hostname']))
+                #     continue
+
+                # Set default values foe GPU type and profile
+                gpu_type = 'None'
+                gpu_profile = 'None'
+
+                # Track if GPU info was included in the DR host data
+                gpu_info_found = False
+
+                # Check for gpuType and gpuProfile
+                if 'gpuType' in host.keys():
+                    gpu_type = host['gpuType']
+                    gpu_info_found = True
+                if 'gpuProfile' in host.keys():
+                    gpu_profile = host['gpuProfile']
+                    gpu_info_found = True
+
+                # Add the host to the list if GPU info was found
+                if gpu_info_found:
+                    log.info('Host [{i}/{n}] does uses GPU'.format(i=str(host['id']), n=host['hostname']))
+                    gpu_hosts.append({
+                        'run_id': run['run']['id'],
+                        'run_owner': run['run']['creator']['username'],
+                        'host_id': host['id'],
+                        'host_name': host['hostname'],
+                        'gpu_type': gpu_type,
+                        'gpu_profile': gpu_profile
+                    })
+                else:
+                    log.debug('Host [{i}/{n}] does not use GPU'.format(i=str(host['id']), n=host['hostname']))
+
+        log.info('Found {n} deployment run hosts using GPU'.format(n=str(len(gpu_hosts))))
+        return gpu_hosts
 
     def retrieve_deployment_run_details(self, dr_id):
         """Query CONS3RT to return details of a deployment run
@@ -1724,6 +1932,7 @@ class Cons3rtApi(object):
             msg = 'Unable to query CONS3RT for a list of Virtualization Realms for Cloud ID: {c}'.format(
                 c=cloud_id)
             raise Cons3rtApiError(msg) from exc
+        log.info('Found {n} virtualization realms in cloud ID: {i}'.format(n=str(len(vrs)), i=str(cloud_id)))
         return vrs
 
     def list_virtualization_realms_for_project(self, project_id):
@@ -5290,11 +5499,11 @@ class Cons3rtApi(object):
         for dr in drs:
             if not isinstance(dr, dict):
                 raise Cons3rtApiError('Provided dr data was not a dict, found: {t}'.format(t=dr.__class__.__name__))
-            if 'id' not in dr:
+            if 'id' not in dr.keys():
                 raise Cons3rtApiError('id not found in DR data: {d}'.format(d=str(dr)))
             if 'deploymentRunStatus' not in dr:
                 raise Cons3rtApiError('deploymentRunStatus not found in DR data: {d}'.format(d=str(dr)))
-            if 'project' not in dr:
+            if 'project' not in dr.keys():
                 raise Cons3rtApiError('project not found in DR data: {d}'.format(d=str(dr)))
             if 'name' not in dr['project']:
                 raise Cons3rtApiError('project name not found in DR data: {d}'.format(d=str(dr)))
@@ -5649,6 +5858,84 @@ class Cons3rtApi(object):
         """
         return self.list_runs_in_project(project_id=project_id, search_type='SEARCH_ALL')
 
+    def list_host_details_in_dr_list(self, dr_list, load=False):
+        """Lists details for every deployment run host deployed in the provided team ID
+
+        :param dr_list: (list) list of DRs (see details for dict)
+        :param load (bool) Set True to load local data if found
+        :return: (tuple) of the following:
+            1. (list) of deployment run details, and a list of host details
+            [
+                "run": {run details}
+                "hosts": [{host details}]
+            ]
+            2. (int) count of the deployment run hosts
+            3. (list) of failed DRs
+        :raises: Cons3rtApiError
+        """
+        log = logging.getLogger(self.cls_logger + '.list_host_details_in_dr_list')
+
+        # Store the list of deployment run and host details
+        drh_list = []
+
+        # Store the count of deployment run hosts
+        drh_count = 0
+
+        # Store the list of failed deployment runs
+        failed_dr_list = []
+
+        # Attempt to load existing data from previous runs
+        data_name = 'host_details'
+        loaded_data = []
+
+        if load:
+            loaded_data = self.load_cons3rt_data(data_name)
+            if not loaded_data:
+                log.info('No data was loaded with host details')
+                loaded_data = []
+        else:
+            log.info('Loaded {n} runs with host details'.format(n=str(len(loaded_data))))
+
+        for dr in dr_list:
+            if 'id' not in dr.keys():
+                log.warning('id not found in DR data: {d}'.format(d=str(dr)))
+                continue
+
+            # Track whether data was already loaded for this run
+            found_existing = False
+
+            # Check for loaded host detail data for this run ID
+            for loaded_run in loaded_data:
+                if 'run' in loaded_run.keys():
+                    if 'id' in loaded_run['run'].keys():
+                        if loaded_run['run']['id'] == dr['id']:
+                            if 'hosts' in loaded_run.keys():
+                                log.info('Loading details for run ID: {i}'.format(i=str(dr['id'])))
+                                found_existing = True
+                                drh_count += len(loaded_run['hosts'])
+                                drh_list.append(dict(loaded_run))
+
+            # If not found, retrieve host details
+            if not found_existing:
+                log.info('Retrieving details for run ID: {i}'.format(i=str(dr['id'])))
+                try:
+                    dr_drh_list, dr_details = self.list_detailed_hosts_in_run(dr_id=dr['id'])
+                except Cons3rtApiError as exc:
+                    log.warning('Problem listing detailed host data for DR ID: {i}\n{e}'.format(
+                        i=str(dr['id']), e=str(exc)))
+                    failed_dr_list.append(dr)
+                    continue
+
+                new_host_details = {
+                    'run': dr_details,
+                    'hosts': dr_drh_list
+                }
+                drh_list.append(new_host_details)
+                drh_count += len(dr_drh_list)
+                loaded_data.append(new_host_details)
+                self.save_cons3rt_data(cons3rt_data=loaded_data, data_name=data_name)
+        return drh_list, drh_count, failed_dr_list
+
     def list_host_details_in_team(self, team_id):
         """Lists details for every deployment run host deployed in the provided team ID
 
@@ -5677,23 +5964,8 @@ class Cons3rtApi(object):
             msg = 'Problem listing active runs in team ID: {i}'.format(i=str(team_id))
             raise Cons3rtApiError(msg) from exc
 
-        team_drh_list = []
-        team_drh_count = 0
-        for dr in drs:
-            if 'id' not in dr:
-                log.warning('id not found in DR data: {d}'.format(d=str(dr)))
-                continue
-            log.info('Retrieving details for run ID: {i}'.format(i=str(dr['id'])))
-            try:
-                dr_drh_list, dr_details = self.list_detailed_hosts_in_run(dr_id=dr['id'])
-            except Cons3rtApiError as exc:
-                msg = 'Problem listing detailed host data for DR ID: {i}'.format(i=str(dr['id']))
-                raise Cons3rtApiError(msg) from exc
-            team_drh_list.append({
-                'run': dr_details,
-                'hosts': dr_drh_list
-            })
-            team_drh_count += len(dr_drh_list)
+        # Get the list
+        team_drh_list, team_drh_count, _ = self.list_host_details_in_dr_list(dr_list=drs)
         log.info('Found {n} deployment run hosts in team ID {i}'.format(i=str(team_id), n=str(team_drh_count)))
         return team_drh_list
 
@@ -5728,7 +6000,7 @@ class Cons3rtApi(object):
         project_drh_list = []
         project_drh_count = 0
         for dr in drs:
-            if 'id' not in dr:
+            if 'id' not in dr.keys():
                 log.warning('id not found in DR data: {d}'.format(d=str(dr)))
                 continue
             log.info('Retrieving details for run ID: {i}'.format(i=str(dr['id'])))

@@ -135,6 +135,14 @@ def get_pycons3rt_conf_dir():
     return os.path.join(get_pycons3rt_home_dir(), 'conf')
 
 
+def get_pycons3rt_data_dir():
+    """Returns the pycons3rt data directory
+
+    :return: (str) Full path to pycons3rt data directory
+    """
+    return os.path.join(get_pycons3rt_home_dir(), 'data')
+
+
 def get_pycons3rt_src_dir():
     """Returns the pycons3rt src directory
 
@@ -151,6 +159,7 @@ def initialize_pycons3rt_dirs():
     """
     for pycons3rt_dir in [get_pycons3rt_home_dir(),
                           get_pycons3rt_conf_dir(),
+                          get_pycons3rt_data_dir(),
                           get_pycons3rt_log_dir(),
                           get_pycons3rt_src_dir()]:
         if os.path.isdir(pycons3rt_dir):

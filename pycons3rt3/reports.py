@@ -11,6 +11,7 @@ import os
 import yaml
 
 from pycons3rt3.cons3rtapi import Cons3rtApi
+from pycons3rt3.cons3rtconfig import get_data_dir, get_report_dir
 from pycons3rt3.exceptions import Cons3rtApiError, Cons3rtReportsError
 from pycons3rt3.logify import Logify
 
@@ -21,11 +22,8 @@ __author__ = 'Joe Yennaco'
 # Set up logger name for this module
 mod_logger = Logify.get_name() + '.reports'
 
-# Report directory
-report_dir = os.path.join(os.path.expanduser('~'), 'cons3rt_reports')
-
 # Data files
-cons3rt_data_file = os.path.join(report_dir, 'cons3rt_tmp_data.yml')
+cons3rt_data_file = os.path.join(get_data_dir(), 'cons3rt_tmp_data.yml')
 
 
 def generate_team_report(team_id, cons3rt_api, load=False):
@@ -41,8 +39,8 @@ def generate_team_report(team_id, cons3rt_api, load=False):
     validate_team_id(team_id)
     log.info('Generating team VM tally for team ID: {t}'.format(t=str(team_id)))
 
-    if not os.path.isdir(report_dir):
-        os.makedirs(report_dir, exist_ok=True)
+    if not os.path.isdir(get_report_dir()):
+        os.makedirs(get_report_dir(), exist_ok=True)
 
     if load:
         cons3rt_vm_data = read_cons3rt_data()
@@ -72,8 +70,8 @@ def generate_team_asset_report(team_id):
     validate_team_id(team_id)
     log.info('Generating team VM tally for team ID: {t}'.format(t=str(team_id)))
 
-    if not os.path.isdir(report_dir):
-        os.makedirs(report_dir, exist_ok=True)
+    if not os.path.isdir(get_report_dir()):
+        os.makedirs(get_report_dir(), exist_ok=True)
 
     asset_data = generate_team_asset_list(team_id=team_id)
 
@@ -339,7 +337,7 @@ def write_output_file(output_file_name, csv):
     :param csv: (str) comma-separated values
     """
     log = logging.getLogger(mod_logger + '.write_output_file')
-    output_file_path = os.path.join(report_dir, output_file_name)
+    output_file_path = os.path.join(get_report_dir(), output_file_name)
     if os.path.isfile(output_file_path):
         log.info('Removing existing output file: {f}'.format(f=output_file_path))
         os.remove(output_file_path)

@@ -132,7 +132,7 @@ def main():
     parser.add_argument('--linux_repo_url', help='URL of the Cloud Linux Repo', required=False)
     parser.add_argument('--list', help='List action for the provided command', action='store_true')
     parser.add_argument('--list_active_runs', help='List active runs in a cloudspace', action='store_true')
-    parser.add_argument('--load', help='Load local data vs. query for reports', action='store_true')
+    parser.add_argument('--load', help='Load local data when available', action='store_true')
     parser.add_argument('--my', help='Modifier for list action for only my things', action='store_true')
     parser.add_argument('--name', help='Name of a resource', required=False)
     parser.add_argument('--names', help='List of names of resources', required=False)

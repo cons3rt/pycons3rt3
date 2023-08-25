@@ -10,6 +10,13 @@
 * Added the `team collabtools` subcommand for the team CLI
 * Added a `--blocked` arg to include blocked users in output
 * Added a `--cpu` arg to specify the max number of CPU when subscribing to a template
+* Added a methods to list the deployment runs and deployment run hosts in a cloud
+* Added a method to list the deployment run hosts in a cloud that are using GPUs
+* Added CLI command `cons3rt cloud run list --id=1` to list deployment runs in the cloud(s)
+* Added CLI command `cons3rt cloud run hosts --id=1` to list deployment run hosts in the cloud(s)
+* Added CLI command `cons3rt cloud run gpus --id=1` to list GPU usage in the cloud(s)
+* Added the ability to save cons3rt data to a local PYCONS3RT_HOME/data directory to be loaded with the `--load`
+arg on future commands
 
 0.0.16
 ======

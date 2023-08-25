@@ -11,7 +11,7 @@ import shutil
 from .bash import mkdir_p
 from .exceptions import Cons3rtConfigError
 from .logify import Logify
-from .osutil import get_pycons3rt_conf_dir
+from .osutil import get_pycons3rt_conf_dir, get_pycons3rt_data_dir
 
 # Set up logger name for this module
 mod_logger = Logify.get_name() + '.cons3rtconfig'
@@ -22,24 +22,17 @@ site_urls = {
     'arcusmil': 'https://app.arcus.mil/rest/api/',
     'ci': 'https://api.ci.cons3rt.io/rest/api/',
     'ci2': 'https://api.ci2.cons3rt.io/rest/api/',
-    'cons3rt.com': 'https://api.cons3rt.com/rest/api/',
     'dev': 'https://api.dev.cons3rt.io/rest/api/',
-    'dev2': 'https://api.dev2.cons3rt.io/rest/api/',
-    'int': 'https://api.int.cons3rt.io/rest/api/',
-    'open': 'https://api.open.cons3rt.io/rest/api/',
     'qa': 'https://api.qa.cons3rt.io/rest/api/',
-    'qa2': 'https://api.qa2.cons3rt.io/rest/api/',
-    'qa3': 'https://api.qa3.cons3rt.io/rest/api/'
 }
 
 # The default site selection
-default_api_url = site_urls['arcusgov']
+default_api_url = site_urls['arcusmil']
 
 # List of sites that require certificate-based auth
 cert_auth_sites = [
     site_urls['arcusgov'],
-    site_urls['arcusmil'],
-    site_urls['qa2']
+    site_urls['arcusmil']
 ]
 
 # String representation of the list of sites
@@ -47,6 +40,9 @@ site_url_list_str = ', '.join(site_urls.keys())
 
 # cons3rtapi config directory
 cons3rtapi_config_dir = get_pycons3rt_conf_dir()
+
+# cons3rtapi data directory
+cons3rtapi_data_dir = get_pycons3rt_data_dir()
 
 # cons3rtapi config file
 cons3rtapi_config_file = os.path.join(cons3rtapi_config_dir, 'config.json')
@@ -75,7 +71,7 @@ def manual_config():
     cons3rt_config = {}
 
     # Get the API URL
-    site_selection_input = input('Enter the CONS3RT site ({v}) (default: arcusgov): '.format(v=site_url_list_str))
+    site_selection_input = input('Enter the CONS3RT site ({v}) (default: arcusmil): '.format(v=site_url_list_str))
 
     if site_selection_input:
         site_selection = site_selection_input.strip()
@@ -237,3 +233,19 @@ def set_config(config_data):
         raise Cons3rtConfigError('projects is required in config data')
     write_config(cons3rt_config)
     log.info('Updated config data here: {f}'.format(f=cons3rtapi_config_file))
+
+
+def get_report_dir():
+    """Directory for output reports the user will want to find
+
+    :return: (str) path to the cons3rt_reports directory
+    """
+    return os.path.join(os.path.expanduser('~'), 'cons3rt_reports')
+
+
+def get_data_dir():
+    """Directory for pycons3rt data for processing data not intended for humans
+
+    :return: (str) path to the pycons3rt data directory
+    """
+    return cons3rtapi_data_dir

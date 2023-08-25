@@ -200,6 +200,23 @@ cons3rt cloud template --id=1 --share --name 'cons3rt-redhat-8'
 
 # Share all templates from the cloud template provider to all other cloudspaces in the cloud
 cons3rt cloud template --id=1 --share --all
+
+# List deployment runs in the cloud(s)
+cons3rt cloud run list --id=1 
+cons3rt cloud run list --ids=1,2,3,4,5
+
+# list deployment run hosts in the cloud(s)
+cons3rt cloud run hosts --id=1 
+cons3rt cloud run hosts --ids=1,2,3,4,5
+
+# Added CLI command to list GPU usage in the cloud(s)
+cons3rt cloud run gpus --id=1
+cons3rt cloud run gpus --ids=1,2,3,4,5
+
+# Use the `--load` flag to load deployment run host details saved from prior commands, this works in these commands:
+cons3rt cloud run hosts --id=1 --load
+cons3rt cloud run gpus --id=1 --load
+
 ```
 
 ## cons3rt cloudspace CLI
@@ -257,7 +274,16 @@ cons3rt cloudspace template share --provider_id=1 --ids=2,3,4,5,6 --all
 
 # Unregister a cloudspace
 cons3rt cloudspace unregister --id 123
+```
 
+## cons3rt team CLI
+
+Permissions:
+* **Team Manager** role
+
+The `--id=1` or `--ids=1,2,3` args can be used to indicate which cloudspace IDs.
+
+```
 # Get a count of ACTIVE users using various collabd tools like Jira
 cons3rt team collabtools users --id=2
 
@@ -278,7 +304,14 @@ cons3rt team managers --ids=2,5
 
 # Get a list of teams managed by a specific user
 cons3rt team managers --username=johndoe
+```
 
+## ractl command -- Controls and queries remote access across the CONS3RT site
+
+Permissions:
+* **Site Admin** role
+
+```
 # Create a csv file with remote access info for a specific cloudspace
 ractl print cloudspace --id=116
 
@@ -287,9 +320,7 @@ ractl print site
 ```
 
 
-
-
-# Use pycons3rt3 in python3
+# Use pycons3rt3 in python
 
 ## Logify
 

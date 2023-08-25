@@ -58,6 +58,7 @@ import traceback
 
 from .cons3rtapi import Cons3rtApi, Cons3rtApiError
 from .cons3rtcli import validate_ids
+from .cons3rtconfig import get_report_dir
 from .logify import Logify
 from .slack import SlackAttachment, SlackMessage
 
@@ -65,11 +66,8 @@ from .slack import SlackAttachment, SlackMessage
 # Set up logger name for this module
 mod_logger = Logify.get_name() + '.remoteaccesscontroller'
 
-# Report directory
-report_dir = os.path.join(os.path.expanduser('~'), 'cons3rt_reports')
-
 # Output File
-out_file = os.path.join(report_dir, 'remote_access_data.csv')
+out_file = os.path.join(get_report_dir(), 'remote_access_data.csv')
 
 valid_commands = ['enable', 'disable', 'lock', 'print', 'toggle', 'unlock']
 valid_commands_str = ','.join(valid_commands)

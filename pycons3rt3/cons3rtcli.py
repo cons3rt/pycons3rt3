@@ -158,6 +158,12 @@ class Cons3rtCli(object):
     def print_deployments(self, deployment_list):
         return self.print_item_name_and_id(deployment_list)
 
+    def print_dr_hosts(self, dr_host_list):
+        self.print_formatted_list(
+            item_list=dr_host_list,
+            included_columns=['id', 'hostname', 'fapStatus', 'numCpus', 'ram', 'hasGpu']
+        )
+
     def print_drs(self, dr_list):
 
         # Build the roles_list item string and add it to the printable dict
@@ -289,6 +295,7 @@ class CloudCli(Cons3rtCli):
             'delete',
             'list',
             'retrieve',
+            'run',
             'template'
         ]
 
@@ -318,6 +325,11 @@ class CloudCli(Cons3rtCli):
         elif self.subcommands[0] == 'retrieve':
             try:
                 self.retrieve_clouds()
+            except Cons3rtCliError:
+                return False
+        elif self.subcommands[0] == 'run':
+            try:
+                self.deployment_runs()
             except Cons3rtCliError:
                 return False
         elif self.subcommands[0] == 'template':
@@ -449,6 +461,85 @@ class CloudCli(Cons3rtCli):
                 print('Unable to deallocate/unregister {n} cloudspaces for cloud {c}:'.format(
                     n=str(len(undeleted_cloudspaces)), c=str(cloud_id)))
                 self.print_cloudspaces(cloudspaces_list=undeleted_cloudspaces)
+
+    def deployment_runs(self):
+        if not self.ids:
+            msg = '--id or --ids arg required to specify the cloud IDs'
+            self.err(msg)
+            raise Cons3rtCliError(msg)
+        if len(self.subcommands) > 1:
+            cloud_run_subcommand = self.subcommands[1]
+
+            if cloud_run_subcommand == 'gpus':
+                self.list_cloud_gpus()
+                return
+            elif cloud_run_subcommand == 'hosts':
+                self.list_cloud_hosts()
+                return
+            elif cloud_run_subcommand == 'list':
+                self.list_cloud_runs()
+                return
+
+    def list_cloud_gpus(self):
+
+        # Set the load based on args
+        load = False
+        if self.args.load:
+            load = True
+
+        # Store host details that are using GPUs
+        cloud_gpus = []
+
+        for cloud_id in self.ids:
+            try:
+                cloud_gpus += self.c5t.list_cloud_gpu_hosts(cloud_id=cloud_id, load=load)
+            except Cons3rtApiError as exc:
+                msg = 'Problem retrieving GPUs in cloud ID: {c}\n{e}'.format(c=str(cloud_id), e=str(exc))
+                self.err(msg)
+                raise Cons3rtCliError(msg) from exc
+        self.print_formatted_list(item_list=cloud_gpus)
+
+    def list_cloud_runs(self):
+
+        # If the --active flag was set, search_type=SEARCH_ACTIVE
+        search_type = 'SEARCH_ALL'
+        if self.args.active:
+            search_type = 'SEARCH_ACTIVE'
+
+        cloud_runs = []
+        for cloud_id in self.ids:
+            try:
+                cloud_runs += self.c5t.list_deployment_runs_in_cloud(cloud_id=cloud_id, search_type=search_type)
+            except Cons3rtApiError as exc:
+                msg = 'Problem retrieving deployment runs for cloud ID: {c}\n{e}'.format(c=str(cloud_id), e=str(exc))
+                self.err(msg)
+                raise Cons3rtCliError(msg) from exc
+        self.print_drs(dr_list=cloud_runs)
+
+    def list_cloud_hosts(self):
+
+        # Set the load based on args
+        load = False
+        if self.args.load:
+            load = True
+
+        # If the --active flag was set, search_type=SEARCH_ACTIVE
+        search_type = 'SEARCH_ALL'
+        if self.args.active:
+            search_type = 'SEARCH_ACTIVE'
+
+        cloud_run_hosts = []
+        for cloud_id in self.ids:
+            try:
+                this_cloud_run_hosts, _, _ = self.c5t.list_deployment_run_hosts_in_cloud(
+                    cloud_id=cloud_id, search_type=search_type, load=load)
+            except Cons3rtApiError as exc:
+                msg = 'Problem retrieving deployment run hosts for cloud ID: {c}\n{e}'.format(
+                    c=str(cloud_id), e=str(exc))
+                self.err(msg)
+                raise Cons3rtCliError(msg) from exc
+            cloud_run_hosts += this_cloud_run_hosts
+        self.print_dr_hosts(dr_host_list=cloud_run_hosts)
 
     def retrieve_clouds(self):
         if not self.ids:
