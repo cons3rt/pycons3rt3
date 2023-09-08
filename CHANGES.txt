@@ -1,3 +1,21 @@
+0.0.18
+======
+
+* Added CLI commands to create, restore, and delete snapshots across one or more teams:
+  * cons3rt team run snapshot create --id=123
+  * cons3rt team run snapshot restore --id=123
+  * cons3rt team run snapshot delete --id=123
+* Added a --skip arg to provide a list of deployment run IDs to skip
+  * cons3rt team run snapshot create --id=3 --skip 12345
+* Added a CLI command to list runs in a team:
+  * cons3rt team run list --id=1
+* Added project CLI commands for snapshots that behave like the team ones, allow you to manage snapshots across one or more projects:
+  * cons3rt project run snapshot create --id=123
+  * cons3rt project run snapshot restore --id=123
+  * cons3rt project run snapshot delete --id=123
+* Updated the error handling for parsing http responses
+* Updated the error messages reported in host action results
+
 0.0.17
 ======
 

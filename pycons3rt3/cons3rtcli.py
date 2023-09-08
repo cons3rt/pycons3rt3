@@ -122,6 +122,8 @@ class Cons3rtCli(object):
         traceback.print_exc()
 
     def print_formatted_list(self, item_list, included_columns=None):
+        if len(item_list) < 1:
+            return
         print('')
         if not included_columns:
             # Collect unique keys from all dictionaries to get column names
@@ -182,6 +184,15 @@ class Cons3rtCli(object):
         self.print_formatted_list(
             item_list=dr_list,
             included_columns=['id', 'name', 'fapStatus', 'projectName', 'creatorUsername']
+        )
+
+    def print_host_action_results(self, results):
+        dict_results = []
+        for result in results:
+            dict_results.append(result.to_dict())
+        self.print_formatted_list(
+            item_list=dict_results,
+            included_columns=['host_id', 'host_role', 'dr_id', 'action', 'num_disks', 'storage_gb', 'result', 'err_msg']
         )
 
     def print_projects(self, project_list):
@@ -1246,6 +1257,7 @@ class ProjectCli(Cons3rtCli):
         ]
         self.runs = None
         self.member_list = None
+        self.skip_run_ids = []
 
     def process_subcommands(self):
         if not self.subcommands:
@@ -1272,10 +1284,24 @@ class ProjectCli(Cons3rtCli):
                 return False
         if self.subcommands[0] == 'run':
             try:
-                self.run()
+                self.handle_runs()
             except Cons3rtCliError:
                 return False
         return True
+
+    def create_snapshots(self):
+        """Creates snapshots for project runs
+
+        :return: None
+        :raises: Cons3rtCliError
+        """
+        project_id_list = [str(num) for num in self.ids]
+        results = []
+        for project_id in self.ids:
+            print('Creating snapshots for runs in project: {i}'.format(i=str(project_id)))
+            results += self.c5t.create_snapshots_for_project(project_id=project_id, skip_run_ids=self.skip_run_ids)
+        print('Completed creating snapshots for runs in projects: {i}'.format(i=','.join(map(str, project_id_list))))
+        self.print_host_action_results(results=results)
 
     def delete_runs(self):
         runs = []
@@ -1291,6 +1317,20 @@ class ProjectCli(Cons3rtCli):
         for run in runs:
             self.c5t.delete_inactive_run(dr_id=run['id'])
 
+    def delete_snapshots(self):
+        """Deletes the snapshots for project runs
+
+        :return: None
+        :raises: Cons3rtCliError
+        """
+        project_id_list = [str(num) for num in self.ids]
+        results = []
+        for project_id in self.ids:
+            print('Deleting snapshots for runs in project: {i}'.format(i=str(project_id)))
+            results += self.c5t.delete_snapshots_for_project(project_id=project_id, skip_run_ids=self.skip_run_ids)
+        print('Completed deleting snapshots for runs in projects: {i}'.format(i=','.join(map(str, project_id_list))))
+        self.print_host_action_results(results=results)
+
     def get_project(self):
         if not self.ids:
             msg = '--id or --ids arg required to specify the project ID(s)'
@@ -1305,6 +1345,38 @@ class ProjectCli(Cons3rtCli):
                 raise Cons3rtCliError(msg) from exc
             # TODO Do something better here
             print(str(project_details))
+
+    def handle_runs(self):
+        if not self.ids:
+            msg = '--id or --ids arg required to specify the project ID(s)'
+            self.err(msg)
+            raise Cons3rtCliError(msg)
+        if len(self.subcommands) > 1:
+            run_subcommand = self.subcommands[1]
+            if run_subcommand == 'delete':
+                self.delete_runs()
+                return
+            elif run_subcommand == 'list':
+                self.list_runs()
+                return
+            elif run_subcommand == 'off':
+                self.power_off_runs()
+                return
+            elif run_subcommand == 'on':
+                self.power_on_runs()
+                return
+            elif run_subcommand == 'release':
+                self.release_runs()
+                return
+            elif run_subcommand == 'restore':
+                self.restore_snapshots()
+                return
+            elif run_subcommand == 'snapshot':
+                self.snapshot()
+                return
+            else:
+                self.err('Unrecognized project command: {c}'.format(c=run_subcommand))
+                return False
 
     def list_active_runs_for_projects(self):
         runs = []
@@ -1468,69 +1540,44 @@ class ProjectCli(Cons3rtCli):
                 continue
             self.c5t.release_deployment_run(dr_id=run['id'])
 
-    def restore_runs(self):
+    def restore_snapshots(self):
         """Restore the project runs from snapshots
 
         :return: None
         :raises: Cons3rtCliError
         """
-        runs = self.list_active_runs_for_projects()
         project_id_list = [str(num) for num in self.ids]
-        print('Attempting to restore {n} runs in projects: {p}'.format(
-            n=str(len(runs)), p=','.join(project_id_list)))
-        try:
-            self.c5t.restore_run_snapshots_multiple(drs=runs)
-        except Cons3rtApiError as exc:
-            msg = 'Problem restoring runs from snapshots in projects: {p}'.format(p=project_id_list)
-            raise Cons3rtCliError(msg) from exc
+        results = []
+        for project_id in self.ids:
+            print('Restoring snapshots for runs in project: {i}'.format(i=str(project_id)))
+            results += self.c5t.restore_snapshots_for_project(project_id=project_id, skip_run_ids=self.skip_run_ids)
+        print('Completed restoring snapshots for runs in projects: {i}'.format(i=','.join(map(str, project_id_list))))
+        self.print_host_action_results(results=results)
 
-    def run(self):
+    def snapshot(self):
         if not self.ids:
             msg = '--id or --ids arg required to specify the project ID(s)'
             self.err(msg)
             raise Cons3rtCliError(msg)
-        if len(self.subcommands) > 1:
-            project_subcommand = self.subcommands[1]
-            if project_subcommand == 'delete':
-                self.delete_runs()
+        skip_run_id_strs = []
+        if self.args.skip:
+            skip_run_id_strs = self.args.skip.split(',')
+        for skip_run_id_str in skip_run_id_strs:
+            self.skip_run_ids.append(int(skip_run_id_str))
+        if len(self.subcommands) > 2:
+            project_snapshot_subcommand = self.subcommands[2]
+            if project_snapshot_subcommand == 'create':
+                self.create_snapshots()
                 return
-            elif project_subcommand == 'list':
-                self.list_runs()
+            elif project_snapshot_subcommand == 'delete':
+                self.delete_snapshots()
                 return
-            elif project_subcommand == 'off':
-                self.power_off_runs()
-                return
-            elif project_subcommand == 'on':
-                self.power_on_runs()
-                return
-            elif project_subcommand == 'release':
-                self.release_runs()
-                return
-            elif project_subcommand == 'restore':
-                self.restore_runs()
-                return
-            elif project_subcommand == 'snapshot':
-                self.snapshot_runs()
+            elif project_snapshot_subcommand == 'restore':
+                self.restore_snapshots()
                 return
             else:
-                self.err('Unrecognized project command: {c}'.format(c=project_subcommand))
-            return False
-
-    def snapshot_runs(self):
-        """Snapshots the project runs
-
-        :return: None
-        :raises: Cons3rtCliError
-        """
-        runs = self.list_active_runs_for_projects()
-        project_id_list = [str(num) for num in self.ids]
-        print('Attempting to snapshot {n} runs in projects: {p}'.format(
-            n=str(len(runs)), p=','.join(project_id_list)))
-        try:
-            self.c5t.create_run_snapshots_multiple(drs=runs)
-        except Cons3rtApiError as exc:
-            msg = 'Problem creating snapshots for runs in projects: {p}'.format(p=project_id_list)
-            raise Cons3rtCliError(msg) from exc
+                self.err('Unrecognized project run snapshot subcommand: {c}'.format(c=project_snapshot_subcommand))
+                return
 
 
 class RunCli(Cons3rtCli):
@@ -1591,29 +1638,35 @@ class RunCli(Cons3rtCli):
             self.c5t.release_deployment_run(dr_id=run_id)
             print('Attempted to cancel deployment run: {r}'.format(r=str(run_id)))
 
+    def delete(self):
+        results = []
+        for run_id in self.ids:
+            results += self.c5t.delete_run_snapshots(dr_id=run_id)
+        self.print_host_action_results(results=results)
+
     def power_off(self):
         results = []
         for run_id in self.ids:
             results += self.c5t.power_off_run(dr_id=run_id)
-        self.print_host_action_results_list(results)
+        self.print_host_action_results(results=results)
 
     def power_on(self):
         results = []
         for run_id in self.ids:
             results += self.c5t.power_on_run(dr_id=run_id)
-        self.print_host_action_results_list(results)
+        self.print_host_action_results(results=results)
 
     def restore(self):
         results = []
         for run_id in self.ids:
             results += self.c5t.restore_run_snapshots(dr_id=run_id)
-        self.print_host_action_results_list(results)
+        self.print_host_action_results(results=results)
 
     def snapshot(self):
         results = []
         for run_id in self.ids:
             results += self.c5t.create_run_snapshots(dr_id=run_id)
-        self.print_host_action_results_list(results)
+        self.print_host_action_results(results=results)
 
 
 class ScenarioCli(Cons3rtCli):
@@ -1765,8 +1818,10 @@ class TeamCli(Cons3rtCli):
             'list',
             'managers',
             'project',
-            'report'
+            'report',
+            'run'
         ]
+        self.skip_run_ids = []
 
     def process_args(self):
         if not self.validate_args():
@@ -1815,11 +1870,15 @@ class TeamCli(Cons3rtCli):
                     self.generate_asset_reports()
                 except Cons3rtCliError:
                     return False
-            else:
-                try:
-                    self.generate_reports()
-                except Cons3rtCliError:
-                    return False
+            try:
+                self.handle_reports()
+            except Cons3rtCliError:
+                return False
+        elif self.subcommands[0] == 'run':
+            try:
+                self.handle_runs()
+            except Cons3rtCliError:
+                return False
         return True
 
     def collab_tools(self):
@@ -1838,6 +1897,22 @@ class TeamCli(Cons3rtCli):
             msg = 'Unrecognized command: {c}'.format(c=self.subcommands[1])
             self.err(msg)
             raise Cons3rtCliError(msg)
+
+    def create_snapshots(self):
+        results = []
+        for team_id in self.ids:
+            print('Creating snapshots for runs in team: {i}'.format(i=str(team_id)))
+            results += self.c5t.create_snapshots_for_team(team_id=team_id, skip_run_ids=self.skip_run_ids)
+        print('Completed creating snapshots for runs in teams: {i}'.format(i=str(self.ids)))
+        self.print_host_action_results(results=results)
+
+    def delete_snapshots(self):
+        results = []
+        for team_id in self.ids:
+            print('Deleting snapshots for runs in team: {i}'.format(i=str(team_id)))
+            results += self.c5t.delete_snapshots_for_team(team_id=team_id, skip_run_ids=self.skip_run_ids)
+        print('Completed deleting snapshots for runs in teams: {i}'.format(i=str(self.ids)))
+        self.print_host_action_results(results=results)
 
     def generate_reports(self):
         if not self.ids:
@@ -1873,6 +1948,42 @@ class TeamCli(Cons3rtCli):
             msg = 'Problem generating asset report for team ID: {i}\n{e}'.format(i=str(team_id), e=str(exc))
             self.err(msg)
             raise Cons3rtCliError(msg) from exc
+
+    def handle_reports(self):
+        if not self.ids:
+            msg = '--id or --ids arg required to specify the project ID(s)'
+            self.err(msg)
+            raise Cons3rtCliError(msg)
+        if len(self.subcommands) < 2:
+            msg = 'team report subcommand not provided'
+            self.err(msg)
+            raise Cons3rtCliError(msg)
+        if self.subcommands[1] == 'assets':
+            self.generate_asset_reports()
+        elif self.subcommands[1] == 'runs':
+            self.generate_reports()
+        else:
+            msg = 'Unrecognized team report subcommand: {c}'.format(c=self.subcommands[1])
+            self.err(msg)
+            raise Cons3rtCliError(msg)
+
+    def handle_runs(self):
+        if not self.ids:
+            msg = '--id or --ids arg required to specify the project ID(s)'
+            self.err(msg)
+            raise Cons3rtCliError(msg)
+        if len(self.subcommands) < 2:
+            msg = 'team run subcommand not provided'
+            self.err(msg)
+            raise Cons3rtCliError(msg)
+        if self.subcommands[1] == 'list':
+            self.list_team_runs()
+        elif self.subcommands[1] == 'snapshot':
+            self.snapshot()
+        else:
+            msg = 'Unrecognized command: {c}'.format(c=self.subcommands[1])
+            self.err(msg)
+            raise Cons3rtCliError(msg)
 
     def list_team_collab_tools(self):
         team_ids = []
@@ -2036,6 +2147,23 @@ class TeamCli(Cons3rtCli):
                 team_projects = self.sort_by_id(team_projects)
                 self.print_projects(project_list=team_projects)
 
+    def list_team_runs(self):
+        team_ids = []
+        runs = []
+        if not self.ids:
+            teams = self.list_teams()
+            for team in teams:
+                team_ids.append(team['id'])
+        else:
+            team_ids = self.ids
+
+        for team_id in team_ids:
+            runs += self.c5t.list_active_runs_in_team_owned_projects(team_id=team_id)
+        if len(runs) > 0:
+            runs = self.sort_by_id(runs)
+            self.print_drs(dr_list=runs)
+        return runs
+
     def list_teams(self):
         teams = []
         not_expired = False
@@ -2058,7 +2186,7 @@ class TeamCli(Cons3rtCli):
 
     def project(self):
         if len(self.subcommands) < 2:
-            msg = 'team project command not provided'
+            msg = 'team project subcommand not provided'
             self.err(msg)
             raise Cons3rtCliError(msg)
         if self.subcommands[1] == 'list':
@@ -2067,6 +2195,35 @@ class TeamCli(Cons3rtCli):
             msg = 'Unrecognized command: {c}'.format(c=self.subcommands[1])
             self.err(msg)
             raise Cons3rtCliError(msg)
+
+    def restore_snapshots(self):
+        results = []
+        for team_id in self.ids:
+            print('Restoring snapshots for runs in team: {i}'.format(i=str(team_id)))
+            results += self.c5t.restore_snapshots_for_team(team_id=team_id, skip_run_ids=self.skip_run_ids)
+        print('Completed restoring snapshots for runs in teams: {i}'.format(i=str(self.ids)))
+        self.print_host_action_results(results=results)
+
+    def snapshot(self):
+        skip_run_id_strs = []
+        if self.args.skip:
+            skip_run_id_strs = self.args.skip.split(',')
+        for skip_run_id_str in skip_run_id_strs:
+            self.skip_run_ids.append(int(skip_run_id_str))
+        if len(self.subcommands) > 2:
+            team_snapshot_subcommand = self.subcommands[2]
+            if team_snapshot_subcommand == 'create':
+                self.create_snapshots()
+                return
+            elif team_snapshot_subcommand == 'delete':
+                self.delete_snapshots()
+                return
+            elif team_snapshot_subcommand == 'restore':
+                self.restore_snapshots()
+                return
+            else:
+                self.err('Unrecognized team run snapshot subcommand: {c}'.format(c=team_snapshot_subcommand))
+                return
 
 
 class UserCli(Cons3rtCli):

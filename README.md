@@ -281,9 +281,12 @@ cons3rt cloudspace unregister --id 123
 Permissions:
 * **Team Manager** role
 
-The `--id=1` or `--ids=1,2,3` args can be used to indicate which cloudspace IDs.
+The `--id=1` or `--ids=1,2,3` args can be used to indicate which team IDs.
 
 ```
+# Get a list of teams (site admins only)
+cons3rt team list
+
 # Get a count of ACTIVE users using various collabd tools like Jira
 cons3rt team collabtools users --id=2
 
@@ -304,6 +307,72 @@ cons3rt team managers --ids=2,5
 
 # Get a list of teams managed by a specific user
 cons3rt team managers --username=johndoe
+
+# Get a CSV report of runs in the team
+cons3rt team report runs --id=3
+
+# Get a CSV asset report for the team
+cons3rt team report assets --id=3
+
+# List runs in team-owned projects
+cons3rt team run list --id=3
+
+# Create snapshots for all team runs
+cons3rt team run snapshot create --id=3
+
+# Restore snapshots for all team runs
+cons3rt team run snapshot restore --id=3
+
+# Delete snapshots for all team runs
+cons3rt team run snapshot delete --id=3
+
+# Skip run IDs for any of the snapshot commands with --skip
+cons3rt team run snapshot create --id=3 --skip=12345,12346,12347
+```
+
+
+## cons3rt project CLI
+
+Permissions:
+* **Team Manager** role
+* **Project Owner** or **Project Manager** role
+
+The `--id=1` or `--ids=1,2,3` args can be used to indicate which project IDs.
+
+```
+# List projects
+cons3rt project list
+
+# Print project details
+cons3rt project get --id=3
+
+# List project members
+cons3rt project members list --id=3
+
+# List runs in projects
+cons3rt project run list --ids=3,6,9
+
+# Create snapshots for all project runs
+cons3rt project run snapshot create --id=3
+
+# Restore snapshots for all project runs
+cons3rt project run snapshot restore --id=3
+
+# Delete snapshots for all project runs
+cons3rt project run snapshot delete --id=3
+
+# Skip run IDs for any of the snapshot commands with --skip
+cons3rt project run snapshot create --id=3 --skip=12345,12346,12347
+
+# Power runs off/on in the project
+cons3rt project run on --id=3
+cons3rt project run off --id=3
+
+# Delete runs in projects
+cons3rt project run delete --ids=3,4,5
+
+# Release runs in projects, note this will prompt for confirmation due to the destructive nature
+cons3rt project run release --id=3
 ```
 
 ## ractl command -- Controls and queries remote access across the CONS3RT site

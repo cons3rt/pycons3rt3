@@ -498,7 +498,6 @@ class Client:
                 n=str(response.status_code), h=response.headers)
             if decoded_content:
                 msg += '\nand content:\n{c}'.format(c=decoded_content)
-            log.warning(msg)
             raise Cons3rtClientError(msg)
 
         # Return the decoded content

@@ -5172,8 +5172,8 @@ class Cons3rtApi(object):
                 ram=ram
             )
         except Cons3rtClientError as exc:
-            msg = 'Problem performing action [{a}] on DR ID {r} host ID: {h}'.format(
-                a=action, r=str(dr_id), h=str(dr_host_id))
+            msg = 'Problem performing action [{a}] on DR ID {r} host ID {h}\n{e}'.format(
+                a=action, r=str(dr_id), h=str(dr_host_id), e=str(exc))
             raise Cons3rtApiError(msg) from exc
         log.info('Completed [{a}] on DR ID {r} host ID: {h}'.format(a=action, r=str(dr_id), h=str(dr_host_id)))
 
@@ -5285,10 +5285,9 @@ class Cons3rtApi(object):
                     ram=ram
                 )
             except Cons3rtApiError as exc:
-                err_msg = 'Problem performing host action [{a}] on host ID: {i}\n{e}'.format(
-                    a=action, i=str(host['id']), e=str(exc))
-                log.warning(err_msg)
-                host_action_result.set_err_msg(err_msg=err_msg)
+                log.warning(str(exc))
+                error_detail = str(exc).split('\n')[-1]
+                host_action_result.set_err_msg(err_msg=error_detail)
                 host_action_result.set_fail()
             else:
                 host_action_result.set_success()
@@ -5345,8 +5344,26 @@ class Cons3rtApi(object):
             raise Cons3rtApiError('Problem creating snapshot for run ID: {i}'.format(i=str(dr_id))) from exc
         return results
 
+    def create_snapshots_for_team(self, team_id, skip_run_ids):
+        """Creates snapshots for a team
+
+        :param team_id: (int) team ID
+        :param skip_run_ids: (list) of deployment run IDs to skip
+        :return: (list) of HostActionResults
+        """
+        return self.snapshot_team_runs(team_id=team_id, action='CREATE_SNAPSHOT', skip_run_ids=skip_run_ids)
+
+    def create_snapshots_for_project(self, project_id, skip_run_ids):
+        """Creates snapshots for a project
+
+        :param project_id: (int) project ID
+        :param skip_run_ids: (list) of deployment run IDs to skip
+        :return: (list) of HostActionResults
+        """
+        return self.snapshot_project_runs(project_id=project_id, action='CREATE_SNAPSHOT', skip_run_ids=skip_run_ids)
+
     def restore_run_snapshots(self, dr_id):
-        """Attempts to create snapshots for all hosts in the provided DR ID
+        """Attempts to restore snapshots for all hosts in the provided DR ID
 
         :param dr_id: (int) ID of the deployment run
         :return: (list) of dict data on request results
@@ -5360,6 +5377,59 @@ class Cons3rtApi(object):
         except Cons3rtApiError as exc:
             raise Cons3rtApiError('Problem restoring snapshot for run ID: {i}'.format(i=str(dr_id))) from exc
         return results
+
+    def restore_snapshots_for_team(self, team_id, skip_run_ids):
+        """Restores snapshots for a team
+
+        :param team_id: (int) team ID
+        :param skip_run_ids: (list) of deployment run IDs to skip
+        :return: (list) of HostActionResults
+        """
+        return self.snapshot_team_runs(team_id=team_id, action='RESTORE_SNAPSHOT', skip_run_ids=skip_run_ids)
+
+    def restore_snapshots_for_project(self, project_id, skip_run_ids):
+        """Restores snapshots for a project
+
+        :param project_id: (int) project ID
+        :param skip_run_ids: (list) of deployment run IDs to skip
+        :return: (list) of HostActionResults
+        """
+        return self.snapshot_project_runs(project_id=project_id, action='RESTORE_SNAPSHOT', skip_run_ids=skip_run_ids)
+
+    def delete_run_snapshots(self, dr_id):
+        """Attempts to delete snapshots for all hosts in the provided DR ID
+
+        :param dr_id: (int) ID of the deployment run
+        :return: (list) of dict data on request results
+        :raises Cons3rtApiError
+        """
+        try:
+            results = self.perform_host_action_for_run(
+                dr_id=dr_id,
+                action='REMOVE_ALL_SNAPSHOTS'
+            )
+        except Cons3rtApiError as exc:
+            raise Cons3rtApiError('Problem restoring snapshot for run ID: {i}'.format(i=str(dr_id))) from exc
+        return results
+
+    def delete_snapshots_for_team(self, team_id, skip_run_ids):
+        """Deletes snapshots for a team
+
+        :param team_id: (int) team ID
+        :param skip_run_ids: (list) of deployment run IDs to skip
+        :return: (list) of HostActionResults
+        """
+        return self.snapshot_team_runs(team_id=team_id, action='REMOVE_ALL_SNAPSHOTS', skip_run_ids=skip_run_ids)
+
+    def delete_snapshots_for_project(self, project_id, skip_run_ids):
+        """Restores snapshots for a project
+
+        :param project_id: (int) project ID
+        :param skip_run_ids: (list) of deployment run IDs to skip
+        :return: (list) of HostActionResults
+        """
+        return self.snapshot_project_runs(project_id=project_id, action='REMOVE_ALL_SNAPSHOTS',
+                                          skip_run_ids=skip_run_ids)
 
     def power_off_run(self, dr_id):
         """Attempts to power off all hosts in the provided DR ID
@@ -5399,11 +5469,14 @@ class Cons3rtApi(object):
     def create_run_snapshots_multiple(self, drs):
         return self.process_run_snapshots_multiple(drs=drs, action='CREATE_SNAPSHOT')
 
+    def delete_run_snapshots_multiple(self, drs):
+        return self.process_run_snapshots_multiple(drs=drs, action='REMOVE_ALL_SNAPSHOTS')
+
     def process_run_snapshots_multiple(self, drs, action):
         """Attempts to create snapshots for all hosts in the provided DR list
 
         :param drs: (list) deployment runs dicts of DR data
-        :param action: (str) CREATE_SNAPSHOT | RESTORE_SNAPSHOT
+        :param action: (str) CREATE_SNAPSHOT | RESTORE_SNAPSHOT | REMOVE_ALL_SNAPSHOTS
         :return: (list) of dict data on request results
         :raises Cons3rtApiError
         """
@@ -5547,6 +5620,10 @@ class Cons3rtApi(object):
                 if 'virtualizationRealmType' in dr['virtualizationRealm']:
                     if dr['virtualizationRealm']['virtualizationRealmType'] == 'VCloud':
                         vcloud_drs.append(dr)
+                    elif dr['virtualizationRealm']['virtualizationRealmType'] == 'VCloudRestCloud':
+                        vcloud_drs.append(dr)
+                    elif dr['virtualizationRealm']['virtualizationRealmType'] == 'VCloudRest':
+                        vcloud_drs.append(dr)
                     elif dr['virtualizationRealm']['virtualizationRealmType'] == 'OpenStack':
                         openstack_drs.append(dr)
                     elif dr['virtualizationRealm']['virtualizationRealmType'] == 'Amazon':
@@ -5639,6 +5716,155 @@ class Cons3rtApi(object):
             s=str(successful_action_count),
             f=str(failed_action_count)))
         return all_results
+
+    def snapshot_project_runs(self, project_id, action, skip_run_ids=None):
+        """Creates a snapshot for each active deployment run in the provided team ID
+
+        :param project_id: (int) project ID
+        :param action: (str) CREATE_SNAPSHOT | RESTORE_SNAPSHOT | REMOVE_ALL_SNAPSHOTS
+        :param skip_run_ids: (list) of int run IDs to skip snapshots
+        :return: (list) of HostActionResults
+        :raises: Cons3rtApiError
+        """
+        log = logging.getLogger(self.cls_logger + '.snapshot_project_runs')
+
+        # Keep a list of deployment runs that had snapshots created
+        snapshot_drs = []
+
+        # Ensure this is a list
+        if not skip_run_ids:
+            skip_run_ids = []
+
+        # Get a list of team DRs
+        log.info('Retrieving a list of runs owned by project ID: {i}'.format(i=str(project_id)))
+        try:
+            project_drs = self.list_active_runs_in_project(project_id=project_id)
+        except Cons3rtApiError as exc:
+            raise Cons3rtApiError('Problem retrieving active DRs from project: {i}'.format(i=str(project_id))) from exc
+        log.info('Found {n} DRs in project ID: {i}'.format(n=str(len(project_drs)), i=str(project_id)))
+
+        # Filter out the skip DRs to get a list to snapshot
+        my_run_id = self.get_my_run_id()
+        if my_run_id:
+            log.info('Found my run ID, adding to skip list: {i}'.format(i=str(my_run_id)))
+            skip_run_ids.append(my_run_id)
+        else:
+            log.info('My run ID not found, not adding to skip list')
+
+        # Loop through the list of team DRs and
+        for project_dr in project_drs:
+            if 'id' not in project_dr.keys():
+                log.warning('id not found in DR data: {d}'.format(d=str(project_dr)))
+                continue
+            if project_dr['id'] in skip_run_ids:
+                log.info('Skipping run: {i}'.format(i=str(project_dr['id'])))
+                continue
+            snapshot_drs.append(project_dr)
+
+        log.info('Processing snapshots for [{n}] out of [{t}] deployment runs in project ID {i}'.format(
+            n=str(len(snapshot_drs)), t=str(len(project_drs)), i=str(project_id)))
+        results, start_time, end_time, skip_run_ids = self.snapshots_for_team_or_project(
+            action=action, snapshot_drs=snapshot_drs, skip_run_ids=skip_run_ids)
+        elapsed_time = end_time - start_time
+
+        log.info('Completed processing snapshots for project ID {i} at: {t}, total time elapsed: {e}'.format(
+            i=str(project_id), t=end_time, e=str(elapsed_time)))
+        log.info('Returning a list of {n} snapshot results'.format(n=str(len(results))))
+        return results
+
+    def snapshot_team_runs(self, team_id, action, skip_run_ids=None):
+        """Creates a snapshot for each active deployment run in the provided team ID
+
+        :param team_id: (int) team ID
+        :param action: (str) CREATE_SNAPSHOT | RESTORE_SNAPSHOT | REMOVE_ALL_SNAPSHOTS
+        :param skip_run_ids: (list) of int run IDs to skip snapshots
+        :return: (list) of HostActionResults
+        :raises: Cons3rtApiError
+        """
+        log = logging.getLogger(self.cls_logger + '.snapshot_team_runs')
+
+        # Keep a list of deployment runs that had snapshots created
+        snapshot_drs = []
+
+        # Ensure this is a list
+        if not skip_run_ids:
+            skip_run_ids = []
+
+        # Get a list of team DRs
+        log.info('Retrieving a list of runs owned by projects in Team ID: {i}'.format(i=str(team_id)))
+        try:
+            team_drs = self.list_active_runs_in_team_owned_projects(team_id=team_id)
+        except Cons3rtApiError as exc:
+            raise Cons3rtApiError('Problem retrieving active DRs from team: {i}'.format(i=str(team_id))) from exc
+        log.info('Found {n} DRs in team ID: {i}'.format(n=str(len(team_drs)), i=str(team_id)))
+
+        # Loop through the list of team DRs and
+        for team_dr in team_drs:
+            if 'id' not in team_dr.keys():
+                log.warning('id not found in DR data: {d}'.format(d=str(team_dr)))
+                continue
+            if team_dr['id'] in skip_run_ids:
+                log.info('Skipping run: {i}'.format(i=str(team_dr['id'])))
+                continue
+            snapshot_drs.append(team_dr)
+
+        log.info('Processing snapshots for [{n}] out of [{t}] deployment runs in team ID {i}'.format(
+            n=str(len(snapshot_drs)), t=str(len(team_drs)), i=str(team_id)))
+        results, start_time, end_time, skip_run_ids = self.snapshots_for_team_or_project(
+            action=action, snapshot_drs=snapshot_drs, skip_run_ids=skip_run_ids)
+        elapsed_time = end_time - start_time
+
+        log.info('Completed processing snapshots for team ID {i} at: {t}, total time elapsed: {e}'.format(
+            i=str(team_id), t=end_time, e=str(elapsed_time)))
+        log.info('Returning a list of {n} snapshot results'.format(n=str(len(results))))
+        return results
+
+    def snapshots_for_team_or_project(self, action, snapshot_drs, skip_run_ids):
+        """Takes a snapshot action for each active deployment run in the provided team ID
+
+        :param action: (str) CREATE_SNAPSHOT | RESTORE_SNAPSHOT | REMOVE_ALL_SNAPSHOTS
+        :param snapshot_drs: (list) list of int deployment run IDs to snapshot
+        :param skip_run_ids: (list) of int run IDs to skip snapshots
+        :return: results, start_time, end_time, skip_run_ids
+        :raises: Cons3rtApiError
+        """
+        log = logging.getLogger(self.cls_logger + '.snapshots_for_team_or_project')
+
+        # Ensure this is a list
+        if not skip_run_ids:
+            skip_run_ids = []
+
+        # Filter out the skip DRs to get a list to snapshot
+        my_run_id = self.get_my_run_id()
+        if my_run_id:
+            log.info('Found my run ID, adding to skip list: {i}'.format(i=str(my_run_id)))
+            skip_run_ids.append(my_run_id)
+        else:
+            log.info('My run ID not found, not adding to skip list')
+
+        # Check and exclude runs from the skip list
+        if len(skip_run_ids) > 0:
+            log.info('Skipping snapshot actions for {n} runs: {r}'.format(
+                n=str(len(skip_run_ids)), r=','.join(map(str, skip_run_ids))))
+            non_skipped_snapshot_drs = []
+            for snapshot_dr in snapshot_drs:
+                if snapshot_dr['id'] not in skip_run_ids:
+                    non_skipped_snapshot_drs.append(snapshot_dr)
+        else:
+            log.info('No runs will be skipping in this snapshot action')
+            non_skipped_snapshot_drs = snapshot_drs
+
+        # Run the snapshots
+        start_time = datetime.datetime.now()
+        try:
+            results = self.process_run_snapshots_multiple(drs=non_skipped_snapshot_drs, action=action)
+        except Cons3rtApiError as exc:
+            raise Cons3rtApiError('Problem creating snapshots for the team runs list') from exc
+
+        # Log the end and elapsed times
+        end_time = datetime.datetime.now()
+        log.info('Returning a list of {n} snapshot results'.format(n=str(len(results))))
+        return results, start_time, end_time, skip_run_ids
 
     def list_project_virtualization_realms_for_team(self, team_id):
         """Given a team ID, returns a list of the virtualization realms that the team's projects

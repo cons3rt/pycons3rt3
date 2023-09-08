@@ -144,6 +144,7 @@ def main():
     parser.add_argument('--run', help='Run ID relative to the command provided', required=False)
     parser.add_argument('--runs', help='Run ID(s) relative to the command provided', required=False)
     parser.add_argument('--share', help='Share templates', action='store_true')
+    parser.add_argument('--skip', help='List of items to skip', required=False)
     parser.add_argument('--state', help='Project membership state, user state')
     parser.add_argument('--unexpired', help='Process only unexpired items', required=False, action='store_true')
     parser.add_argument('--unique', help='Return unique items', required=False, action='store_true')
