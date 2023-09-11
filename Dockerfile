@@ -1,4 +1,4 @@
-FROM jyennaco/python3:v3.11.1
+FROM jyennaco/python3:v3.11.5
 
 ENV srcDir="/usr/local/src/pycons3rt3"
 
@@ -27,7 +27,7 @@ ENTRYPOINT ["/entrypoint.sh"]
 CMD ["python3"]
 
 # Build
-# docker build -t pycons3rt3:v0.0.13a .
+# docker build -t pycons3rt3:v0.0.18 .
 
 # Run and mount your CONS3RT config directory
-# docker run --rm -it -v ~/.cons3rt:/root/.cons3rt pycons3rt3:v0.0.13a cons3rt cloud list
+# docker run --rm -it -v ~/.cons3rt:/root/.cons3rt pycons3rt3:v0.0.18 cons3rt cloud list
