@@ -712,6 +712,22 @@ exit ${result}
 
 '''
 
+# AWS credentials file content template
+aws_credentials_file_content_template = '''[default]
+aws_access_key_id = REPLACE_ACCESS_KEY_ID
+aws_secret_access_key = REPLACE_SECRET_ACCESS_KEY
+aws_session_token = REPLACE_SESSION_TOKEN
+
+'''
+
+# AWS config file content template
+aws_config_file_content_template = '''[default]
+region = REPLACE_REGION
+output = text
+
+'''
+
+
 
 def get_boto3_client(service, region_name=None, aws_access_key_id=None, aws_secret_access_key=None,
                      aws_session_token=None):

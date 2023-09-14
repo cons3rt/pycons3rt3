@@ -2204,3 +2204,38 @@ class Cons3rtClient:
             self.http_client.parse_response(response=response)
         except Cons3rtClientError as exc:
             raise Cons3rtClientError(str(exc)) from exc
+
+    def create_host_identity(self, dr_id, host_id, service_list):
+        """Creates an identity on the provided DR host to the provided service
+
+        :param dr_id: (str) deployment run ID
+        :param host_id: (str) deployment run host ID
+        :param service_list: (list) os services to connect to including:
+                type: (str) type of service "BUCKET"
+                name: (str) name of the service
+                identifier: (str) ID of the service to connect to
+        :return: (list) of identities (see: /reference/api/index.html#operation/createIdentity)
+        :raises: Cons3rtClientError
+        """
+        target = 'drs/{d}/host/{h}/identity'.format(d=str(dr_id), h=str(host_id))
+
+        # Create JSON content
+        try:
+            json_content = json.dumps(service_list)
+        except SyntaxError as exc:
+            msg = 'There was a problem converting data to JSON: {d}'.format(d=str(service_list))
+            raise Cons3rtClientError(msg) from exc
+
+        try:
+            response = self.http_client.http_post(rest_user=self.user, target=target, content_data=json_content)
+        except Cons3rtClientError as exc:
+            msg = 'Problem generating an identity on deployment run [{d}] host [{h}]: {e}'.format(
+                d=str(dr_id), h=str(host_id), e=str(exc))
+            raise Cons3rtClientError(msg) from exc
+        # Check the response
+        try:
+            content = self.http_client.parse_response(response=response)
+        except Cons3rtClientError as exc:
+            raise Cons3rtClientError(str(exc)) from exc
+        identity = json.loads(content)
+        return identity

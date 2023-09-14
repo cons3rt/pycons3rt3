@@ -10,6 +10,7 @@ import yaml
 
 from .logify import Logify
 
+from .awsutil import aws_config_file_content_template, aws_credentials_file_content_template
 from .cloud import Cloud
 from .cons3rtclient import Cons3rtClient
 from .cons3rtenums import cons3rt_deployment_run_status_active, valid_search_type
@@ -374,8 +375,7 @@ class Cons3rtApi(object):
                 found = True
                 break
         if found:
-            log.info('Set project to [{p}] and ReST API token: {t}'.format(p=self.rest_user.project_name,
-                                                                           t=self.rest_user.token))
+            log.info('Set project and Rest API token to: [{p}]'.format(p=self.rest_user.project_name))
         else:
             log.warning('Matching ReST User not found for project: {p}'.format(p=project_name))
 
@@ -6880,3 +6880,154 @@ class Cons3rtApi(object):
             max_ram_mb=max_ram_mb
         )
         log.info('Completed sharing templates in cloud ID: {i}'.format(i=str(cloud_id)))
+
+    def create_host_identity(self, dr_id, host_id, service_type, service_identifier, service_name=None):
+        """Creates an identity on the provided DR host to the singular provided service
+
+        :param dr_id: (int) deployment run ID
+        :param host_id: (int) deployment run host ID
+        :param service_type: (str) type of service "BUCKET"
+        :param service_name: (str) name of the service
+        :param service_identifier: (str) ID of the service to connect to.  For bucket names this is the bucket name
+            with UUID for example "testbackups-a288d8c58ae74de"
+        :return: (dict) Host identity with credentials
+        :raises: Cons3rtApiError
+        """
+        log = logging.getLogger(self.cls_logger + '.create_host_identity')
+
+        # Ensure the dr_id is an int
+        if not isinstance(dr_id, int):
+            try:
+                dr_id = int(dr_id)
+            except ValueError as exc:
+                msg = 'dr_id arg must be an Integer, found: {t}'.format(t=type(dr_id))
+                raise Cons3rtApiError(msg) from exc
+
+        # Ensure the host_id is an int
+        if not isinstance(host_id, int):
+            try:
+                host_id = int(host_id)
+            except ValueError as exc:
+                msg = 'host_id arg must be an Integer, found: {t}'.format(t=type(host_id))
+                raise Cons3rtApiError(msg) from exc
+
+        # Build a re-usable message
+        msg = 'identity for deployment run [{d}] host [{h}] in service type [{t}] with ID [{i}]'.format(
+            d=str(dr_id), h=str(host_id), t=service_type, i=service_identifier)
+
+        # Build service content
+        service = {
+            'type': service_type,
+            'identifier': service_identifier
+        }
+        if service_name:
+            service['name'] = service_name
+            msg += ' and name: ' + service_name
+
+        # Build the list of one item
+        log.info('Creating ' + msg)
+        try:
+            identity = self.cons3rt_client.create_host_identity(dr_id=dr_id, host_id=host_id, service_list=[service])
+        except Cons3rtClientError as exc:
+            msg = 'Problem creating ' + msg
+            raise Cons3rtApiError(msg) from exc
+
+        # Ensure data was included
+        if 'credentials' not in identity.keys():
+            msg = 'credentials not found in identity data: {d}'.format(d=str(identity))
+            raise Cons3rtApiError(msg)
+        if 'context' not in identity.keys():
+            msg = 'context not found in identity data: {d}'.format(d=str(identity))
+            raise Cons3rtApiError(msg)
+        if 'resources' not in identity.keys():
+            msg = 'resources not found in identity data: {d}'.format(d=str(identity))
+            raise Cons3rtApiError(msg)
+        return identity
+
+    def create_host_identity_aws_config(self, dr_id, host_id, service_type, service_identifier, service_name=None,
+                                        aws_dir=None, aws_region='us-gov-west-1'):
+        """Creates an AWS credentials and config file using a cons3rt-generated identity
+
+        :param dr_id: (int) deployment run ID
+        :param host_id: (int) deployment run host ID
+        :param service_type: (str) type of service "BUCKET"
+        :param service_name: (str) name of the service
+        :param service_identifier: (str) ID of the service to connect to.  For bucket names this is the bucket name
+            with UUID for example "testbackups-a288d8c58ae74de"
+        :param aws_dir: (str) path to the AWS config directory
+        :param aws_region: (str) AWS region (e.g. us-gov-west-1)
+        :return: (dict) Host identity with credentials
+        :raises: Cons3rtApiError
+        """
+        log = logging.getLogger(self.cls_logger + '.create_host_identity_aws_config')
+
+        # First generate an identity
+        try:
+            identity = self.create_host_identity(dr_id=dr_id, host_id=host_id, service_type=service_type,
+                                                 service_identifier=service_identifier, service_name=service_name)
+        except Cons3rtApiError as exc:
+            msg = 'Problem generating an identity, cannot create AWS config'
+            raise Cons3rtApiError(msg) from exc
+
+        # Check if aws_dir is set, if not attempt to determine the config and credentials file paths
+        if aws_dir:
+            aws_config_file = os.path.join(aws_dir, 'config')
+            aws_credentials_file = os.path.join(aws_dir, 'credentials')
+        else:
+            # Check for the environment variable AWS_CONFIG_FILE
+            if 'AWS_CONFIG_FILE' in os.environ.keys():
+                aws_config_file = os.environ['AWS_CONFIG_FILE']
+            else:
+                aws_config_file = os.path.join(os.path.expanduser('~'), '.aws', 'config')
+
+            # Check for the environment variable AWS_SHARED_CREDENTIALS_FILE
+            if 'AWS_SHARED_CREDENTIALS_FILE' in os.environ.keys():
+                aws_credentials_file = os.environ['AWS_SHARED_CREDENTIALS_FILE']
+                aws_dir = os.environ['AWS_SHARED_CREDENTIALS_FILE'].split(os.sep)[:-1]
+            else:
+                aws_dir = os.path.join(os.path.expanduser('~'), '.aws')
+                aws_credentials_file = os.path.join(aws_dir, 'credentials')
+
+        # Get the access key, secret key, and session token from the identity
+        if 'Access Key' not in identity['credentials'].keys():
+            raise Cons3rtApiError('Access Key not found in identity credentials data')
+        if 'Secret Access Key' not in identity['credentials'].keys():
+            raise Cons3rtApiError('Secret Access Key not found in identity credentials data')
+        if 'Session Token' not in identity['credentials'].keys():
+            raise Cons3rtApiError('Session Token not found in identity credentials data')
+
+        # Replace the content of the credential file
+        aws_credentials_content = aws_credentials_file_content_template.replace(
+            'REPLACE_ACCESS_KEY_ID', identity['credentials']['Access Key']).replace(
+            'REPLACE_SECRET_ACCESS_KEY', identity['credentials']['Secret Access Key']).replace(
+            'REPLACE_SESSION_TOKEN', identity['credentials']['Session Token'])
+
+        # Replace the content of the config file
+        aws_config_content = aws_config_file_content_template.replace(
+            'REPLACE_REGION', aws_region)
+
+        # Backup the current files if they exist
+        timestamp_formatted = datetime.datetime.now().strftime("%Y-%M-%d_%H%m%S")
+        if os.path.isfile(aws_credentials_file):
+            backup_aws_creds_file = aws_credentials_file + '_' + timestamp_formatted
+            log.info('Backing up existing credentials file to: {b}'.format(b=backup_aws_creds_file))
+            os.rename(aws_credentials_file, backup_aws_creds_file)
+        if os.path.isfile(aws_config_file):
+            backup_aws_config_file = aws_config_file + '_' + timestamp_formatted
+            log.info('Backing up existing config file to: {b}'.format(b=backup_aws_config_file))
+            os.rename(aws_config_file, backup_aws_config_file)
+
+        # Create the aws dir if it does not exist
+        if not os.path.isdir(aws_dir):
+            log.info('Creating aws credentials directory: {d}'.format(d=aws_dir))
+            os.makedirs(aws_dir, exist_ok=True)
+
+        # Write the config and credentials files
+        log.info('Creating credentials file: {f}'.format(f=aws_credentials_file))
+        with open(aws_credentials_file, 'w') as f:
+            f.write(aws_credentials_content)
+
+        log.info('Creating config file: {f}'.format(f=aws_config_file))
+        with open(aws_config_file, 'w') as f:
+            f.write(aws_config_content)
+        return identity
