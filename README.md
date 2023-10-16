@@ -276,6 +276,16 @@ cons3rt cloudspace template share --provider_id=1 --ids=2,3,4,5,6 --all
 cons3rt cloudspace unregister --id 123
 ```
 
+## cons3rt user CLI
+
+Permissions:
+* **Site Admin** role
+
+```
+# Get a list of active users
+cons3rt user list --state=ACTIVE
+```
+
 ## cons3rt team CLI
 
 Permissions:
@@ -296,8 +306,17 @@ cons3rt team collabtools users --ids=2,5 --unique
 # Get a unique list of ACTIVE + BLOCKED users in collab tools projects for a team or list of teams
 cons3rt team collabtools users --ids=2,5 --unique --blocked
 
-# Get a list of active users
-cons3rt user list --state=ACTIVE
+# Get a list of active team members, printed by project
+cons3rt team members list --id=11
+
+# Get a list of active and blocked team members, printed by project
+cons3rt team members list --id=11 --blocked
+
+# Get a unique list of team members for a list of teams
+cons3rt team members list --ids=1,2,3,4,5 --unique
+
+# Get a unique list of team members managed by a particular user
+cons3rt team members list --username=USERNAME --unique
 
 # Get a list of active team managers
 cons3rt team managers

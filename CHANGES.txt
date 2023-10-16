@@ -3,6 +3,7 @@
 
 * Added a method to create an identity for a storage bucket and added a sample script
 * Added a method to automatically create AWS config and credentials file from an identity
+* Added methods and CLI commands to list team members and list team members by team manager
 
 0.0.18
 ======

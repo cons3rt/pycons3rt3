@@ -121,7 +121,7 @@ class Cons3rtCli(object):
         print('ERROR: {m}'.format(m=msg))
         traceback.print_exc()
 
-    def print_formatted_list(self, item_list, included_columns=None):
+    def print_formatted_list(self, item_list, included_columns=None, emails=False):
         if len(item_list) < 1:
             return
         print('')
@@ -150,6 +150,16 @@ class Cons3rtCli(object):
                 formatted_row = [f"{str(row.get(name, '')):{column_widths[name]}}" for name in included_columns]
                 print(" | ".join(formatted_row))
         print('')
+
+        # Optionally print a semi-colon-separated list of email addresses if "emails" is set to true and the item
+        # list includes a column called "email"
+        if emails:
+            if 'email' in included_columns:
+                email_output = ''
+                for item in item_list:
+                    email_output += item['email'] + ';'
+                print('Email List:')
+                print(email_output)
 
     def print_item_name_and_id(self, item_list):
         self.print_formatted_list(
@@ -1817,6 +1827,7 @@ class TeamCli(Cons3rtCli):
             'collabtools',
             'list',
             'managers',
+            'members',
             'project',
             'report',
             'run'
@@ -1856,6 +1867,11 @@ class TeamCli(Cons3rtCli):
         elif self.subcommands[0] == 'managers':
             try:
                 self.list_team_managers()
+            except Cons3rtCliError:
+                return False
+        elif self.subcommands[0] == 'members':
+            try:
+                self.members()
             except Cons3rtCliError:
                 return False
         elif self.subcommands[0] == 'project':
@@ -2132,6 +2148,71 @@ class TeamCli(Cons3rtCli):
                 self.print_team_managers(team_manager_list=results)
                 print('Found {n} team managers'.format(n=str(len(results))))
 
+    def list_team_members(self):
+        team_ids = []
+        not_expired = False
+        active_only = False
+        username = None
+        blocked = False
+        unique = False
+        emails = False
+        if self.args.unexpired:
+            not_expired = True
+        if self.args.active:
+            active_only = True
+        if self.args.username:
+            username = self.args.username
+        if self.args.blocked:
+            blocked = True
+        if self.args.unique:
+            unique = True
+        if self.args.emails:
+            emails = True
+
+        # Get a list of team IDs for the user if username was provided
+        if username:
+
+            # Get a list of teams managed by that user
+            print('Getting teams managed by username: {u}'.format(u=username))
+            user_teams = self.c5t.list_teams_for_team_manager(
+                username=username, not_expired=not_expired, active_only=active_only)
+            for user_team in user_teams:
+                team_ids.append(user_team['id'])
+
+            # If unique was specified, only output the list that is unique across the teams and return it
+            if unique:
+                print('Getting unique users in teams managed by username: {u}'.format(u=username))
+                try:
+                    unique_team_members = self.c5t.list_unique_team_members_for_teams(
+                        team_ids=team_ids, blocked=blocked)
+                except Cons3rtApiError as exc:
+                    msg = 'Problem listing unique users across teams: {i}'.format(i=','.join(map(str, team_ids)))
+                    self.err(msg)
+                    raise Cons3rtCliError(msg) from exc
+                self.print_formatted_list(item_list=unique_team_members, emails=emails)
+                return
+
+        elif self.ids:
+            # Use the provided IDs if no --username was provided
+            team_ids = self.ids
+        else:
+            # Error that either --ids or --username is required
+            msg = 'Either --id, --ids, or --username is required'
+            self.err(msg)
+            raise Cons3rtCliError(msg)
+
+        # Collect a list of team members for each team ID
+        team_members = []
+        print('Getting members for team IDs: {i}'.format(i=','.join(map(str, team_ids))))
+        for team_id in team_ids:
+            try:
+                team_members += self.c5t.list_team_members(team_id=team_id, blocked=blocked, unique=unique)
+            except Cons3rtApiError as exc:
+                msg = 'Problem listing projects in team: {i}'.format(i=str(team_id))
+                self.err(msg)
+                raise Cons3rtCliError(msg) from exc
+        self.print_formatted_list(item_list=team_members, emails=emails)
+
     def list_team_projects(self):
         team_ids = []
         if not self.ids:
@@ -2183,6 +2264,18 @@ class TeamCli(Cons3rtCli):
             self.print_teams(teams_list=teams)
         print('Total number of teams: {n}'.format(n=str(len(teams))))
         return teams
+
+    def members(self):
+        if len(self.subcommands) < 2:
+            msg = 'team members subcommand not provided'
+            self.err(msg)
+            raise Cons3rtCliError(msg)
+        if self.subcommands[1] == 'list':
+            self.list_team_members()
+        else:
+            msg = 'Unrecognized command: {c}'.format(c=self.subcommands[1])
+            self.err(msg)
+            raise Cons3rtCliError(msg)
 
     def project(self):
         if len(self.subcommands) < 2:

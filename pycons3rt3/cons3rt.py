@@ -123,6 +123,8 @@ def main():
     parser.add_argument('--csv', help='Use csv format for the output', required=False, action='store_true')
     parser.add_argument('--delete', help='Delete action relative to the command provided', action='store_true')
     parser.add_argument('--delete_inactive_runs', help='Delete inactive runs from a cloudspace', action='store_true')
+    parser.add_argument('--emails', help='Get a semi-colon separated list of email addresses for the output',
+                        required=False, action='store_true')
     parser.add_argument('--expired', help='Process only expired items', required=False, action='store_true')
     parser.add_argument('--id', help='ID relative to the command provided', required=False)
     parser.add_argument('--ids', help='List of IDs relative to the command provided', required=False)

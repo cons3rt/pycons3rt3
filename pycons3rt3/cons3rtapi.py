@@ -2586,6 +2586,194 @@ class Cons3rtApi(object):
             team_managers.append(team_manager)
         return team_managers
 
+    def list_teams_for_team_manager(self, username, not_expired=False, active_only=False):
+        """Get a list of teams managers by the provided username
+
+        :param username: (str) username of the team manager
+        :param active_only (bool) Set true to return only teams that are active
+        :param not_expired (bool) Set true to return only teams that are not expired
+        :return: (list) of teams in format:
+                        {
+                            'id': team_id,
+                            'name': team_name
+                        }
+        :raises: Cons3rtApiError
+        """
+        log = logging.getLogger(self.cls_logger + '.list_teams_for_team_manager')
+
+        # Store the list of teams this user manages
+        user_teams = []
+
+        # Get a list of team managers for all teams
+        try:
+            team_managers = self.list_team_managers(not_expired=not_expired, active_only=active_only)
+        except Cons3rtApiError as exc:
+            msg = 'Problem getting a list of team managers for the site'
+            raise Cons3rtApiError(msg) from exc
+
+        user_info = None
+        for team_manager in team_managers:
+            if team_manager['username'] == username:
+                user_info = team_manager
+                break
+
+        # Return if no teams were found
+        if not user_info:
+            log.info('User is not found as a team manager: {u}'.format(u=username))
+            return user_teams
+
+        print(user_info['teamIds'])
+
+        # Build the list of teams from the user info
+        for team_id, team_name in zip(user_info['teamIds'], user_info['teamNames']):
+            user_teams.append({
+                'id': team_id,
+                'name': team_name
+            })
+        log.info('User {u} is a manager of {n} teams'.format(u=username, n=str(len(user_teams))))
+        print(user_teams)
+        return user_teams
+
+    def list_team_members(self, team_id, blocked=False, unique=False):
+        """Retrieves a list of members for all projects in a team
+
+        :param team_id (int) Team ID
+        :param blocked (bool) Set true to include blocked project members
+        :param unique (bool) Set true to return a unique list of team members
+        :return: (list) of team members in this format:
+                {
+                    'team_id': team_id,
+                    'project_name': team_project['name'],
+                    'username': team_project_member['username'],
+                    'email': team_project_member['email'],
+                    'state': team_project_member['membershipState']
+                }
+
+            If unique is True, the project name is set to the team name, and the state is N/A
+        :raises: Cons3rtApiError
+        """
+        log = logging.getLogger(self.cls_logger + '.list_team_members')
+        log.info('Attempting to list team project members...')
+
+        # Get a list of project in the team
+        try:
+            team_details, team_projects = self.list_projects_in_team(team_id=team_id)
+        except Cons3rtApiError as exc:
+            msg = 'Problem listing projects in team: {i}'.format(i=str(team_id))
+            raise Cons3rtApiError(msg) from exc
+
+        # Save a list of team members
+        team_members = []
+
+        for team_project in team_projects:
+            # Add active members
+            try:
+                team_project_members = self.list_project_members(
+                    project_id=team_project['id'], state='ACTIVE'
+                )
+            except Cons3rtApiError as exc:
+                msg = 'Problem getting active project members from: {n}'.format(n=team_project['name'])
+                raise Cons3rtApiError(msg) from exc
+
+            # Add blocked members
+            if blocked:
+                try:
+                    team_project_members += self.list_project_members(
+                        project_id=team_project['id'], state='BLOCKED'
+                    )
+                except Cons3rtApiError as exc:
+                    msg = 'Problem getting blocked project members from: {n}'.format(n=team_project['name'])
+                    raise Cons3rtApiError(msg) from exc
+
+            log.debug('In team {i}, found {n} users in project: {t}'.format(
+                i=str(team_id), n=str(len(team_project_members)),
+                t=team_project['name']))
+
+            # Build a unique list of users
+            if unique:
+                # Store the unique project members
+                unique_team_project_members = []
+
+                # Store the unique user IDs, which is used as the unique identifier
+                unique_ids = set()
+
+                # Build the list of project members unique by user ID
+                for team_project_member in team_project_members:
+                    if team_project_member['id'] not in unique_ids:
+                        unique_ids.add(team_project_member['id'])
+                        unique_team_project_members.append(team_project_member)
+
+                # Build the output list of team members based on the unique list
+                #   Fill in the team name for project name
+                #   Fill in N/A for membership state
+                for unique_team_project_member in unique_team_project_members:
+                    team_members.append({
+                        'team_id': team_id,
+                        'project_name': team_details['name'],
+                        'username': unique_team_project_member['username'],
+                        'email': unique_team_project_member['email'],
+                        'state': 'N/A'
+                    })
+            else:
+                # Build a list including project data, can include the same user in multiple projects
+                for team_project_member in team_project_members:
+                    team_members.append({
+                        'team_id': team_id,
+                        'project_name': team_project['name'],
+                        'username': team_project_member['username'],
+                        'email': team_project_member['email'],
+                        'state': team_project_member['membershipState']
+                    })
+
+        log.info('Found {n} team members'.format(n=str(len(team_members))))
+        return team_members
+
+    def list_unique_team_members_for_teams(self, team_ids, blocked=False):
+        """Retrieves a list of members for all projects in a team
+
+        :param team_ids (list) of int team ID
+        :param blocked (bool) Set true to include blocked project members
+        :return: (list) of team members in this format:
+                {
+                    'team_id': team_id,
+                    'project_name': team_project['name'],
+                    'username': team_project_member['username'],
+                    'email': team_project_member['email'],
+                    'state': team_project_member['membershipState']
+                }
+
+            If unique is True, the project name is set to the team name, and the state is N/A
+        :raises: Cons3rtApiError
+        """
+        log = logging.getLogger(self.cls_logger + '.list_unique_team_members_for_teams')
+        log.info('Attempting to list unique members across multiple teams...')
+
+        # Store the unique team members and user IDs
+        unique_cross_team_members = []
+        unique_users = set()
+
+        # Get members for each of the teams
+        for team_id in team_ids:
+            # Get a list of members in the team
+            try:
+                team_members = self.list_team_members(team_id=team_id, blocked=blocked, unique=True)
+            except Cons3rtApiError as exc:
+                msg = 'Problem listing members in team: {i}'.format(i=str(team_id))
+                raise Cons3rtApiError(msg) from exc
+
+            for team_member in team_members:
+                if 'username' not in team_member.keys():
+                    msg = 'expected username in team member data: {d}'.format(d=str(team_member))
+                    raise Cons3rtApiError(msg)
+                if team_member['username'] not in unique_users:
+                    unique_users.add(team_member['username'])
+                    unique_cross_team_members.append(team_member)
+
+        # Log and return the result
+        log.info('Found {n} unique team members across team IDs: {i}'.format(
+            n=str(len(unique_cross_team_members)), i=','.join(map(str, team_ids))))
+        return unique_cross_team_members
+
     def create_user(self, username, email, first_name, last_name):
         """Creates a user using the specified parameters
 
