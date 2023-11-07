@@ -2126,7 +2126,7 @@ class EC2Util(object):
         :raises: AWSAPIError, EC2UtilError
         """
         log = logging.getLogger(self.cls_logger + '.get_security_group_ingress_rules')
-        log.info('Getting egress rules for security group: {i}'.format(i=security_group_id))
+        log.info('Getting ingress rules for security group: {i}'.format(i=security_group_id))
         security_group_info = self.get_security_group(security_group_id=security_group_id)
         try:
             existing_ingress_rules = security_group_info['SecurityGroups'][0]['IpPermissions']
@@ -5689,10 +5689,13 @@ def get_rhui3_server_permissions(regions):
     return permissions_list
 
 
-def get_permissions_for_hostnames(hostname_list):
+def get_permissions_for_hostnames(hostname_list, protocol='-1', from_port=None, to_port=None):
     """Get a list of IP permissions from hostname list
 
     :param hostname_list: (str) list of hostnames
+    :param protocol: (str) Set to the desired protocol, -1 for any, tcp, udp
+    :param from_port: (int) Port number to start the port range
+    :param to_port: (int) Port number to end the port range
     :return: (list) IPPermission objects
     """
     log = logging.getLogger(mod_logger + '.get_permissions_for_hostnames')
@@ -5707,9 +5710,15 @@ def get_permissions_for_hostnames(hostname_list):
         hostname = hostname_ip_addresses['hostname']
         ip_addresses = hostname_ip_addresses['ip_addresses']
         for ip_address in ip_addresses:
-            permissions_list.append(
-                IpPermission(IpProtocol='-1', CidrIp=ip_address + '/32', Description=hostname)
-            )
+            if from_port and to_port:
+                permissions_list.append(
+                    IpPermission(IpProtocol=protocol, FromPort=from_port, ToPort=to_port, CidrIp=ip_address + '/32',
+                                 Description=hostname)
+                )
+            else:
+                permissions_list.append(
+                    IpPermission(IpProtocol=protocol, CidrIp=ip_address + '/32', Description=hostname)
+                )
     return permissions_list
 
 
