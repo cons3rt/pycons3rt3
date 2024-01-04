@@ -21,6 +21,7 @@ import os
 import socket
 import threading
 import time
+import traceback
 
 import boto3
 from botocore.client import ClientError
@@ -45,7 +46,7 @@ class S3MultiUtil(threading.Thread):
         threading.Thread.__init__(self)
         self.cls_logger = mod_logger + '.S3MultiUtil'
         self.client = client
-        self.bucket = bucket
+        self.bucket_resource = bucket
         self.s3_keys = s3_keys
         self.bar = bar
 
@@ -56,394 +57,48 @@ class S3MultiUtil(threading.Thread):
 class S3Util(object):
     """Utility class for interacting with AWS S3
 
-    This class provides a set of useful utilities for interacting with
-    an AWS S3 bucket, including uploading and downloading files.
+    This class provides a set of useful utilities for interacting with an AWS S3 bucket, including uploading and
+    downloading files.
 
-    Args:
-        _bucket_name (str): Name of the S3 bucket to interact with.
+    Required Args:
+        bucket_name (str): Name of the S3 bucket to create/delete/configure
+
+    Optional Args:
+        region_name (str): Name of the AWS region
+        aws_access_key_id (str): AWS access key ID
+        aws_secret_access_key (str) AWS secret access key
+
+    Access key and region info is only needed if AWS credentials are not already configured via environment variables
+    of config files
 
     Attributes:
         bucket_name (dict): Name of the S3 bucket to interact with.
-        s3client (boto3.client): Low-level client for interacting with
-            the AWS S3 service.
-        s3resource (boto3.resource): High level AWS S3 resource
-        bucket (Bucket): S3 Bucket object for performing Bucket operations
+        s3client (boto3.client): Low-level boto3 client for interacting with the AWS S3 service.
+        s3resource (boto3.resource): High level boto3 AWS S3 resource
+        bucket_resource (Bucket): S3 Bucket object for performing Bucket operations
     """
-    def __init__(self, _bucket_name=None, bucket_name=None, region_name=None, aws_access_key_id=None,
+    def __init__(self, bucket_name, region_name=None, aws_access_key_id=None,
                  aws_secret_access_key=None):
         self.cls_logger = mod_logger + '.S3Util'
         log = logging.getLogger(self.cls_logger + '.__init__')
 
         # Set the bucket name, keep "_bucket_name" for backwards compatibility
-        self.bucket_name = None
-        if _bucket_name:
-            self.bucket_name = _bucket_name
-        elif bucket_name:
-            self.bucket_name = bucket_name
+        self.bucket_name = bucket_name
 
         log.debug('Configuring S3 client with AWS Access key ID {k} and region {r}'.format(
             k=aws_access_key_id, r=region_name))
         self.s3resource = boto3.resource('s3', region_name=region_name, aws_access_key_id=aws_access_key_id,
                                          aws_secret_access_key=aws_secret_access_key)
-        try:
-            self.s3client = boto3.client('s3', region_name=region_name, aws_access_key_id=aws_access_key_id,
-                                         aws_secret_access_key=aws_secret_access_key)
-        except ClientError as exc:
-            msg = 'There was a problem connecting to S3, please check AWS configuration or credentials provided, ' \
-                  'ensure credentials and region are set appropriately.'
-            raise S3UtilError(msg) from exc
-        if self.bucket_name:
-            self.validate_bucket()
-            self.bucket = self.s3resource.Bucket(self.bucket_name)
+        self.bucket_resource = self.s3resource.Bucket(self.bucket_name)
+        self.s3client = boto3.client('s3', region_name=region_name, aws_access_key_id=aws_access_key_id,
+                                     aws_secret_access_key=aws_secret_access_key)
 
-    def set_bucket(self, bucket_name):
-        """Sets the bucket name for this S3Util
-
-        :param bucket_name: (str) name of the S3 bucket
-        :return: None
-        :raises: S3UtilError
-        """
-        log = logging.getLogger(self.cls_logger + '.set_bucket')
-        log.info('Setting bucket name: {b}'.format(b=bucket_name))
-        self.bucket_name = bucket_name
-        return self.validate_bucket()
-
-    def list_buckets(self):
-        """Returns a list of S3 bucket objects as a dict
-
-        :return: (list) os dict S3 buckets (see boto3 docs)
-        :raises: S3UtilError
-        """
-        return list_buckets(client=self.s3client)
-
-    def validate_bucket(self):
-        """Verify the specified bucket exists
-
-        This method validates that the bucket name passed in the S3Util
-        constructor actually exists.
-
-        :return: None
-        """
-        log = logging.getLogger(self.cls_logger + '.validate_bucket')
-        log.info('Attempting to get bucket: {b}'.format(b=self.bucket_name))
-        max_tries = 10
-        count = 1
-        while count <= max_tries:
-            log.info('Attempting to connect to S3 bucket %s, try %s of %s',
-                     self.bucket_name, count, max_tries)
-            try:
-                self.s3client.head_bucket(Bucket=self.bucket_name)
-            except ClientError as exc:
-                error_code = int(exc.response['Error']['Code'])
-                log.debug(
-                    'Connecting to bucket %s produced response code: %s',
-                    self.bucket_name, error_code)
-                if error_code == 404:
-                    msg = 'Error 404 response indicates that bucket {b} does not exist'.format(b=self.bucket_name)
-                    raise S3UtilError(msg) from exc
-                elif error_code == 500 or error_code == 503:
-                    if count >= max_tries:
-                        msg = 'S3 bucket is not accessible at this time: {b}'.format(b=self.bucket_name)
-                        raise S3UtilError(msg) from exc
-                    else:
-                        log.warning('AWS returned error code 500 or 503, re-trying in 2 sec...')
-                        time.sleep(5)
-                        count += 1
-                        continue
-                else:
-                    msg = 'Connecting to S3 bucket {b} returned code: {c}'.format(b=self.bucket_name, c=error_code)
-                    raise S3UtilError(msg) from exc
-            except EndpointConnectionError as exc:
-                raise S3UtilError from exc
-            except socket.gaierror as exc:
-                raise S3UtilError from exc
-            else:
-                log.info('Found bucket: %s', self.bucket_name)
-                return
-
-    def __download_from_s3(self, key, dest_dir):
-        """Private method for downloading from S3
-
-        This private helper method takes a key and the full path to
-        the destination directory, assumes that the args have been
-        validated by the public caller methods, and attempts to
-        download the specified key to the dest_dir.
-
-        :param key: (str) S3 key for the file to be downloaded
-        :param dest_dir: (str) Full path destination directory
-        :return: (str) Downloaded file destination if the file was
-            downloaded successfully, None otherwise
-        :raises: S3UtilError
-        """
-        log = logging.getLogger(self.cls_logger + '.__download_from_s3')
-        filename = key.split('/')[-1]
-        if filename is None:
-            log.error('Could not determine the filename from key: %s', key)
-            return None
-        destination = dest_dir + '/' + filename
-        log.info('Attempting to download %s from bucket %s to destination %s',
-                 key, self.bucket_name, destination)
-        max_tries = 10
-        count = 1
-        while count <= max_tries:
-            log.info('Attempting to download file %s, try %s of %s', key, count, max_tries)
-            try:
-                self.s3client.download_file(
-                    Bucket=self.bucket_name, Key=key, Filename=destination)
-            except (ClientError, RetriesExceededError) as exc:
-                if count >= max_tries:
-                    msg = 'Unable to download key [{k}] from S3 bucket [{b}] after {n} attempts'.format(
-                        k=key, b=self.bucket_name, n=str(max_tries))
-                    raise S3UtilError(msg) from exc
-                else:
-                    log.warning('Download failed, re-trying...\n{e}'.format(e=str(exc)))
-                    count += 1
-                    time.sleep(5)
-                    continue
-            else:
-                log.info('Successfully downloaded %s from S3 bucket %s to: %s',
-                         key,
-                         self.bucket_name,
-                         destination)
-                return destination
-
-    def download_file_by_key(self, key, dest_dir):
-        """Downloads a file by key from the specified S3 bucket
-
-        This method takes the full 'key' as the arg, and attempts to
-        download the file to the specified dest_dir as the destination
-        directory. This method sets the downloaded filename to be the
-        same as it is on S3.
-
-        :param key: (str) S3 key for the file to be downloaded.
-        :param dest_dir: (str) Full path destination directory
-        :return: (str) Downloaded file destination if the file was
-            downloaded successfully, None otherwise.
-        :raises: S3UtilError
-        """
-        log = logging.getLogger(self.cls_logger + '.download_file_by_key')
-        if not isinstance(key, str):
-            log.error('key argument is not a string')
-            return None
-        if not isinstance(dest_dir, str):
-            log.error('dest_dir argument is not a string')
-            return None
-        if not os.path.isdir(dest_dir):
-            log.error('Directory not found on file system: %s', dest_dir)
-            return None
-        try:
-            dest_path = self.__download_from_s3(key, dest_dir)
-        except S3UtilError as exc:
-            raise S3UtilError('Problem downloading S3 key: {k}'.format(k=key)) from exc
-        return dest_path
-
-    def download_file(self, regex, dest_dir):
-        """Downloads a file by regex from the specified S3 bucket
-
-        This method takes a regular expression as the arg, and attempts
-        to download the file to the specified dest_dir as the
-        destination directory. This method sets the downloaded filename
-        to be the same as it is on S3.
-
-        :param regex: (str) Regular expression matching the S3 key for
-            the file to be downloaded.
-        :param dest_dir: (str) Full path destination directory
-        :return: (str) Downloaded file destination if the file was
-            downloaded successfully, None otherwise.
-        """
-        log = logging.getLogger(self.cls_logger + '.download_file')
-        if not isinstance(regex, str):
-            log.error('regex argument is not a string')
-            return None
-        if not isinstance(dest_dir, str):
-            log.error('dest_dir argument is not a string')
-            return None
-        if not os.path.isdir(dest_dir):
-            log.error('Directory not found on file system: %s', dest_dir)
-            return None
-        key = self.find_key(regex)
-        if key is None:
-            log.warning('Could not find a matching S3 key for: %s', regex)
-            return None
-        try:
-            dest_path = self.__download_from_s3(key, dest_dir)
-        except S3UtilError as exc:
-            raise S3UtilError('Problem downloading S3 key: {k}'.format(k=key)) from exc
-        return dest_path
-
-    def find_key(self, regex):
-        """Attempts to find a single S3 key based on the passed regex
-
-        Given a regular expression, this method searches the S3 bucket
-        for a matching key, and returns it if exactly 1 key matches.
-        Otherwise, None is returned.
-
-        :param regex: (str) Regular expression for an S3 key
-        :return: (str) Full length S3 key matching the regex, None
-            otherwise
-        """
-        log = logging.getLogger(self.cls_logger + '.find_key')
-        if not isinstance(regex, str):
-            log.error('regex argument is not a string')
-            return None
-        log.info('Looking up a single S3 key based on regex: %s', regex)
-        matched_keys = []
-        for item in self.bucket.objects.all():
-            log.debug('Checking if regex matches key: %s', item.key)
-            match = re.search(regex, item.key)
-            if match:
-                matched_keys.append(item.key)
-        if len(matched_keys) == 1:
-            log.info('Found matching key: %s', matched_keys[0])
-            return matched_keys[0]
-        elif len(matched_keys) > 1:
-            log.info('Passed regex matched more than 1 key: %s', regex)
-            return None
-        else:
-            log.info('Passed regex did not match any key: %s', regex)
-            return None
-
-    def list_objects_metadata_with_token(self, prefix='', continuation_token=None):
-        """Returns a list of S3 keys based on the provided token
-
-        :param prefix: (str) Prefix to search on
-        :param continuation_token: (str) S3 token to query on
-        :return: (dict) response object containing response data
-        """
-        if continuation_token:
-            return self.s3client.list_objects_v2(
-                Bucket=self.bucket_name,
-                Prefix=prefix,
-                ContinuationToken=continuation_token
-            )
-        else:
-            return self.s3client.list_objects_v2(
-                Bucket=self.bucket_name,
-                Prefix=prefix
-            )
-
-    def list_objects_metadata(self, prefix=''):
-        """Lists S3 objects metadata in the S3 bucket matching the provided prefix
-
-        :param prefix: (str) Prefix to search on
-        :return: (list) of S3 bucket object metadata
-        """
-        log = logging.getLogger(self.cls_logger + '.list_objects_metadata')
-        if not prefix:
-            prefix_str = 'None'
-        else:
-            prefix_str = prefix
-        continuation_token = None
-        next_query = True
-        object_metadata_list = []
-        log.info('Attempting to list S3 keys in bucket {b} matching prefix: {p}'.format(
-            b=self.bucket_name, p=prefix_str))
-        while True:
-            if not next_query:
-                break
-            response = self.list_objects_metadata_with_token(prefix=prefix, continuation_token=continuation_token)
-            if 'IsTruncated' not in response.keys():
-                log.warning('IsTruncated not found in response: {r}'.format(r=str(response.keys())))
-                return object_metadata_list
-            if 'Contents' not in response.keys():
-                log.warning('Contents not found in response: {r}'.format(r=str(response.keys())))
-                return object_metadata_list
-            next_query = response['IsTruncated']
-            object_metadata_list += response['Contents']
-            if 'NextContinuationToken' not in response.keys():
-                next_query = False
-            else:
-                continuation_token = response['NextContinuationToken']
-        log.info('Found {n} objects matching prefix: {p}'.format(n=str(len(object_metadata_list)), p=prefix_str))
-        return object_metadata_list
-
-    def find_keys(self, regex, bucket_name=None):
-        """Finds a list of S3 keys matching the passed regex
-
-        Given a regular expression, this method searches the S3 bucket
-        for matching keys, and returns an array of strings for matched
-        keys, an empty array if non are found.
-
-        :param regex: (str) Regular expression to use is the key search
-        :param bucket_name: (str) Name of bucket to search (optional)
-        :return: Array of strings containing matched S3 keys
-        """
-        log = logging.getLogger(self.cls_logger + '.find_keys')
-        matched_keys = []
-        if not isinstance(regex, str):
-            log.error('regex argument is not a string, found: {t}'.format(t=regex.__class__.__name__))
-            return None
-
-        # Determine which bucket to use
-        if bucket_name is None:
-            s3bucket = self.bucket
-        else:
-            log.debug('Using the provided S3 bucket: {n}'.format(n=bucket_name))
-            s3bucket = self.s3resource.Bucket(bucket_name)
-
-        log.info('Looking up S3 keys based on regex: {r}'.format(r=regex))
-        for item in s3bucket.objects.all():
-            log.debug('Checking if regex matches key: {k}'.format(k=item.key))
-            match = re.search(regex, item.key)
-            if match:
-                matched_keys.append(item.key)
-        log.info('Found matching keys: {k}'.format(k=matched_keys))
-        return matched_keys
-
-    def upload_file(self, filepath, key):
-        """Uploads a file using the passed S3 key
-
-        This method uploads a file specified by the filepath to S3
-        using the provided S3 key.
-
-        :param filepath: (str) Full path to the file to be uploaded
-        :param key: (str) S3 key to be set for the upload
-        :return: True if upload is successful, False otherwise.
-        """
-        log = logging.getLogger(self.cls_logger + '.upload_file')
-        log.info('Attempting to upload file %s to S3 bucket %s as key %s...',
-                 filepath, self.bucket_name, key)
-
-        if not isinstance(filepath, str):
-            log.error('filepath argument is not a string')
-            return False
-
-        if not isinstance(key, str):
-            log.error('key argument is not a string')
-            return False
-
-        if not os.path.isfile(filepath):
-            log.error('File not found on file system: %s', filepath)
-            return False
-
-        try:
-            self.s3client.upload_file(
-                Filename=filepath, Bucket=self.bucket_name, Key=key)
-        except ClientError as e:
-            log.error('Unable to upload file %s to bucket %s as key %s:\n%s',
-                      filepath, self.bucket_name, key, e)
-            return False
-        else:
-            log.info('Successfully uploaded file to S3 bucket %s as key %s',
-                     self.bucket_name, key)
-            return True
-
-    def delete_key(self, key_to_delete):
-        """Deletes the specified key
-
-        :param key_to_delete: (str) key to delete
-        :return: bool
-        """
-        log = logging.getLogger(self.cls_logger + '.delete_key')
-
-        log.info('Attempting to delete key: {k}'.format(k=key_to_delete))
-        try:
-            self.s3client.delete_object(Bucket=self.bucket_name, Key=key_to_delete)
-        except ClientError as exc:
-            log.debug('Unable to delete key: {k}\n{e}'.format(k=key_to_delete, e=str(exc)))
-            return False
-        log.debug('Successfully deleted key: {k}'.format(k=key_to_delete))
-        return True
+    def block_public_access(self, block_public_acls=True, ignore_public_acls=True, block_public_policy=True,
+                            restrict_public_buckets=True):
+        return block_public_access(client=self.s3client, bucket_name=self.bucket_name,
+                                   block_public_acls=block_public_acls, ignore_public_acls=ignore_public_acls,
+                                   block_public_policy=block_public_policy,
+                                   restrict_public_buckets=restrict_public_buckets)
 
     def copy_object_in_same_bucket(self, current_key, new_key):
         """Copies the specified current key to a new key in the same bucket
@@ -512,23 +167,303 @@ class S3Util(object):
             return False
         return True
 
-    def enable_bucket_encryption(self, kms_id=None):
-        """Enable default encryption on the S3 bucket, optionally provide a KMS Key ID to configure encryption to use
-        the KMS key ID
+    def create_bucket(self):
+        return create_bucket(client=self.s3client, bucket_name=self.bucket_name, region=self.bucket_resource)
 
-        :param kms_id: (str) ID of the KMS key
-        :return: None
+    def delete_all_bucket_objects(self):
+        return delete_all_bucket_objects(client=self.s3client, bucket_name=self.bucket_name)
+    
+    def delete_bucket(self, enable_debug=False):
+        return delete_bucket(client=self.s3client, bucket_name=self.bucket_name, bucket_resource=self.bucket_resource,
+                             enable_debug=enable_debug)
+
+    def delete_bucket_object_versions(self):
+        return delete_bucket_object_versions(bucket_resource=self.bucket_resource, bucket_name=self.bucket_name)
+
+    def delete_key(self, key_to_delete):
+        return delete_object(client=self.s3client, bucket_name=self.bucket_name, object_key=key_to_delete)
+
+    def delete_object(self, key_to_delete):
+        return self.delete_key(key_to_delete=key_to_delete)
+
+    def disable_bucket_versioning(self):
+        return disable_bucket_versioning(client=self.s3client, bucket_name=self.bucket_name)
+
+    def disable_bucket_logging(self):
+        return disable_bucket_logging(client=self.s3client, bucket_name=self.bucket_name)
+
+    def download_file(self, regex, dest_dir):
+        """Deprecated, calls the properly names method"""
+        return self.download_file_by_regex(regex=regex, dest_dir=dest_dir)
+
+    def download_file_by_key(self, key, dest_dir):
+        """Downloads a file by key from the specified S3 bucket
+
+        This method takes the full 'key' as the arg, and attempts to
+        download the file to the specified dest_dir as the destination
+        directory. This method sets the downloaded filename to be the
+        same as it is on S3.
+
+        :param key: (str) S3 key for the file to be downloaded.
+        :param dest_dir: (str) Full path destination directory
+        :return: (str) Downloaded file destination if the file was
+            downloaded successfully, None otherwise.
         :raises: S3UtilError
         """
+        log = logging.getLogger(self.cls_logger + '.download_file_by_key')
+        if not isinstance(key, str):
+            log.error('key argument is not a string')
+            return None
+        if not isinstance(dest_dir, str):
+            log.error('dest_dir argument is not a string')
+            return None
+        if not os.path.isdir(dest_dir):
+            log.error('Directory not found on file system: %s', dest_dir)
+            return None
+        try:
+            dest_path = self.download_object_key_to_destination(key, dest_dir)
+        except S3UtilError as exc:
+            raise S3UtilError('Problem downloading S3 key: {k}'.format(k=key)) from exc
+        return dest_path
+
+    def download_file_by_regex(self, regex, dest_dir):
+        """Downloads a file by regex from the specified S3 bucket
+
+        This method takes a regular expression as the arg, and attempts
+        to download the file to the specified dest_dir as the
+        destination directory. This method sets the downloaded filename
+        to be the same as it is on S3.
+
+        :param regex: (str) Regular expression matching the S3 key for
+            the file to be downloaded.
+        :param dest_dir: (str) Full path destination directory
+        :return: (str) Downloaded file destination if the file was
+            downloaded successfully, None otherwise.
+        """
+        log = logging.getLogger(self.cls_logger + '.download_file_by_regex')
+        if not isinstance(regex, str):
+            log.error('regex argument is not a string')
+            return None
+        if not isinstance(dest_dir, str):
+            log.error('dest_dir argument is not a string')
+            return None
+        if not os.path.isdir(dest_dir):
+            log.error('Directory not found on file system: %s', dest_dir)
+            return None
+        key = self.find_key(regex)
+        if key is None:
+            log.warning('Could not find a matching S3 key for: %s', regex)
+            return None
+        try:
+            dest_path = self.download_object_key_to_destination(key, dest_dir)
+        except S3UtilError as exc:
+            raise S3UtilError('Problem downloading S3 key: {k}'.format(k=key)) from exc
+        return dest_path
+
+    def download_object_key_to_destination(self, key, dest_dir):
+        """Private method for downloading from S3
+
+        This private helper method takes a key and the full path to
+        the destination directory, assumes that the args have been
+        validated by the public caller methods, and attempts to
+        download the specified key to the dest_dir.
+
+        :param key: (str) S3 key for the file to be downloaded
+        :param dest_dir: (str) Full path destination directory
+        :return: (str) Downloaded file destination if the file was
+            downloaded successfully, None otherwise
+        :raises: S3UtilError
+        """
+        log = logging.getLogger(self.cls_logger + '.download_object_key_to_destination')
+        filename = key.split('/')[-1]
+        if filename is None:
+            log.error('Could not determine the filename from key: %s', key)
+            return None
+        destination = dest_dir + '/' + filename
+        log.info('Attempting to download %s from bucket %s to destination %s',
+                 key, self.bucket_name, destination)
+        max_tries = 10
+        count = 1
+        while count <= max_tries:
+            log.info('Attempting to download file %s, try %s of %s', key, count, max_tries)
+            try:
+                self.s3client.download_file_by_regex(
+                    Bucket=self.bucket_name, Key=key, Filename=destination)
+            except (ClientError, RetriesExceededError) as exc:
+                if count >= max_tries:
+                    msg = 'Unable to download key [{k}] from S3 bucket [{b}] after {n} attempts'.format(
+                        k=key, b=self.bucket_name, n=str(max_tries))
+                    raise S3UtilError(msg) from exc
+                else:
+                    log.warning('Download failed, re-trying...\n{e}'.format(e=str(exc)))
+                    count += 1
+                    time.sleep(5)
+                    continue
+            else:
+                log.info('Successfully downloaded %s from S3 bucket %s to: %s',
+                         key,
+                         self.bucket_name,
+                         destination)
+                return destination
+
+    def enable_bucket_encryption(self, kms_id=None):
         return enable_bucket_encryption(client=self.s3client, kms_id=kms_id, bucket_name=self.bucket_name)
 
     def enable_bucket_encryption_for_all_buckets(self, kms_id=None):
-        """Enable default bucket encryption on all buckets
-
-        :param kms_id: (str) ID of the KMS key
-        :return:
-        """
         return enable_bucket_encryption_for_all_buckets(client=self.s3client, kms_id=kms_id)
+
+    def enable_bucket_logging(self, target_bucket, prefix):
+        return enable_bucket_logging(client=self.s3client, bucket_name=self.bucket_name, target_bucket=target_bucket,
+                                     prefix=prefix)
+
+    def enable_bucket_log_delivery(self, target_bucket_name):
+        return enable_bucket_log_delivery(client=self.s3client, target_bucket_name=target_bucket_name)
+
+    def enable_bucket_versioning(self, enable=True, mfa_delete=False, mfa_device=None):
+        return enable_bucket_versioning(client=self.s3client, bucket_name=self.bucket_name, enable=enable,
+                                        mfa_delete=mfa_delete, mfa_device=mfa_device)
+
+    def find_key(self, regex):
+        """Attempts to find a single S3 key based on the passed regex
+
+        Given a regular expression, this method searches the S3 bucket
+        for a matching key, and returns it if exactly 1 key matches.
+        Otherwise, None is returned.
+
+        :param regex: (str) Regular expression for an S3 key
+        :return: (str) Full length S3 key matching the regex, None
+            otherwise
+        """
+        log = logging.getLogger(self.cls_logger + '.find_key')
+        if not isinstance(regex, str):
+            log.error('regex argument is not a string')
+            return None
+        log.info('Looking up a single S3 key based on regex: %s', regex)
+        matched_keys = []
+        for item in self.bucket_resource.objects.all():
+            log.debug('Checking if regex matches key: %s', item.key)
+            match = re.search(regex, item.key)
+            if match:
+                matched_keys.append(item.key)
+        if len(matched_keys) == 1:
+            log.info('Found matching key: %s', matched_keys[0])
+            return matched_keys[0]
+        elif len(matched_keys) > 1:
+            log.info('Passed regex matched more than 1 key: %s', regex)
+            return None
+        else:
+            log.info('Passed regex did not match any key: %s', regex)
+            return None
+
+    def find_keys(self, regex, bucket_name=None):
+        return find_bucket_keys(bucket_name=bucket_name, regex=regex, bucket_resource=self.bucket_resource)
+
+    def list_buckets(self):
+        return list_buckets(client=self.s3client)
+
+    def list_bucket_object_versions(self, prefix=''):
+        return list_bucket_object_versions(client=self.s3client, bucket_name=self.bucket_name, prefix=prefix)
+
+    def list_objects_metadata(self, prefix=''):
+        return list_objects_metadata(client=self.s3client, bucket_name=self.bucket_name, prefix=prefix)
+
+    def set_bucket(self, bucket_name):
+        """Sets the bucket name for this S3Util
+
+        :param bucket_name: (str) name of the S3 bucket
+        :return: None
+        :raises: S3UtilError
+        """
+        log = logging.getLogger(self.cls_logger + '.set_bucket')
+        log.info('Setting bucket name: {b}'.format(b=bucket_name))
+        self.bucket_name = bucket_name
+        return self.validate_bucket()
+
+    def set_bucket_policy(self, policy_document):
+        return set_bucket_policy(client=self.s3client, bucket_name=self.bucket_name, policy_document=policy_document)
+
+    def upload_file(self, filepath, key):
+        """Uploads a file using the passed S3 key
+
+        This method uploads a file specified by the filepath to S3
+        using the provided S3 key.
+
+        :param filepath: (str) Full path to the file to be uploaded
+        :param key: (str) S3 key to be set for the upload
+        :return: True if upload is successful, False otherwise.
+        """
+        log = logging.getLogger(self.cls_logger + '.upload_file')
+        log.info('Attempting to upload file %s to S3 bucket %s as key %s...',
+                 filepath, self.bucket_name, key)
+
+        if not isinstance(filepath, str):
+            log.error('filepath argument is not a string')
+            return False
+
+        if not isinstance(key, str):
+            log.error('key argument is not a string')
+            return False
+
+        if not os.path.isfile(filepath):
+            log.error('File not found on file system: %s', filepath)
+            return False
+
+        try:
+            self.s3client.upload_file(
+                Filename=filepath, Bucket=self.bucket_name, Key=key)
+        except ClientError as e:
+            log.error('Unable to upload file %s to bucket %s as key %s:\n%s',
+                      filepath, self.bucket_name, key, e)
+            return False
+        else:
+            log.info('Successfully uploaded file to S3 bucket %s as key %s',
+                     self.bucket_name, key)
+            return True
+
+    def validate_bucket(self):
+        """Verify the specified bucket exists
+
+        This method validates that the bucket name passed in the S3Util
+        constructor actually exists.
+
+        :return: None
+        """
+        log = logging.getLogger(self.cls_logger + '.validate_bucket')
+        log.info('Attempting to get bucket: {b}'.format(b=self.bucket_name))
+        max_tries = 10
+        count = 1
+        while count <= max_tries:
+            log.info('Attempting to connect to S3 bucket %s, try %s of %s',
+                     self.bucket_name, count, max_tries)
+            try:
+                self.s3client.head_bucket(Bucket=self.bucket_name)
+            except ClientError as exc:
+                error_code = int(exc.response['Error']['Code'])
+                log.debug(
+                    'Connecting to bucket %s produced response code: %s',
+                    self.bucket_name, error_code)
+                if error_code == 404:
+                    msg = 'Error 404 response indicates that bucket {b} does not exist'.format(b=self.bucket_name)
+                    raise S3UtilError(msg) from exc
+                elif error_code == 500 or error_code == 503:
+                    if count >= max_tries:
+                        msg = 'S3 bucket is not accessible at this time: {b}'.format(b=self.bucket_name)
+                        raise S3UtilError(msg) from exc
+                    else:
+                        log.warning('AWS returned error code 500 or 503, re-trying in 2 sec...')
+                        time.sleep(5)
+                        count += 1
+                        continue
+                else:
+                    msg = 'Connecting to S3 bucket {b} returned code: {c}'.format(b=self.bucket_name, c=error_code)
+                    raise S3UtilError(msg) from exc
+            except EndpointConnectionError as exc:
+                raise S3UtilError from exc
+            except socket.gaierror as exc:
+                raise S3UtilError from exc
+            else:
+                log.info('Found bucket: %s', self.bucket_name)
+                return
 
 
 ############################################################################
@@ -573,7 +508,7 @@ def block_public_access(client, bucket_name, block_public_acls=True, ignore_publ
 
 
 ############################################################################
-# Methods for creating S3 buckets
+# Methods for creating/deleting S3 buckets
 ############################################################################
 
 
@@ -622,6 +557,67 @@ def create_bucket(client, bucket_name, region='us-east-1'):
         'Name': bucket_name,
         'Location': response['Location']
     }
+
+
+def delete_bucket(client, bucket_name, bucket_resource=None, region_name=None, aws_access_key_id=None,
+                  aws_secret_access_key=None, enable_debug=False):
+    """Delete an S3 bucket
+
+    :param client: boto3.client
+    :param bucket_name: (str) bucket name
+    :param bucket_resource: boto3.resource('s3')
+    :param region_name: (str) AWS region for the S3 bucket (optional)
+    :param aws_access_key_id: (str) AWS Access Key ID (optional)
+    :param aws_secret_access_key: (str) AWS Secret Access Key (optional)
+    :param enable_debug: (bool) Set True to enable debug logging for boto3
+    :return: None
+    :raises: S3UtilError
+    """
+    log = logging.getLogger(mod_logger + '.delete_bucket')
+    log.info('Attempting prerequisite steps to delete bucket [{n}]'.format(n=bucket_name))
+
+    # Disable S3 bucket logging
+    try:
+        disable_bucket_logging(client=client, bucket_name=bucket_name)
+    except S3UtilError as exc:
+        msg = 'Problem disabling bucket logging on [{n}]'.format(n=bucket_name)
+        raise S3UtilError(msg) from exc
+
+    # Disable S3 object versioning
+    try:
+        disable_bucket_versioning(client=client, bucket_name=bucket_name)
+    except S3UtilError as exc:
+        msg = 'Problem disabling bucket versioning on [{n}]'.format(n=bucket_name)
+        raise S3UtilError(msg) from exc
+
+    # Delete objects
+    try:
+        delete_all_bucket_objects(client=client, bucket_name=bucket_name)
+    except S3UtilError as exc:
+        msg = 'Problem deleting objects from bucket [{n}]'.format(n=bucket_name)
+        raise S3UtilError(msg) from exc
+
+    # Delete object versions
+    try:
+        delete_bucket_object_versions(
+            bucket_name=bucket_name,
+            bucket_resource=bucket_resource,
+            region_name=region_name,
+            aws_access_key_id=aws_access_key_id,
+            aws_secret_access_key=aws_secret_access_key,
+            enable_debug=enable_debug
+        )
+    except S3UtilError as exc:
+        msg = 'Problem deleting object versions from bucket [{n}]'.format(n=bucket_name)
+        raise S3UtilError(msg) from exc
+
+    # Delete the bucket
+    log.info('Completed, deletion prerequisite steps, deleting bucket: {b}'.format(b=bucket_name))
+    try:
+        client.delete_bucket(Bucket=bucket_name)
+    except ClientError as exc:
+        msg = 'Problem deleting bucket: {b}'.format(b=bucket_name)
+        raise S3UtilError(msg) from exc
 
 
 ############################################################################
@@ -718,7 +714,7 @@ def download(download_info):
     while count <= max_tries:
         log.info('Attempting to download file {k}: try {c} of {m}'.format(k=key, c=count, m=max_tries))
         try:
-            client.download_file(Bucket=bucket_name, Key=key, Filename=destination)
+            client.download_file_by_regex(Bucket=bucket_name, Key=key, Filename=destination)
         except ClientError as exc:
             if count >= max_tries:
                 msg = 'Unable to download key {k} from S3 bucket {b}'.format(k=key, b=bucket_name)
@@ -797,7 +793,7 @@ def enable_bucket_encryption_for_all_buckets(client, kms_id=None):
     :param client: boto3 client
     :param kms_id: (str) ID of the KMS key
     :return: None
-    :raises" S3UtilError
+    :raises: S3UtilError
     """
     log = logging.getLogger(mod_logger + '.enable_bucket_encryption_for_all_buckets')
 
@@ -828,8 +824,28 @@ def enable_bucket_encryption_for_all_buckets(client, kms_id=None):
 
 
 ############################################################################
-# Methods for enabling logging
+# Methods for enabling/disabling logging
 ############################################################################
+
+
+def disable_bucket_logging(client, bucket_name):
+    """Disable bucket logging
+
+    :param client: boto3.client
+    :param bucket_name: (str) bucket name
+    :return: None
+    :raises: S3UtilError
+    """
+    log = logging.getLogger(mod_logger + '.disable_bucket_logging')
+    log.info('Disabling bucket logging on bucket: {b}'.format(b=bucket_name))
+    try:
+        client.put_bucket_logging(
+            Bucket=bucket_name,
+            BucketLoggingStatus={}
+        )
+    except ClientError as exc:
+        msg = 'Problem disabling bucket logging on [{n}]'.format(n=bucket_name)
+        raise S3UtilError(msg) from exc
 
 
 def enable_bucket_logging(client, bucket_name, target_bucket, prefix):
@@ -888,7 +904,7 @@ def enable_bucket_log_delivery(client, target_bucket_name):
     owner = response['Owner']
 
     # Determine the log delivery URI based on region
-    log_delivery_uri = 'http://acs.amazonaws.com/groups/s3/LogDelivery'
+    log_delivery_uri = 'https://acs.amazonaws.com/groups/s3/LogDelivery'
 
     new_grants = [
         {
@@ -925,8 +941,81 @@ def enable_bucket_log_delivery(client, target_bucket_name):
 
 
 ############################################################################
-# Methods for enabling versioning
+# Methods for enabling/disabling versioning
 ############################################################################
+
+
+def delete_bucket_object_versions(bucket_resource=None, bucket_name=None, region_name=None, aws_access_key_id=None,
+                                  aws_secret_access_key=None, enable_debug=False):
+    """Delete saved object versions
+
+    :param bucket_resource: boto3.resource('s3')
+    :param bucket_name: (str) bucket name
+    :param region_name: (str) AWS region for the S3 bucket (optional)
+    :param aws_access_key_id: (str) AWS Access Key ID (optional)
+    :param aws_secret_access_key: (str) AWS Secret Access Key (optional)
+    :param enable_debug: (bool) Set True to enable debug logging for boto3
+    :return: None
+    :raises: S3UtilError
+    """
+    log = logging.getLogger(mod_logger + '.delete_bucket_object_versions')
+
+    # Set up S3 resources
+    if not bucket_resource:
+        if not all([bucket_name, region_name, aws_access_key_id, aws_secret_access_key]):
+            raise S3UtilError('bucket_name, region_name, aws_access_key_id, aws_secret_access_key are all required to '
+                              'create a bucket resource')
+        s3resource = boto3.resource('s3', region_name=region_name, aws_access_key_id=aws_access_key_id,
+                                    aws_secret_access_key=aws_secret_access_key)
+        bucket_resource = s3resource.Bucket(bucket_name)
+    else:
+        bucket_name = bucket_resource.name
+
+    if enable_debug:
+        log.info('Enabling debug logging for boto3...')
+        boto3.set_stream_logger('', logging.DEBUG)
+
+    log.info('Deleting object versions from bucket (THIS COULD TAKE A WHILE): {b}'.format(b=bucket_name))
+    exception_happened = True
+    max_attempts = 30
+    attempt = 1
+    while exception_happened and attempt <= max_attempts:
+        try:
+            bucket_resource.object_versions.delete()
+        except Exception as exc:
+            log.warning('Object deletion failed with exception: {e}\n{t}'.format(e=str(exc), t=traceback.print_exc()))
+            log.info('Re-trying bucket object deletion...')
+        else:
+            exception_happened = False
+        attempt += 1
+    if exception_happened:
+        msg = 'Max attempts exceeded [{n}] to delete object versions'.format(n=str(max_attempts))
+        raise S3UtilError(msg)
+    log.info('Completed deleting object versions from bucket: {b}'.format(b=bucket_name))
+
+
+def disable_bucket_versioning(client, bucket_name):
+    """Disable bucket versioning
+
+    :param client: boto3.client
+    :param bucket_name: (str) bucket name
+    :return: None
+    :raises: S3UtilError
+    """
+    log = logging.getLogger(mod_logger + '.disable_bucket_versioning')
+    log.info('Disabling bucket versioning on bucket: {b}'.format(b=bucket_name))
+
+    # Disable/Suspend versioning on S3 Bucket
+    try:
+        client.put_bucket_versioning(
+            Bucket=bucket_name,
+            VersioningConfiguration={
+                'Status': 'Suspended'
+            }
+        )
+    except ClientError as exc:
+        msg = 'Problem disabling bucket versioning on [{n}]'.format(n=bucket_name)
+        raise S3UtilError(msg) from exc
 
 
 def enable_bucket_versioning(client, bucket_name, enable=True, mfa_delete=False, mfa_device=None):
@@ -979,12 +1068,137 @@ def enable_bucket_versioning(client, bucket_name, enable=True, mfa_delete=False,
         raise S3UtilError(msg) from exc
 
 
+def list_bucket_object_versions_with_token(client, bucket_name, prefix='', key_marker=None, key_version_marker=None):
+    """Returns a list of object versions with the provided token
+
+    :param client: boto3.client
+    :param bucket_name: (str) bucket name
+    :param prefix: (str) Prefix to search on
+    :param key_marker: (str) Key marker to start from
+    :param key_version_marker: (str) Key version marker to start from
+    :return: (dict) response object containing response data
+    """
+    if key_marker and key_version_marker:
+        return client.list_object_versions(
+            Bucket=bucket_name,
+            Prefix=prefix,
+            KeyMarker=key_marker,
+            VersionIdMarker=key_version_marker
+        )
+    else:
+        return client.list_object_versions(
+            Bucket=bucket_name,
+            Prefix=prefix
+        )
+
+
+def list_bucket_object_versions(client, bucket_name, prefix=''):
+    """Lists object versions
+
+    :param client: boto3.client
+    :param bucket_name: (str) bucket name
+    :param prefix: (str) Prefix to search on
+    :return: (list) of object versions
+    """
+    log = logging.getLogger(mod_logger + '.list_bucket_object_versions')
+    if not prefix:
+        prefix_str = 'None'
+    else:
+        prefix_str = prefix
+    key_marker = None
+    key_version_marker = None
+    next_query = True
+    object_versions_list = []
+    log.info('Attempting to list object versions in bucket {b} matching prefix: {p}'.format(
+        b=bucket_name, p=prefix_str))
+    while True:
+        if not next_query:
+            break
+        response = list_bucket_object_versions_with_token(
+            client=client, bucket_name=bucket_name, prefix=prefix, key_marker=key_marker,
+            key_version_marker=key_version_marker)
+        if 'IsTruncated' not in response.keys():
+            log.warning('IsTruncated not found in response: {r}'.format(r=str(response.keys())))
+            return object_versions_list
+        if 'Versions' not in response.keys():
+            log.warning('Versions not found in response: {r}'.format(r=str(response.keys())))
+            return object_versions_list
+        next_query = response['IsTruncated']
+        object_versions_list += response['Versions']
+        if next_query:
+            if 'NextKeyMarker' not in response.keys():
+                log.warning('NextKeyMarker not found in response with IsTruncated set: {r}'.format(
+                    r=str(response.keys())))
+                return object_versions_list
+            if 'NextVersionIdMarker' not in response.keys():
+                log.warning('NextVersionIdMarker not found in response with IsTruncated set: {r}'.format(
+                    r=str(response.keys())))
+                return object_versions_list
+            key_marker = response['NextKeyMarker']
+            key_version_marker = response['NextVersionIdMarker']
+    log.info('Found {n} object versions matching prefix: {p}'.format(n=str(len(object_versions_list)), p=prefix_str))
+    return object_versions_list
+
+
 ############################################################################
 # Methods for finding objects
 ############################################################################
 
 
-def find_bucket_keys(bucket_name, regex, region_name=None, aws_access_key_id=None, aws_secret_access_key=None):
+def delete_all_bucket_objects(client, bucket_name):
+    """Delete all objects in a bucket
+
+    :param client: boto3.client
+    :param bucket_name: (str) bucket name
+    :return: list of deleted objects
+    :raises: S3UtilError
+    """
+    log = logging.getLogger(mod_logger + '.delete_all_bucket_objects')
+    log.info('Attempting to find and delete all objects in bucket: {b}'.format(b=bucket_name))
+
+    # Get a list of bucket objects
+    bucket_objects = list_objects_metadata(client=client, bucket_name=bucket_name)
+
+    # Track the deleted objects and failed deleted objects
+    deleted_objects = []
+    failed_deleted_objects = []
+
+    # Delete the objects
+    for bucket_object in bucket_objects:
+        if delete_object(client=client, bucket_name=bucket_name, object_key=bucket_object):
+            deleted_objects.append(bucket_object)
+        else:
+            failed_deleted_objects.append(bucket_object)
+
+    # Log the result, raise exception if there were failed object deletions
+    log.info('Deleted {n} bucket objects'.format(n=str(len(deleted_objects))))
+    if len(failed_deleted_objects):
+        msg = 'Failed to delete {n} bucket objects'.format(n=str(len(failed_deleted_objects)))
+        raise S3UtilError(msg)
+    return deleted_objects
+
+
+def delete_object(client, bucket_name, object_key):
+    """Deletes the specified object by the provided key
+
+    :param client: boto3.client
+    :param bucket_name: (str) bucket nam
+    :param object_key: (str) key to delete
+    :return: bool, True is successful, False otherwise
+    """
+    log = logging.getLogger(mod_logger + '.delete_object')
+
+    log.info('Deleting object by bucket key: {k}'.format(k=object_key))
+    try:
+        client.delete_object(Bucket=bucket_name, Key=object_key)
+    except ClientError as exc:
+        log.warning('Unable to delete key: {k}\n{e}'.format(k=object_key, e=str(exc)))
+        return False
+    return True
+
+
+def find_bucket_keys(bucket_name, regex, region_name=None, aws_access_key_id=None, aws_secret_access_key=None,
+                     bucket_resource=None):
     """Finds a list of S3 keys matching the passed regex
 
     Given a regular expression, this method searches the S3 bucket
@@ -996,6 +1210,7 @@ def find_bucket_keys(bucket_name, regex, region_name=None, aws_access_key_id=Non
     :param region_name: (str) AWS region for the S3 bucket (optional)
     :param aws_access_key_id: (str) AWS Access Key ID (optional)
     :param aws_secret_access_key: (str) AWS Secret Access Key (optional)
+    :param bucket_resource: boto3.resource('s3')
     :return: Array of strings containing matched S3 keys
     """
     log = logging.getLogger(mod_logger + '.find_bucket_keys')
@@ -1008,18 +1223,83 @@ def find_bucket_keys(bucket_name, regex, region_name=None, aws_access_key_id=Non
         return None
 
     # Set up S3 resources
-    s3resource = boto3.resource('s3', region_name=region_name, aws_access_key_id=aws_access_key_id,
-                                aws_secret_access_key=aws_secret_access_key)
-    bucket = s3resource.Bucket(bucket_name)
+    if not bucket_resource:
+        if not all([bucket_name, region_name, aws_access_key_id, aws_secret_access_key]):
+            raise S3UtilError('bucket_name, region_name, aws_access_key_id, aws_secret_access_key are all required to '
+                              'create a bucket resource')
+        s3resource = boto3.resource('s3', region_name=region_name, aws_access_key_id=aws_access_key_id,
+                                    aws_secret_access_key=aws_secret_access_key)
+        bucket_resource = s3resource.Bucket(bucket_name)
 
     log.info('Looking up S3 keys based on regex: {r}'.format(r=regex))
-    for item in bucket.objects.all():
+    for item in bucket_resource.objects.all():
         log.debug('Checking if regex matches key: {k}'.format(k=item.key))
         match = re.search(regex, item.key)
         if match:
             matched_keys.append(item.key)
     log.info('Found matching keys: {k}'.format(k=matched_keys))
     return matched_keys
+
+
+def list_objects_metadata_with_token(client, bucket_name, prefix='', continuation_token=None):
+    """Returns a list of S3 keys based on the provided token
+
+    :param client: boto3.client
+    :param bucket_name: (str) bucket name
+    :param prefix: (str) Prefix to search on
+    :param continuation_token: (str) S3 token to query on
+    :return: (dict) response object containing response data
+    """
+    if continuation_token:
+        return client.list_objects_v2(
+            Bucket=bucket_name,
+            Prefix=prefix,
+            ContinuationToken=continuation_token
+        )
+    else:
+        return client.list_objects_v2(
+            Bucket=bucket_name,
+            Prefix=prefix
+        )
+
+
+def list_objects_metadata(client, bucket_name, prefix=''):
+    """Lists S3 objects metadata in the S3 bucket matching the provided prefix
+
+    :param client: boto3.client
+    :param bucket_name: (str) bucket name
+    :param prefix: (str) Prefix to search on
+    :return: (list) of S3 bucket object metadata
+    """
+    log = logging.getLogger(mod_logger + '.list_objects_metadata')
+    if not prefix:
+        prefix_str = 'None'
+    else:
+        prefix_str = prefix
+    continuation_token = None
+    next_query = True
+    object_metadata_list = []
+    log.info('Attempting to list S3 keys in bucket {b} matching prefix: {p}'.format(
+        b=bucket_name, p=prefix_str))
+    while True:
+        if not next_query:
+            break
+        response = list_objects_metadata_with_token(
+            client=client, bucket_name=bucket_name, prefix=prefix, continuation_token=continuation_token)
+        if 'IsTruncated' not in response.keys():
+            log.warning('IsTruncated not found in response: {r}'.format(r=str(response.keys())))
+            return object_metadata_list
+        if 'Contents' not in response.keys():
+            log.warning('Contents not found in response: {r}'.format(r=str(response.keys())))
+            return object_metadata_list
+        next_query = response['IsTruncated']
+        object_metadata_list += response['Contents']
+        if 'NextContinuationToken' not in response.keys():
+            next_query = False
+        else:
+            continuation_token = response['NextContinuationToken']
+    log.info('Found {n} objects matching prefix: {p}'.format(n=str(len(object_metadata_list)), p=prefix_str))
+    return object_metadata_list
 
 
 ############################################################################
@@ -1086,7 +1366,7 @@ def set_bucket_policy(client, bucket_name, policy_document):
     try:
         with open(policy_document, 'r') as f:
             policy_document_data = json.load(f)
-    except(OSError, IOError) as exc:
+    except (OSError, IOError) as exc:
         raise S3UtilError('Unable to read policy file: {f}'.format(f=policy_document)) from exc
     log.info('Loading policy from file: {f}'.format(f=policy_document))
     json_policy_data = json.dumps(policy_document_data)
@@ -1100,39 +1380,3 @@ def set_bucket_policy(client, bucket_name, policy_document):
         msg = 'Problem setting bucket policy for [{n}] to [{d}] with contents:\n{c}'.format(
             n=bucket_name, d=policy_document, c=json_policy_data)
         raise S3UtilError(msg) from exc
-
-
-def main():
-    """Sample usage for this python module
-
-    This main method simply illustrates sample usage for this python
-    module.
-
-    :return: None
-    """
-    log = logging.getLogger(mod_logger + '.main')
-    log.debug('This is DEBUG!')
-    log.info('This is INFO!')
-    log.warning('This is WARNING!')
-    log.error('This is ERROR!')
-    log.info('Running s3util.main...')
-    my_bucket = 'cons3rt-deploying-cons3rt'
-    my_regex = 'sourcebuilder.*apache-maven-.*3.3.3.*'
-    try:
-        s3util = S3Util(my_bucket)
-    except S3UtilError as e:
-        log.error('There was a problem creating S3Util:\n%s', e)
-    else:
-        log.info('Created S3Util successfully')
-        key = s3util.find_key(my_regex)
-        test = None
-        if key is not None:
-            test = s3util.download_file(key, '/Users/yennaco/Downloads')
-        if test is not None:
-            upload = s3util.upload_file(test, 'media-files-offline-assets/test')
-            log.info('Upload result: %s', upload)
-    log.info('End of main!')
-
-
-if __name__ == '__main__':
-    main()
