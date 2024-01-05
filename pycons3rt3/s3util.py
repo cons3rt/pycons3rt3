@@ -1165,7 +1165,7 @@ def delete_all_bucket_objects(client, bucket_name):
 
     # Delete the objects
     for bucket_object in bucket_objects:
-        if delete_object(client=client, bucket_name=bucket_name, object_key=bucket_object):
+        if delete_object(client=client, bucket_name=bucket_name, object_key=bucket_object['Key']):
             deleted_objects.append(bucket_object)
         else:
             failed_deleted_objects.append(bucket_object)
