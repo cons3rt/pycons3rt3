@@ -8,6 +8,7 @@
 * Added methods to clean up and delete S3 buckets, organized and refactored S3Util to utilize newer module methods
 * Redacted ReST API token from DEBUG logging
 * Added methods to set S3 bucket lifecycle rules, including a method to set lifecycle deletion rules
+* Added sample scripts for import assets from a directory and setting project asset visibilities
 
 0.0.18
 ======
