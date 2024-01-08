@@ -7,6 +7,7 @@
 * Added the ability to specify ports and protocol for generated hostname based IpPermissions rules
 * Added methods to clean up and delete S3 buckets, organized and refactored S3Util to utilize newer module methods
 * Redacted ReST API token from DEBUG logging
+* Added methods to set S3 bucket lifecycle rules, including a method to set lifecycle deletion rules
 
 0.0.18
 ======

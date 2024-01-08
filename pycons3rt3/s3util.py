@@ -40,6 +40,39 @@ __author__ = 'Joe Yennaco'
 mod_logger = Logify.get_name() + '.s3util'
 
 
+# S3 bucket lifecycle rules to delete everything from the bucket
+# Ref: https://repost.aws/knowledge-center/s3-empty-bucket-lifecycle-rule
+bucket_lifecycle_deletion_rules = {
+    "Rules": [{
+        "Expiration": {
+            "Days": 1
+        },
+        "ID": "FullDelete",
+        "Filter": {
+            "Prefix": ""
+        },
+        "Status": "Enabled",
+        "NoncurrentVersionExpiration": {
+            "NoncurrentDays": 1
+        },
+        "AbortIncompleteMultipartUpload": {
+            "DaysAfterInitiation": 1
+        }
+    },
+        {
+            "Expiration": {
+                "ExpiredObjectDeleteMarker": True
+            },
+            "ID": "DeleteMarkers",
+            "Filter": {
+                "Prefix": ""
+            },
+            "Status": "Enabled"
+        }
+    ]
+}
+
+
 class S3MultiUtil(threading.Thread):
 
     def __init__(self, client, bucket, s3_keys, bar=None):
@@ -378,6 +411,17 @@ class S3Util(object):
         log.info('Setting bucket name: {b}'.format(b=bucket_name))
         self.bucket_name = bucket_name
         return self.validate_bucket()
+
+    def set_bucket_lifecycle_deletion_rules(self):
+        return set_bucket_lifecycle_deletion_rules(client=self.s3client, bucket_name=self.bucket_name)
+
+    def set_bucket_lifecycle_rules(self, lifecycle_rules):
+        return set_bucket_lifecycle_rules(
+            client=self.s3client, bucket_name=self.bucket_name, lifecycle_rules=lifecycle_rules)
+
+    def set_bucket_lifecycle_rules_from_json(self, lifecycle_rules_json_file):
+        return set_bucket_lifecycle_rules_from_json(
+            client=self.s3client, bucket_name=self.bucket_name, lifecycle_rules_json_file=lifecycle_rules_json_file)
 
     def set_bucket_policy(self, policy_document):
         return set_bucket_policy(client=self.s3client, bucket_name=self.bucket_name, policy_document=policy_document)
@@ -1379,4 +1423,77 @@ def set_bucket_policy(client, bucket_name, policy_document):
     except ClientError as exc:
         msg = 'Problem setting bucket policy for [{n}] to [{d}] with contents:\n{c}'.format(
             n=bucket_name, d=policy_document, c=json_policy_data)
+        raise S3UtilError(msg) from exc
+
+
+############################################################################
+# Methods for handling lifecycle policy
+############################################################################
+
+
+def set_bucket_lifecycle_deletion_rules(client, bucket_name):
+    """Sets the bucket lifecycle rules to the static deletion rules defined above
+
+    :param client: boto3.client
+    :param bucket_name: (str) bucket name
+    :return: None
+    :raises: S3UtilError
+    """
+    log = logging.getLogger(mod_logger + '.set_bucket_lifecycle_deletion_rules')
+    log.info('Setting lifecycle rules on bucket [{n}]'.format(n=bucket_name))
+    try:
+        set_bucket_lifecycle_rules(client=client, bucket_name=bucket_name,
+                                   lifecycle_rules=bucket_lifecycle_deletion_rules)
+    except S3UtilError as exc:
+        msg = 'Problem setting lifecycle deletion rules for [{n}] to: [{d}]'.format(
+            n=bucket_name, d=str(bucket_lifecycle_deletion_rules))
+        raise S3UtilError(msg) from exc
+
+
+def set_bucket_lifecycle_rules(client, bucket_name, lifecycle_rules):
+    """Sets the bucket lifecycle rules to the provided rules dict
+
+    :param client: boto3.client
+    :param bucket_name: (str) bucket name
+    :param lifecycle_rules: (dict) lifecycle rules
+    :return: None
+    :raises: S3UtilError
+    """
+    log = logging.getLogger(mod_logger + '.set_bucket_lifecycle_rules')
+    log.info('Setting lifecycle rules on bucket [{n}]'.format(n=bucket_name))
+    try:
+        client.put_bucket_lifecycle_configuration(Bucket=bucket_name, LifecycleConfiguration=lifecycle_rules)
+    except ClientError as exc:
+        msg = 'Problem setting lifecycle rules for [{n}] to: [{d}]'.format(n=bucket_name, d=lifecycle_rules)
+        raise S3UtilError(msg) from exc
+
+
+def set_bucket_lifecycle_rules_from_json(client, bucket_name, lifecycle_rules_json_file):
+    """Sets the bucket lifecycle rules to the provided file
+
+    :param client: boto3.client
+    :param bucket_name: (str) bucket name
+    :param lifecycle_rules_json_file: (str) path to JSON lifecycle rules file
+    :return: None
+    :raises: S3UtilError
+    """
+    log = logging.getLogger(mod_logger + '.set_bucket_lifecycle_rules_from_json')
+    log.info('Setting lifecycle rules on bucket [{n}] to policy document [{d}]'.format(
+        n=bucket_name, d=lifecycle_rules_json_file))
+
+    # Ensure the file exists
+    if not os.path.isfile(lifecycle_rules_json_file):
+        raise S3UtilError('Policy document not found: {f}'.format(f=lifecycle_rules_json_file))
+    try:
+        with open(lifecycle_rules_json_file, 'r') as f:
+            lifecycle_rules_dict = json.load(f)
+    except (OSError, IOError) as exc:
+        raise S3UtilError('Unable to read lifecycle rules file: {f}'.format(f=lifecycle_rules_json_file)) from exc
+    log.info('Loading lifecycle rules from file: {f}'.format(f=lifecycle_rules_json_file))
+
+    try:
+        set_bucket_lifecycle_rules(client=client, bucket_name=bucket_name, lifecycle_rules=lifecycle_rules_dict)
+    except S3UtilError as exc:
+        msg = 'Problem setting lifecycle policy for [{n}] to [{d}] with contents:\n{c}'.format(
+            n=bucket_name, d=lifecycle_rules_json_file, c=str(lifecycle_rules_dict))
         raise S3UtilError(msg) from exc
