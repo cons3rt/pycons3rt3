@@ -260,23 +260,27 @@ def main():
     if len(export_asset_ids) < maximum_asset_downloads:
         remaining_downloads = len(export_asset_ids)
 
-    # Total siz eof downloaded files
+    # Total size of downloaded files
     total_downloaded_file_size_bytes = get_download_dir_size(download_dir=download_dir)
     asset_download_count = 0
+
+    # Problem downloads
+    problem_downloads = []
 
     # Download assets not on the downloaded list until the size limits are met
     for export_asset_id in export_asset_ids:
         if asset_download_count >= maximum_asset_downloads:
             log.info('Reached the maximum number of asset downloads [{n} of {m}], exiting...'.format(
                 n=str(asset_download_count), m=str(maximum_asset_downloads)))
-            return 0
+            break
         if not verify_disk_space(file_size=total_downloaded_file_size_bytes, file_path=download_dir):
             log.warning('Running short of hard disk space to continue')
-            return 0
+            break
         if not verify_dvd_size(file_size=total_downloaded_file_size_bytes):
             log.info('There is about enough to fit on a DVD, exiting...')
-            return 0
-        log.info('Downloading asset ID [{i}] count [{n}] of remaining [{m}]...'.format(
+            break
+        asset_download_count += 1
+        log.info('Downloading asset ID [{i}] #[{n}] of [{m}]...'.format(
             i=str(export_asset_id), n=str(asset_download_count), m=str(remaining_downloads)))
         try:
             asset_zip = c.download_asset(asset_id=export_asset_id, background=False, dest_dir=download_dir,
@@ -285,15 +289,25 @@ def main():
             msg = 'Problem downloading asset ID [{i}] to download directory [{d}]\n{e}\n{t}'.format(
                 i=str(export_asset_id), d=download_dir, e=str(exc), t=traceback.format_exc())
             log.error(msg)
+            problem_downloads.append(export_asset_id)
             continue
         else:
             file_size_bytes = os.path.getsize(asset_zip)
             log.info('Downloaded asset ID [{i}] with size [{b} bytes]'.format(
                 i=str(export_asset_id), b=str(file_size_bytes)))
             total_downloaded_file_size_bytes += file_size_bytes
-            asset_download_count += 1
             downloaded_asset_ids.append(export_asset_id)
             set_downloaded_assets(download_dir=download_dir, asset_id_list=downloaded_asset_ids)
+
+    # Print errors
+    if len(problem_downloads) > 0:
+        msg = 'Problem downloading the following asset IDs:\n'
+        for problem_download in problem_downloads:
+            msg += str(problem_download) + '\n'
+        log.error(msg)
+        return 1
+    log.info('All asset downloads completed successfully!')
+    return 0
 
 
 if __name__ == '__main__':
