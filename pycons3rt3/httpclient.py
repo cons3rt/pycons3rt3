@@ -411,7 +411,9 @@ class Client:
             req = requests.Request(method, url, data=form, headers=headers)
             prepped = req.prepare()
             log.info('Request URL: {u}'.format(u=url))
-            log.info('Prepped headers: {h}'.format(h=prepped.headers))
+            redacted_headers = dict(prepped.headers)
+            redacted_headers['token'] = 'REDACTED'
+            log.info('Prepped headers: {h}'.format(h=redacted_headers))
             log.info('Making request with method: [{m}]'.format(m=method))
 
             attempt_num = 1

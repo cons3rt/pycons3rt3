@@ -6,6 +6,7 @@
 * Added methods and CLI commands to list team members and list team members by team manager
 * Added the ability to specify ports and protocol for generated hostname based IpPermissions rules
 * Added methods to clean up and delete S3 buckets, organized and refactored S3Util to utilize newer module methods
+* Redacted ReST API token from DEBUG logging
 
 0.0.18
 ======
