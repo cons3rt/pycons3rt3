@@ -20,6 +20,10 @@ def main():
 
     parser = argparse.ArgumentParser(description='Deletes S3 keys')
     parser.add_argument('-b', '--bucket', help='Name of the S3 bucket to delete', required=False)
+    parser.add_argument('-d', '--debug', help='Enable DEBUG logging in boto3',
+                        required=False, action='store_true')
+    parser.add_argument('-r', '--lifecycle', help='Process deletion by setting lifecycle rules',
+                        required=False, action='store_true')
     args = parser.parse_args()
 
     # Check for a --bucket arg, if not provided query the user for input
@@ -27,6 +31,16 @@ def main():
         bucket_name = args.bucket
     else:
         bucket_name = input('Type the S3 bucket name to delete: ')
+
+    # Check for a --lifecycle arg
+    lifecycle = False
+    if args.lifecycle:
+        lifecycle = True
+
+    # Check for a --debug arg
+    debug = False
+    if args.debug:
+        debug = True
 
     # Create the S3Util for this bucket
     bucket = S3Util(bucket_name=bucket_name)
@@ -39,16 +53,27 @@ def main():
         traceback.print_exc()
         return 1
 
-    # Attempt to delete the bucket
-    log.info('Deleting bucket: {b}'.format(b=bucket_name))
-    try:
-        bucket.delete_bucket(enable_debug=True)
-    except S3UtilError as exc:
-        print('Problem deleting bucket [{b}]\n{e}'.format(b=bucket_name, e=str(exc)))
-        traceback.print_exc()
-        return 2
+    # Process the deletion depending on the --lifecycle option
+    if lifecycle:
+        # If --lifecycle was specified, process the deletion of objects via lifecycle rules
+        log.info('Configuring bucket for deletion via lifecycle rules: {b}'.format(b=bucket_name))
+        try:
+            bucket.config_bucket_for_deletion()
+        except S3UtilError as exc:
+            print('Problem configuring bucket for deletion [{b}]\n{e}'.format(b=bucket_name, e=str(exc)))
+            traceback.print_exc()
+            return 2
+    else:
+        # Attempt to delete the bucket if --lifecycle was not specified
+        log.info('Deleting bucket: {b}'.format(b=bucket_name))
+        try:
+            bucket.delete_bucket(enable_debug=debug)
+        except S3UtilError as exc:
+            print('Problem deleting bucket [{b}]\n{e}'.format(b=bucket_name, e=str(exc)))
+            traceback.print_exc()
+            return 3
 
-    log.info('Completed deleting bucket: {b}'.format(b=bucket_name))
+    log.info('Completed deleting bucket or configuring bucket for deletion: {b}'.format(b=bucket_name))
     return 0
 
 

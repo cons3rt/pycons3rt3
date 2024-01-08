@@ -133,6 +133,9 @@ class S3Util(object):
                                    block_public_policy=block_public_policy,
                                    restrict_public_buckets=restrict_public_buckets)
 
+    def config_bucket_for_deletion(self):
+        return config_bucket_for_deletion(client=self.s3client, bucket_name=self.bucket_name)
+
     def copy_object_in_same_bucket(self, current_key, new_key):
         """Copies the specified current key to a new key in the same bucket
 
@@ -556,6 +559,39 @@ def block_public_access(client, bucket_name, block_public_acls=True, ignore_publ
 ############################################################################
 
 
+def config_bucket_for_deletion(client, bucket_name):
+    """Configures an S3 bucket for deletion and sets up lifecycle deletion rules
+
+    :param client: boto3.client
+    :param bucket_name: (str) bucket name
+    :return: None
+    :raises: S3UtilError
+    """
+    log = logging.getLogger(mod_logger + '.config_bucket_for_deletion')
+    log.info('Configuring steps for deletion including lifecycle rules for bucket: [{n}]'.format(n=bucket_name))
+
+    # Disable S3 bucket logging
+    try:
+        disable_bucket_logging(client=client, bucket_name=bucket_name)
+    except S3UtilError as exc:
+        msg = 'Problem disabling bucket logging on [{n}]'.format(n=bucket_name)
+        raise S3UtilError(msg) from exc
+
+    # Disable S3 object versioning
+    try:
+        disable_bucket_versioning(client=client, bucket_name=bucket_name)
+    except S3UtilError as exc:
+        msg = 'Problem disabling bucket versioning on [{n}]'.format(n=bucket_name)
+        raise S3UtilError(msg) from exc
+
+    # Set the lifecycle deletion rules
+    try:
+        set_bucket_lifecycle_deletion_rules(client=client, bucket_name=bucket_name)
+    except S3UtilError as exc:
+        msg = 'Problem setting lifecycle deletion rules on [{n}]'.format(n=bucket_name)
+        raise S3UtilError(msg) from exc
+
+
 def create_bucket(client, bucket_name, region='us-east-1'):
     """Creates the specified bucket, if it already exists returns it
 
@@ -620,18 +656,11 @@ def delete_bucket(client, bucket_name, bucket_resource=None, region_name=None, a
     log = logging.getLogger(mod_logger + '.delete_bucket')
     log.info('Attempting prerequisite steps to delete bucket [{n}]'.format(n=bucket_name))
 
-    # Disable S3 bucket logging
+    # Configure the bucket for deletion
     try:
-        disable_bucket_logging(client=client, bucket_name=bucket_name)
+        config_bucket_for_deletion(client=client, bucket_name=bucket_name)
     except S3UtilError as exc:
-        msg = 'Problem disabling bucket logging on [{n}]'.format(n=bucket_name)
-        raise S3UtilError(msg) from exc
-
-    # Disable S3 object versioning
-    try:
-        disable_bucket_versioning(client=client, bucket_name=bucket_name)
-    except S3UtilError as exc:
-        msg = 'Problem disabling bucket versioning on [{n}]'.format(n=bucket_name)
+        msg = 'Problem configuring bucket for deletion [{n}]'.format(n=bucket_name)
         raise S3UtilError(msg) from exc
 
     # Delete objects
