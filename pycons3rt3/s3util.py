@@ -1363,7 +1363,7 @@ def list_objects_metadata(client, bucket_name, prefix=''):
             log.warning('IsTruncated not found in response: {r}'.format(r=str(response.keys())))
             return object_metadata_list
         if 'Contents' not in response.keys():
-            log.warning('Contents not found in response: {r}'.format(r=str(response.keys())))
+            log.info('Contents not found in response, no objects: {r}'.format(r=str(response.keys())))
             return object_metadata_list
         next_query = response['IsTruncated']
         object_metadata_list += response['Contents']
