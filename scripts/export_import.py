@@ -18,15 +18,15 @@ from pycons3rt3.exceptions import Cons3rtApiError
 # ##################### EDIT HERE ##############################
 
 # List of asset IDs to export
-asset_ids = [115361, 115360, 115411, 125126, 123270]
+asset_ids = []
 
 # Path to the config.json files for the CONS3RT sites to export and import
 # See the sample-configs directory for sample config files
-export_config_file = '/Volumes/RunVault/cons3rtapi/config/config-arcusgov-dev.json'
-import_config_file = '/Volumes/RunVault/cons3rtapi/config/config-arcusmil-admin.json'
+export_config_file = '/path/to/conf/config-source.json'
+import_config_file = '/path/to/conf/config-dest.json'
 
 # Directory where the assets will be exported to before importing
-export_import_dir = '/Users/yennaco/Downloads/export_import'
+export_import_dir = '/path/to/export_import'
 
 # ################### END EDIT HERE ############################
 
@@ -43,7 +43,7 @@ failed_import_asset_ids = []
 imported_asset_ids = []
 fix_visibility = []
 fix_state = []
-count = -1
+count = 0
 
 print('Exporting {n} assets...'.format(n=str(len(asset_ids))))
 

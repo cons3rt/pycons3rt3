@@ -59,7 +59,7 @@ failed_export_asset_ids = []
 failed_import_asset_ids = []
 fix_visibility = []
 fix_state = []
-count = -1
+count = 0
 
 print('Exporting {n} assets...'.format(n=str(len(asset_ids))))
 
