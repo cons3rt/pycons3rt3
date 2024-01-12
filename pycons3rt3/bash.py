@@ -1577,6 +1577,30 @@ def set_user_id(username, new_id):
     log.info('Set ID for user [{u}]: {i}'.format(u=username, i=str(new_id)))
 
 
+def get_nameserver():
+    """Reads the /etc/resolv.conf file and returns the first nameserver IP address or None
+
+    :return: (str) Nameserver IP address, or None
+    """
+    log = logging.getLogger(mod_logger + '.get_nameserver')
+    resolv_conf = '/etc/resolv.conf'
+    if not os.path.isfile(resolv_conf):
+        log.warning("/etc/resolv.conf file not found, cannot determine nameserver IP")
+        return
+    try:
+        with open(resolv_conf, 'r') as resolv_file:
+            for line in resolv_file:
+                if line.strip().startswith('nameserver'):
+                    nameserver = line.split()[1]
+                    log.info('Found original nameserver in /etc/resolv.conf: {n}'.format(n=nameserver))
+                    if validate_ip_address(nameserver):
+                        return nameserver
+                    else:
+                        log.warning('Nameserver was not a valid IP: {n}'.format(n=nameserver))
+    except Exception as exc:
+        log.warning('Problem reading resolv.conf file: {f}\n{e}'.format(f=resolv_conf, e=str(exc)))
+
+
 def main():
     """Sample usage for this python module
 
