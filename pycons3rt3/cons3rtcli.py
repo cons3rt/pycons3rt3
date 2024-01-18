@@ -2169,29 +2169,14 @@ class TeamCli(Cons3rtCli):
         if self.args.emails:
             emails = True
 
-        # Get a list of team IDs for the user if username was provided
+        # Get a list of team IDs for the user if username was provided, otherwise use the IDs flag
         if username:
-
-            # Get a list of teams managed by that user
+            # Get a list of team IDs managed by that user
             print('Getting teams managed by username: {u}'.format(u=username))
             user_teams = self.c5t.list_teams_for_team_manager(
                 username=username, not_expired=not_expired, active_only=active_only)
             for user_team in user_teams:
                 team_ids.append(user_team['id'])
-
-            # If unique was specified, only output the list that is unique across the teams and return it
-            if unique:
-                print('Getting unique users in teams managed by username: {u}'.format(u=username))
-                try:
-                    unique_team_members = self.c5t.list_unique_team_members_for_teams(
-                        team_ids=team_ids, blocked=blocked)
-                except Cons3rtApiError as exc:
-                    msg = 'Problem listing unique users across teams: {i}'.format(i=','.join(map(str, team_ids)))
-                    self.err(msg)
-                    raise Cons3rtCliError(msg) from exc
-                self.print_formatted_list(item_list=unique_team_members, emails=emails)
-                return
-
         elif self.ids:
             # Use the provided IDs if no --username was provided
             team_ids = self.ids
@@ -2201,17 +2186,29 @@ class TeamCli(Cons3rtCli):
             self.err(msg)
             raise Cons3rtCliError(msg)
 
-        # Collect a list of team members for each team ID
-        team_members = []
-        print('Getting members for team IDs: {i}'.format(i=','.join(map(str, team_ids))))
-        for team_id in team_ids:
+        # If unique was specified, only output the list that is unique across the teams and return it
+        if unique:
+            print('Getting unique users in teams managed by username: {u}'.format(u=username))
             try:
-                team_members += self.c5t.list_team_members(team_id=team_id, blocked=blocked, unique=unique)
+                unique_team_members = self.c5t.list_unique_team_members_for_teams(
+                    team_ids=team_ids, blocked=blocked)
             except Cons3rtApiError as exc:
-                msg = 'Problem listing projects in team: {i}'.format(i=str(team_id))
+                msg = 'Problem listing unique users across teams: {i}'.format(i=','.join(map(str, team_ids)))
                 self.err(msg)
                 raise Cons3rtCliError(msg) from exc
-        self.print_formatted_list(item_list=team_members, emails=emails)
+            self.print_formatted_list(item_list=unique_team_members, emails=emails)
+        else:
+            # Collect a list of team members for each team ID
+            team_members = []
+            print('Getting members for team IDs: {i}'.format(i=','.join(map(str, team_ids))))
+            for team_id in team_ids:
+                try:
+                    team_members += self.c5t.list_team_members(team_id=team_id, blocked=blocked, unique=unique)
+                except Cons3rtApiError as exc:
+                    msg = 'Problem listing projects in team: {i}'.format(i=str(team_id))
+                    self.err(msg)
+                    raise Cons3rtCliError(msg) from exc
+            self.print_formatted_list(item_list=team_members, emails=emails)
 
     def list_team_projects(self):
         team_ids = []
