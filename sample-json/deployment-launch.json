@@ -1,0 +1,52 @@
+{
+  "deploymentRunName": "Joe Test DR 001",
+  "endState": "TESTS_EXECUTED_RESOURCES_RELEASED",
+  "virtualizationRealmId": 937,
+  "locked": false,
+  "retainOnError": true,
+  "username": "helpfuljoe",
+  "password": "TMEroot!!",
+  "endExisting": false,
+  "duration": 120,
+  "properties": [
+    {
+      "key": "CUSTOM_PROP",
+      "value": "CUSTOM_PROP_VALUE"
+    }
+  ],
+  "hostOptions": [
+    {
+      "systemRole": "moleman",
+      "cpus": 2,
+      "ram": 4096,
+      "requestedBootDiskCapacityInMegabytes": 100000,
+      "additionalDisks": [
+        {
+          "capacityInMegabytes": 100000,
+          "createOrder": 1
+        }
+      ],
+      "networkInterfaces": [
+        {
+          "networkFunction": "CONS3RT",
+          "networkName": "cons3rt-net"
+        },
+        {
+          "networkFunction": "PRIMARY",
+          "networkName": "user-net"
+        }
+      ]
+    }
+  ],
+  "virtRealmBinding": {
+    "virtualizationRealm": {
+      "id": 937
+    },
+    "templateBindings": [
+      {
+        "systemRole": "moleman",
+        "templateName": "cons3rt-arcusgov-x40-redhat-8-2023-11-07-18-06-22"
+      }
+    ]
+  }
+}
