@@ -6783,11 +6783,14 @@ class Cons3rtApi(object):
                     vr_id=subscriber_vr_id
                 )
             existing_subscription = False
-            for subscriber_vr_existing_sub in subscriber_vr_existing_subs:
-                if subscriber_vr_existing_sub['templateRegistration']['templateUuid'] == reg_details['templateUuid']:
-                    log.info('Template {n} already subscribed in VR ID: {i}'.format(
-                        n=template_name, i=str(subscriber_vr_id)))
-                    existing_subscription = True
+            if subscriber_vr_existing_subs:
+                for subscriber_vr_existing_sub in subscriber_vr_existing_subs:
+                    if 'templateRegistration' not in subscriber_vr_existing_sub.keys():
+                        continue
+                    if subscriber_vr_existing_sub['templateRegistration']['templateUuid'] == reg_details['templateUuid']:
+                        log.info('Template {n} already subscribed in VR ID: {i}'.format(
+                            n=template_name, i=str(subscriber_vr_id)))
+                        existing_subscription = True
             if not existing_subscription:
                 create_subscription_vr_ids.append(subscriber_vr_id)
 
