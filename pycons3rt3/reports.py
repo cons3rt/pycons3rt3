@@ -125,12 +125,22 @@ def generate_cons3rt_data(team_id, cons3rt_api):
                     )
             else:
                 log.warning('installations data not found in run host ID: {i}'.format(i=str(drh_details['id'])))
+
+            # Get the system role name
             system_role_str = ''
             if 'systemRole' in drh_details.keys():
                 system_role_str = drh_details['systemRole']
+
+            # Get the template name
             template_name = ''
             if 'physicalMachineOrTemplateName' in drh_details.keys():
                 template_name = drh_details['physicalMachineOrTemplateName']
+
+            # Get the snapshot date if available, or put N/A
+            snapshot_date_str = 'NA'
+            if 'snapshotDate' in drh_details.keys():
+                snapshot_date_str = drh_details['snapshotDate']
+
             drh_data.append(
                 {
                     'team_id': team_id,
@@ -151,6 +161,9 @@ def generate_cons3rt_data(team_id, cons3rt_api):
                     'cpus': drh_details['numCpus'],
                     'ram_mb': drh_details['ram'],
                     'storage_gb': storage_gb,
+                    'snapshot_available': drh_details['snapshotAvailable'],
+                    'snapshot_date': snapshot_date_str,
+                    'snapshot_storage_gb': storage_gb if drh_details['snapshotAvailable'] else 0,
                     'networks': network_str,
                     'assets': assets_str
                 }
@@ -218,6 +231,9 @@ def generate_cons3rt_header():
            'Cpus,' \
            'RamMb,' \
            'StorageGb,' \
+           'Snapshot,' \
+           'SnapshotDate,' \
+           'SnapshotStorageGb,' \
            'Networks,' \
            'Assets'
 
@@ -245,6 +261,9 @@ def generate_cons3rt_row(cons3rt_vm):
            str(cons3rt_vm['cpus']) + ',' + \
            str(cons3rt_vm['ram_mb']) + ',' + \
            str(cons3rt_vm['storage_gb']) + ',' + \
+           str(cons3rt_vm['snapshot_available']) + ',' + \
+           str(cons3rt_vm['snapshot_date']) + ',' + \
+           str(cons3rt_vm['snapshot_storage_gb']) + ',' + \
            cons3rt_vm['networks'] + ',' + \
            cons3rt_vm['assets']
 
