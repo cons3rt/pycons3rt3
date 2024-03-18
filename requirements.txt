@@ -1,0 +1,11 @@
+boto3
+botocore
+cryptography
+jinja2
+paramiko
+progressbar2
+pyyaml
+requests
+requests[security]
+requests_toolbelt
+scp

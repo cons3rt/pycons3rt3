@@ -146,11 +146,11 @@ function main() {
     cd ${destinationDir}/pycons3rt3/
 
     logInfo "Installing prerequisites..."
-    ${pip3Exe} install -r ./cfg/requirements.txt >> ${logFile} 2>&1
-    if [ $? -ne 0 ]; then logErr "Problem installing pip requirements"; return 6; fi
+    ${pip3Exe} install build >> ${logFile} 2>&1
+    if [ $? -ne 0 ]; then logErr "Installing prerequisites"; return 6; fi
 
     logInfo "Installing pycons3rt3..."
-    ${python3Exe} setup.py install >> ${logFile} 2>&1
+    ${python3Exe} -m build >> ${logFile} 2>&1
     if [ $? -ne 0 ]; then logErr "Problem installing pycons3rt3"; return 7; fi
 
     # Exit successfully

@@ -17,7 +17,7 @@ Python3 integration for CONS3RT
 
 #### Install from pip
 
-If you have Python 3.5+ installed, you can run one of the following:
+If you have Python 3.6+ installed, you can run one of the following:
 
 `pip3 install pycons3rt3`
 `python3 -m pip install pycons3rt3`
@@ -27,8 +27,10 @@ If you have Python 3.5+ installed, you can run one of the following:
 ~~~
 git clone https://github.com/cons3rt/pycons3rt3
 cd pycons3rt3
-pip install -r cfg/requirements.txt
-python setup.py install
+python3 -m venv venv
+source venv/bin/activate
+python3 -m pip install build
+python3 -m build
 ~~~
 
 ## Directories

@@ -1,0 +1,24 @@
+[build-system]
+requires = ["setuptools", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[tool.poetry]
+name = "pycons3rt3"
+version = "0.0.21a0"
+description = "A python3 library for CONS3RT assets and API calls"
+authors = ["Joe Yennaco <joe.yennaco@jackpinetech.com>"]
+
+[tool.poetry.dependencies]
+python = "^3.6"
+
+[tool.poetry.dev-dependencies]
+
+[tool.poetry.scripts]
+asset = "pycons3rt3.asset:main"
+cons3rt = "pycons3rt3.cons3rt:main"
+deployment = "pycons3rt3.deployment:main"
+migrate = "pycons3rt3.hostmigration:main"
+pycons3rt_setup = "pycons3rt3.osutil:main"
+ractl = "pycons3rt3.remoteaccesscontoller:main"
+s3organizer = "pycons3rt3.s3organizer:main"
+slack = "pycons3rt3.slack:main"
