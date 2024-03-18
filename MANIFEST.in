@@ -4,3 +4,4 @@ include AUTHORS.txt
 include CHANGES.txt
 include pycons3rt3/VERSION.txt
 include sample-configs/*
+include cfg/requirements.txt
