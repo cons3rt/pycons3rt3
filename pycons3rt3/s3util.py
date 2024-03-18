@@ -323,8 +323,7 @@ class S3Util(object):
         while count <= max_tries:
             log.info('Attempting to download file %s, try %s of %s', key, count, max_tries)
             try:
-                self.s3client.download_file_by_regex(
-                    Bucket=self.bucket_name, Key=key, Filename=destination)
+                self.s3client.download_file(Bucket=self.bucket_name, Key=key, Filename=destination)
             except (ClientError, RetriesExceededError) as exc:
                 if count >= max_tries:
                     msg = 'Unable to download key [{k}] from S3 bucket [{b}] after {n} attempts'.format(
