@@ -394,6 +394,9 @@ class S3Util(object):
     def find_keys(self, regex, bucket_name=None):
         return find_bucket_keys(bucket_name=bucket_name, regex=regex, bucket_resource=self.bucket_resource)
 
+    def get_latest_object(self, prefix=''):
+        return get_latest_object(client=self.s3client, bucket_name=self.bucket_name, prefix=prefix)
+
     def list_buckets(self):
         return list_buckets(client=self.s3client)
 
@@ -1373,6 +1376,33 @@ def list_objects_metadata(client, bucket_name, prefix=''):
             continuation_token = response['NextContinuationToken']
     log.info('Found {n} objects matching prefix: {p}'.format(n=str(len(object_metadata_list)), p=prefix_str))
     return object_metadata_list
+
+
+def get_latest_object(client, bucket_name, prefix):
+    """Return metadata for the most recent object with thew given prefix
+
+    :param client: boto3.client
+    :param bucket_name: (str) bucket name
+    :param prefix: (str) Prefix to search on
+    :return: (str) Object bucket key for the latest object under the specified prefix or None
+    """
+    log = logging.getLogger(mod_logger + '.get_latest_object')
+    log.info('Attempting to find the latest object in bucket [{b}] with prefix [{p}]'.format(
+        b=bucket_name, p=prefix))
+
+    # List objects in the specified subdirectory
+    prefix_objects = list_objects_metadata(client=client, bucket_name=bucket_name, prefix=prefix)
+
+    # Get the object with the most recent LastModified timestamp
+    latest_object = None
+    latest_timestamp = None
+    for prefix_object in prefix_objects:
+        if latest_timestamp is None or prefix_object['LastModified'] > latest_timestamp:
+            latest_object = prefix_object['Key']
+            latest_timestamp = prefix_object['LastModified']
+    log.info('Found latest object in bucket [{b}] with prefix [{p}]: {k}'.format(
+        b=bucket_name, p=prefix, k=latest_object))
+    return latest_object
 
 
 ############################################################################

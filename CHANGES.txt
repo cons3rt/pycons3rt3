@@ -1,7 +1,7 @@
 0.0.21a
 ======
 
-* TBD
+* Added a method to get the latest S3 object in a bucket given a prefix
 
 0.0.20
 ======
