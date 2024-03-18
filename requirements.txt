@@ -7,6 +7,6 @@ progressbar2
 pyyaml
 requests>=2.31.0
 requests[security]>=2.31.0
-requests_toolbelt
+requests-toolbelt
 s3transfer
 scp
