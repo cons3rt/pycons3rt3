@@ -150,7 +150,7 @@ function main() {
     if [ $? -ne 0 ]; then logErr "Installing prerequisites"; return 6; fi
 
     logInfo "Installing pycons3rt3..."
-    ${python3Exe} -m build >> ${logFile} 2>&1
+    ${python3Exe} -m pip install . >> ${logFile} 2>&1
     if [ $? -ne 0 ]; then logErr "Problem installing pycons3rt3"; return 7; fi
 
     # Exit successfully

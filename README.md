@@ -30,7 +30,7 @@ cd pycons3rt3
 python3 -m venv venv
 source venv/bin/activate
 python3 -m pip install build
-python3 -m build
+python3 -m pip install .
 ~~~
 
 ## Directories

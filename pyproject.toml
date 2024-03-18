@@ -2,18 +2,39 @@
 requires = ["setuptools", "wheel"]
 build-backend = "setuptools.build_meta"
 
-[tool.poetry]
+[project]
 name = "pycons3rt3"
 version = "0.0.21a0"
 description = "A python3 library for CONS3RT assets and API calls"
-authors = ["Joe Yennaco <joe.yennaco@jackpinetech.com>"]
+authors = [
+    {name = "Joe Yennaco", email = "joe.yennaco@jackpinetech.com"},
+    {name = "Todd Fisher", email = "todd.fisher@jackpinetech.com"},
+    {name = "John Paulo", email = "john.paulo@jackpinetech.com"}
+]
+requires-python = ">=3.6"
+license = {file = "LICENSE"}
+readme = "README.md"
+dependencies = [
+    "boto3",
+    "botocore",
+    "cryptography>=42.0.5",
+    "jinja2>=3.1.3",
+    "paramiko>=3.4.0",
+    "progressbar2",
+    "pyyaml",
+    "requests>=2.31.0",
+    "requests[security]>=2.31.0",
+    "requests_toolbelt",
+    "s3transfer",
+    "scp"
+]
+keywords = ["cons3rt", "pycons3rt", "pycons3rt3", "assets", "arcus"]
+classifiers = [
+    "Development Status :: 5 - Production/Stable",
+    "Programming Language :: Python :: 3"
+]
 
-[tool.poetry.dependencies]
-python = "^3.6"
-
-[tool.poetry.dev-dependencies]
-
-[tool.poetry.scripts]
+[project.scripts]
 asset = "pycons3rt3.asset:main"
 cons3rt = "pycons3rt3.cons3rt:main"
 deployment = "pycons3rt3.deployment:main"
@@ -22,3 +43,18 @@ pycons3rt_setup = "pycons3rt3.osutil:main"
 ractl = "pycons3rt3.remoteaccesscontoller:main"
 s3organizer = "pycons3rt3.s3organizer:main"
 slack = "pycons3rt3.slack:main"
+
+[project.urls]
+Homepage = "https://pypi.org/project/pycons3rt3/"
+Documentation = "https://github.com/cons3rt/pycons3rt3/blob/master/README.md"
+Repository = "https://github.com/cons3rt/pycons3rt3.git"
+Issues = "https://github.com/cons3rt/pycons3rt3/issues"
+Changelog = "https://github.com/cons3rt/pycons3rt3/blob/master/CHANGES.txt"
+
+[tool.setuptools]
+include-package-data = true
+
+[tool.setuptools.packages.find]
+where = ["."]
+exclude = []
+namespaces = false
