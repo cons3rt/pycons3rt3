@@ -1070,6 +1070,49 @@ class Cons3rtClient:
         result = self.http_client.parse_response(response=response)
         return result
 
+    def list_deployment_runs(self, search_type='SEARCH_ACTIVE', in_project=False, max_results=40, page_num=0):
+        response = self.http_client.http_get(
+            rest_user=self.user,
+            target='drs?search_type={s}&in_project={i}&maxresults={m}&page={p}'.format(
+                s=search_type, i=str(in_project).lower(), m=str(max_results), p=str(page_num)))
+        try:
+            result = self.http_client.parse_response(response=response)
+        except Cons3rtClientError as exc:
+            raise Cons3rtClientError(str(exc)) from exc
+        drs = json.loads(result)
+        return drs
+
+    def list_all_deployment_runs(self, search_type='SEARCH_ALL', in_project=False):
+        """Lists all the deployment runs with the specified search_type and in_project
+
+        :param search_type: (str) search type
+        :param in_project: (bool) Include project runs
+        :return: (list) of deployment runs
+        :raises: Cons3rtClientError
+        """
+        drs = []
+        page_num = 0
+        max_results = 40
+        while True:
+            try:
+                page_of_drs = self.list_deployment_runs(
+                    max_results=max_results,
+                    page_num=page_num,
+                    search_type=search_type,
+                    in_project=in_project
+                )
+            except Cons3rtClientError as exc:
+                msg = ('Problem listing runs with search_type [{s}] and in_project [{i}] page: {p}, max results: '
+                       '{m}').format(s=search_type, i=str(in_project), p=str(page_num), m=str(max_results))
+                raise Cons3rtClientError(msg) from exc
+            drs += page_of_drs
+            if len(page_of_drs) < max_results:
+                break
+            else:
+                page_num += 1
+            print('Found {n} deployment runs...'.format(n=str(len(drs))))
+        return drs
+
     def list_deployment_runs_for_deployment(self, deployment_id, max_results=40, page_num=0):
         response = self.http_client.http_get(
             rest_user=self.user,

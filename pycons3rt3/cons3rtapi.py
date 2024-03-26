@@ -1476,6 +1476,46 @@ class Cons3rtApi(object):
             raise Cons3rtApiError(msg) from exc
         return deployment_bindings
 
+    def list_deployment_runs(self, search_type='SEARCH_ACTIVE', in_project=False):
+        """Returns a collection of the user's relevant Deployment Runs matching a specified query.
+
+        :param search_type: (str) search type
+        :param in_project: (bool) Include project runs
+        :return: (list) of deployment runs
+        :raises: Cons3rtApiError
+        """
+        log = logging.getLogger(self.cls_logger + '.list_deployment_runs')
+
+        # Ensure search_type and in_project is valid
+        if not isinstance(search_type, str):
+            raise Cons3rtApiError('Arg search_type must be a string, found type: {t}'.format(
+                t=type(search_type)))
+        if not isinstance(in_project, bool):
+            raise Cons3rtApiError('Arg in_project must be a bool, found type: {t}'.format(
+                t=type(in_project)))
+
+        search_type = search_type.upper()
+        if search_type not in valid_search_type:
+            raise Cons3rtApiError('Arg status provided is not valid, must be one of: {s}'.format(
+                s=', '.join(search_type)))
+
+        # Attempt to get a list of deployment runs
+        log.info('Attempting to get a list of deployment runs with search_type [{s}] and in_project [{i}]'.format(
+            s=search_type, i=str(in_project)))
+        try:
+            drs = self.cons3rt_client.list_all_deployment_runs(
+                search_type=search_type,
+                in_project=in_project
+            )
+        except Cons3rtClientError as exc:
+            msg = 'Problem listing runs with search type [{s}] and in_project [{i}]'.format(
+                s=search_type, i=str(in_project))
+            raise Cons3rtClientError(msg) from exc
+        log.info('Found [{n}] runs with search type [{s}] and in_project [{i}]'.format(
+            n=str(len(drs)), s=search_type, i=str(in_project)))
+        return drs
+
+
     def list_deployment_runs_for_deployment(self, deployment_id):
         """Query CONS3RT to return a list of deployment runs for a deployment
 
