@@ -8,6 +8,7 @@ with openssl
 """
 import logging
 import os
+import traceback
 
 from .logify import Logify
 from .bash import run_command
@@ -66,10 +67,11 @@ def openssl_decrypt(encrypted_file, decrypted_file, password_file):
     try:
         result = run_command(command, timeout_sec=10.0)
     except CommandError as exc:
-        raise CommandError('Problem decrypting file {f} with password file: {p}'.format(
-            f=decrypted_file, p=password_file)) from exc
+        raise CommandError('Problem decrypting file [{f}] with password file: {p}\n{t}'.format(
+            f=encrypted_file, p=password_file, t=traceback.format_exc())) from exc
     if result['code'] != 0:
-        raise CommandError('openssl exited with code: {c}'.format(c=str(result['code'])))
+        raise CommandError('openssl exited with code [{c}] and output:\n{o}'.format(
+            c=str(result['code']), o=result['output']))
     log.info('Created decrypted file: {d}'.format(d=decrypted_file))
     return True
 
