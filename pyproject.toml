@@ -49,7 +49,7 @@ Homepage = "https://pypi.org/project/pycons3rt3/"
 Documentation = "https://github.com/cons3rt/pycons3rt3/blob/master/README.md"
 Repository = "https://github.com/cons3rt/pycons3rt3.git"
 Issues = "https://github.com/cons3rt/pycons3rt3/issues"
-Changelog = "https://github.com/cons3rt/pycons3rt3/blob/master/CHANGES.txt"
+Changelog = "https://github.com/cons3rt/pycons3rt3/blob/master/CHANGELOG.md"
 
 [tool.setuptools]
 include-package-data = true
