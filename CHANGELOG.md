@@ -5,6 +5,7 @@
 * Changed the build method from setup.py to pypa - python3 -m build
 * Added method list_deployment_runs for listing runs in the user context
 * Added logging for the openssl decrypt method
+* Moved the /api/users endpoint to /api/admin/users
 
 0.0.20
 ======

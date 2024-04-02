@@ -183,7 +183,7 @@ class Cons3rtClient:
 
         # Create the user
         try:
-            response = self.http_client.http_post(rest_user=self.user, target='users', content_data=json_content)
+            response = self.http_client.http_post(rest_user=self.user, target='admin/users', content_data=json_content)
         except Cons3rtClientError as exc:
             msg = 'Unable to create a user from content: {d}'.format(d=str(user_content))
             raise Cons3rtClientError(msg) from exc
@@ -1777,7 +1777,7 @@ class Cons3rtClient:
         if created_after:
             params += '&createdafter={t}'.format(t=str(created_after))
         params += '&maxresults={m}'.format(m=str(max_results))
-        base_target = 'users?' + params.lstrip('&')
+        base_target = '/admin/users?' + params.lstrip('&')
         while True:
             print('Retrieving users: page {p}'.format(p=str(page_num)))
             target = base_target + '&page={p}'.format(p=str(page_num))
