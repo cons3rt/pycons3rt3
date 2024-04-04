@@ -6,534 +6,363 @@ This module provides simple method of fetching artifacts from a nexus
 repository.
 
 """
+
+import argparse
+import json
 import logging
 import os
-import time
-import argparse
-import xml.etree.ElementTree as elementTree
+import sys
+import traceback
 
-import requests
 from requests.auth import HTTPBasicAuth
+from netrc import netrc, NetrcParseError
 
-from .bash import mkdir_p
-from .exceptions import CommandError
+from .exceptions import Cons3rtClientError
+from .logify import Logify
+from .httpclient import http_download, http_get_with_retries, parse_response
 
 __author__ = 'Joe Yennaco'
 
-# Set up logger name for this module
-try:
-    from .logify import Logify
-except ImportError:
-    Logify = None
-    mod_logger = 'nexus'
-else:
-    mod_logger = Logify.get_name() + '.nexus'
+mod_logger = Logify.get_name() + '.nexus'
 
-# Sample Nexus URL
-sample_nexus_url = 'https://nexus.jackpinetech.com/nexus/service/local/artifact/maven/redirect'
+# Default max retry attempts for the query
+default_max_retry_attempts = 10
 
-sample_nexus_base_url = 'https://nexus.jackpinetech.com'
+# Default retry time in seconds
+default_retry_time_sec = 3
+
+# Default timeout for downloads
+default_download_timeout_sec = 600
 
 
-def query_nexus(query_url, timeout_sec, basic_auth=None):
-    """Queries Nexus for an artifact
+def print_items(item_list):
+    """Prints a list of items to stdout
 
-    :param query_url: (str) Query URL
-    :param timeout_sec: (int) query timeout
-    :param basic_auth (HTTPBasicAuth) object or none
-    :return: requests.Response object
+    :param item_list: (list) of items
+    :return: None
+    """
+    for item in item_list:
+        print(json.dumps(item))
+    print('Returned [{n}] items'.format(n=str(len(item_list))))
+
+
+def search_cli(base_url, repository, group=None, name=None, extension=None, sort_type=None, direction=None,
+               version=None, classifier=None, latest=False, username=None, password=None):
+    """Handles the 'search' CLI command
+
+    :param base_url: (str) Nexus base URL
+    :param repository: (str) name of the repository to search
+    :param group: (str) optional group name
+    :param name: (str) optional artifact name
+    :param extension: (str) optional extension for the file being searched
+    :param sort_type: (str) sort type:
+        version - gets the latest version sorted to the top
+        group
+        name
+        repository
+    :param direction (str) Sort direction (asc or desc)
+    :param version (str) optional artifact version
+    :param classifier: (str) optional classifier to filter search results
+    :param latest (bool) Set true to return the latest version of an artifacts from a search
+    :param username: (str) username
+    :param password: (str) password
+    :return: (list) of items (dict)
     :raises: RuntimeError
     """
-    log = logging.getLogger(mod_logger + '.query_nexus')
-
-    # Attempt to query Nexus
-    retry_sec = 5
-    max_retries = 6
-    try_num = 1
-    query_success = False
-    nexus_response = None
-    while try_num <= max_retries:
-        if query_success:
-            break
-        log.debug('Attempt # {n} of {m} to query the Nexus URL: {u}'.format(n=try_num, u=query_url, m=max_retries))
-        try:
-            nexus_response = requests.get(query_url, auth=basic_auth, stream=True, timeout=timeout_sec)
-        except requests.exceptions.Timeout as exc:
-            msg = 'Nexus initial query timed out after {t} seconds:\n{e}'.format(
-                t=timeout_sec, r=retry_sec, e=str(exc))
-            log.warning(msg)
-            if try_num < max_retries:
-                log.info('Retrying query in {t} sec...'.format(t=retry_sec))
-                time.sleep(retry_sec)
-        except (requests.exceptions.RequestException, requests.exceptions.ConnectionError) as exc:
-            msg = 'Nexus initial query failed with the following exception:\n{e}'.format(r=retry_sec, e=str(exc))
-            log.warning(msg)
-            if try_num < max_retries:
-                log.info('Retrying query in {t} sec...'.format(t=retry_sec))
-                time.sleep(retry_sec)
-        else:
-            query_success = True
-        try_num += 1
-
-    if not query_success:
-        msg = 'Unable to query Nexus after {m} attempts using URL: {u}'.format(
-            u=query_url, m=max_retries)
-        log.error(msg)
-        raise RuntimeError(msg)
-
-    if nexus_response.status_code != 200:
-        msg = 'Nexus request returned code {c}, unable to query Nexus using URL: {u}'.format(
-            u=query_url, c=nexus_response.status_code)
-        log.error(msg)
-        raise RuntimeError(msg)
-    return nexus_response
+    log = logging.getLogger(mod_logger + '.search_cli')
+    if latest:
+        log.info('Searching for the latest artifact...')
+        result = search_latest(
+            base_url=base_url,
+            repository=repository,
+            group=group,
+            name=name,
+            extension=extension,
+            username=username,
+            password=password
+        )
+        print_items([result])
+    else:
+        log.info('Searching for artifacts...')
+        search_results = search_nexus_assets(
+            base_url=base_url,
+            repository=repository,
+            group=group,
+            name=name,
+            extension=extension,
+            sort_type=sort_type,
+            direction=direction,
+            version=version,
+            classifier=classifier,
+            username=username,
+            password=password
+        )
+        print_items(search_results)
 
 
-def get_artifact(suppress_status=False, nexus_url=sample_nexus_url, timeout_sec=600, overwrite=True,
-                 username=None, password=None, **kwargs):
-    """Retrieves an artifact from Nexus
+def search_latest(base_url, repository, group=None, name=None, extension=None, classifier=None, username=None,
+                  password=None):
+    """Return 1 search result containing the latest artifact version meeting the provided query parameters
 
-    :param suppress_status: (bool) Set to True to suppress printing download status
-    :param nexus_url: (str) URL of the Nexus Server
-    :param timeout_sec: (int) Number of seconds to wait before
-        timing out the artifact retrieval.
-    :param overwrite: (bool) True overwrites the file on the local system if it exists,
-        False does will log an INFO message and exist if the file already exists
-    :param username: (str) username for basic auth
-    :param password: (str) password for basic auth
-    :param kwargs:
-        group_id: (str) The artifact's Group ID in Nexus
-        artifact_id: (str) The artifact's Artifact ID in Nexus
-        packaging: (str) The artifact's packaging (e.g. war, zip)
-        version: (str) Version of the artifact to retrieve (e.g.
-            LATEST, 4.8.4, 4.9.0-SNAPSHOT)
-        destination_dir: (str) Full path to the destination directory
-        classifier: (str) The artifact's classifier (e.g. bin)
-    :return: None
-    :raises: TypeError, ValueError, OSError, RuntimeError
+    :param base_url: (str) Nexus base URL
+    :param repository: (str) name of the repository to search
+    :param group: (str) optional group name
+    :param name: (str) optional artifact name
+    :param extension: (str) optional extension for the file being searched
+    :param classifier: (str) optional classifier to filter search results
+    :param username: (str) username
+    :param password: (str) password
+    :return: (dict) latest search result or None
+    :raises: RuntimeError
     """
-    log = logging.getLogger(mod_logger + '.get_artifact')
+    log = logging.getLogger(mod_logger + '.search_latest')
+    msg = 'Searching for the latest artifact in [{u}]'.format(u=base_url)
+    if repository:
+        msg += ', in repository [{r}]'.format(r=repository)
+    if group:
+        msg += ', for group [{g}]'.format(g=group)
+    if name:
+        msg += ', for name [{n}]'.format(n=name)
+    log.info(msg)
+    search_results = search_nexus_assets(
+        base_url=base_url,
+        repository=repository,
+        group=group,
+        name=name,
+        extension=extension,
+        sort_type='version',
+        classifier=classifier,
+        username=username,
+        password=password
+    )
+    if len(search_results) >= 1:
+        log.info('Returning the latest version')
+        return search_results[0]
+    log.info('No search results to return')
 
-    required_args = ['group_id', 'artifact_id', 'packaging', 'version', 'destination_dir']
 
-    if not isinstance(overwrite, bool):
-        msg = 'overwrite arg must be a string, found: {t}'.format(t=overwrite.__class__.__name__)
-        log.error(msg)
-        raise TypeError(msg)
+def search_nexus_assets(base_url, repository, group=None, name=None, extension=None, sort_type=None, direction=None,
+                        version=None, classifier=None, username=None, password=None, continuation_token=None):
+    """Search the Nexus Search API for assets
 
-    if not isinstance(nexus_url, str):
-        msg = 'nexus_url arg must be a string, found: {t}'.format(t=nexus_url.__class__.__name__)
-        log.error(msg)
-        raise TypeError(msg)
+    :param base_url: (str) Nexus base URL
+    :param repository: (str) name of the repository to search
+    :param group: (str) optional group name
+    :param name: (str) optional artifact name
+    :param extension: (str) optional extension for the file being searched
+    :param sort_type: (str) sort type:
+        version - gets the latest version sorted to the top
+        group
+        name
+        repository
+    :param direction (str) Sort direction (asc or desc)
+    :param version (str) optional artifact version
+    :param classifier: (str) optional classifier to filter search results
+    :param username: (str) username
+    :param password: (str) password
+    :param continuation_token: (str) continuation token to retrieve additional results
+    :return: (list) of items (dict)
+    :raises: RuntimeError
+    """
+    log = logging.getLogger(mod_logger + '.search_nexus_assets')
 
-    log.debug('Using Nexus Server URL: {u}'.format(u=nexus_url))
+    # Store the artifact list
+    artifact_list = []
 
-    # Ensure the required args are supplied, and that they are all strings
-    for required_arg in required_args:
-        try:
-            assert required_arg in kwargs
-        except AssertionError as exc:
-            msg = 'A required arg was not supplied. Required args are: group_id, artifact_id, classifier, version, ' \
-                  'packaging and destination_dir\n{e}'
-            log.error(msg)
-            raise ValueError(msg) from exc
-        if not isinstance(kwargs[required_arg], str):
-            msg = 'Arg {a} should be a string'.format(a=required_arg)
-            log.error(msg)
-            raise TypeError(msg)
-
-    # Set variables to be used in the REST call
-    group_id = kwargs['group_id']
-    artifact_id = kwargs['artifact_id']
-    version = kwargs['version']
-    packaging = kwargs['packaging']
-    destination_dir = kwargs['destination_dir']
-
-    # Ensure the destination directory exists
-    if not os.path.isdir(destination_dir):
-        log.debug('Specified destination_dir not found on file system, creating: {d}'.format(d=destination_dir))
-        try:
-            mkdir_p(destination_dir)
-        except CommandError:
-            msg = 'Unable to create destination directory: {d}'.format(d=destination_dir)
-            raise OSError(msg)
-
-    # Set the classifier if it was provided
-    classifier = None
-    if 'classifier' in kwargs:
-        if isinstance(kwargs['classifier'], str):
-            classifier = kwargs['classifier']
-            log.debug('Using classifier: {c}'.format(c=classifier))
-        else:
-            log.warning('Arg classifier provided but it was not an instance of str')
-
-    # Set the repo if it was provided
-    repo = None
-    if 'repo' in kwargs:
-        if isinstance(kwargs['repo'], str):
-            repo = kwargs['repo']
-            log.debug('Using repo: {r}'.format(r=repo))
-
-    # Determine the repo based on the version
-    if repo is None:
-        repo_test = version.lower().strip()
-        log.debug('Checking if the version {v} is a release or snapshot...'.format(v=repo_test))
-        # Determine the repo based on the version
-        if ('snapshot' in repo_test) or (repo_test == 'latest'):
-            repo = 'snapshots'
-        else:
-            repo = 'releases'
-        log.info('Based on the version {v}, determined repo: {r}'.format(v=version, r=repo))
-
-    # Construct the parameter string
-    params = 'g=' + group_id + '&a=' + artifact_id + '&v=' + version + '&r=' + repo + '&p=' + packaging
-
-    # Add the classifier if it was provided
-    if classifier is not None:
-        params = params + '&c=' + classifier
+    # Set the target URL
+    target = base_url + '/service/rest/v1/search/assets?repository={r}'.format(r=repository)
 
     # Determine the auth based on username and password
     basic_auth = None
-    if (username is not None) and (password is not None):
+    if all([username, password]):
         log.info('Using the provided username/password for basic authentication...')
         basic_auth = HTTPBasicAuth(username, password)
+    else:
+        log.info('Not using authentication to Nexus')
 
-    # Build the query URL
-    query_url = nexus_url + '?' + params
+    # Determine the headers
+    headers = {
+        'accept': 'application/json'
+    }
 
-    # Set up for download attempts
-    retry_sec = 5
-    max_retries = 6
-    try_num = 1
-    download_success = False
-    dl_err = None
-    failed_attempt = False
+    # Check for a various search params and add to the query string
+    if group:
+        target += '&group=' + group
+    if name:
+        target += '&name=' + name
+    if extension:
+        target += '&maven.extension=' + extension
+    if classifier:
+        target += '&maven.classifier=' + classifier
+    if sort_type:
+        target += '&sort=' + sort_type
+        if direction:
+            target += '&direction=' + direction  # only relevant with sort_type
+    if version:
+        target += '&version=' + version
+    if continuation_token:
+        target += '&continuationToken=' + continuation_token
 
-    # Start the retry loop
-    while try_num <= max_retries:
+    # Make the http GET request
+    log.info('Query target: ' + target)
+    try:
+        response = http_get_with_retries(url=target, headers=headers, basic_auth=basic_auth)
+    except Cons3rtClientError as exc:
+        msg = 'Error encountered querying URL [{u}]\n{e}'.format(u=target, e=str(exc))
+        raise RuntimeError(msg) from exc
 
-        # Break the loop if the download was successful
-        if download_success:
-            break
+    # Parse the response
+    content = parse_response(response=response)
+    search_result = json.loads(content)
 
-        log.info('Attempting to query Nexus for the Artifact using URL:  {u}'.format(u=query_url))
+    # Add results to the list
+    item_count = 0
+    if 'items' in search_result.keys():
+        if isinstance(search_result['items'], list):
+            for item in search_result['items']:
+                if isinstance(item, dict):
+                    artifact_list.append(item)
+                    item_count += 1
+    log.info('Added [{n}] items to the search results'.format(n=str(item_count)))
+
+    # Determine if there was a continuation token
+    continuation_token = None
+    if 'continuationToken' in search_result.keys():
+        if search_result['continuationToken']:
+            continuation_token = search_result['continuationToken']
+    if continuation_token:
+        log.info('Searching for more artifacts with continuation token: {t}'.format(t=continuation_token))
         try:
-            nexus_response = query_nexus(query_url=query_url, timeout_sec=timeout_sec, basic_auth=basic_auth)
+            artifact_list += search_nexus_assets(
+                base_url=base_url,
+                repository=repository,
+                group=group,
+                name=name,
+                extension=extension,
+                sort_type=sort_type,
+                direction=direction,
+                version=version,
+                classifier=classifier,
+                username=username,
+                password=password,
+                continuation_token=continuation_token)
         except RuntimeError as exc:
-            msg = 'There was a problem querying Nexus URL: {u}'.format(
-                u=query_url)
-            log.error(msg)
+            msg = 'Error searching for artifacts with continuation token [{t}]\n{e}'.format(
+                t=continuation_token, e=str(exc))
             raise RuntimeError(msg) from exc
-
-        # Attempt to get the content-length
-        file_size = 0
-        try:
-            file_size = int(nexus_response.headers['Content-Length'])
-        except(KeyError, ValueError):
-            log.debug('Could not get Content-Length, suppressing download status...')
-            suppress_status = True
-        else:
-            log.info('Artifact file size: {s}'.format(s=file_size))
-
-        # Determine the full download file path
-        file_name = nexus_response.url.split('/')[-1]
-        download_file = os.path.join(destination_dir, file_name)
-
-        # Attempt to download the content from the response
-        log.info('Attempting to download content of size {s} from Nexus to file: {d}'.format(
-            s=file_size, d=download_file))
-
-        # Remove the existing file if it exists, or exit if the file exists, overwrite is set,
-        # and there was not a previous failed attempted download
-        if os.path.isfile(download_file) and overwrite:
-            log.debug('File already exists, removing: {d}'.format(d=download_file))
-            os.remove(download_file)
-        elif os.path.isfile(download_file) and not overwrite and not failed_attempt:
-            log.info('File already downloaded, and overwrite is set to False.  The Artifact will '
-                     'not be retrieved from Nexus: {f}.  To overwrite the existing downloaded file, '
-                     'set overwrite=True'.format(f=download_file))
-            return
-
-        # Attempt to download content
-        log.debug('Attempt # {n} of {m} to download content from the Nexus response'.format(n=try_num, m=max_retries))
-        chunk_size = 1024
-        file_size_dl = 0
-        try:
-            with open(download_file, 'wb') as f:
-                for chunk in nexus_response.iter_content(chunk_size=chunk_size):
-                    if chunk:
-                        f.write(chunk)
-                        file_size_dl += len(chunk)
-                        status = r"%10d  [%3.2f%%]" % (file_size_dl, file_size_dl * 100. / file_size)
-                        status += chr(8)*(len(status)+1)
-                        if not suppress_status:
-                            print(status),
-        except(requests.exceptions.ConnectionError, requests.exceptions.RequestException, OSError) as exc:
-            dl_err = 'There was an error reading content from the Nexus response. Downloaded ' \
-                     'size: {s}.\n{e}'.format(s=file_size_dl, t=retry_sec, e=str(exc))
-            failed_attempt = True
-            log.warning(dl_err)
-            if try_num < max_retries:
-                log.info('Retrying download in {t} sec...'.format(t=retry_sec))
-                time.sleep(retry_sec)
-        else:
-            log.info('File download of size {s} completed without error: {f}'.format(s=file_size_dl, f=download_file))
-            failed_attempt = False
-            download_success = True
-        try_num += 1
-
-    # Raise an exception if the download did not complete successfully
-    if not download_success:
-        msg = 'Unable to download file content from Nexus after {n} attempts'.format(n=max_retries)
-        if dl_err:
-            msg += '\n{m}'.format(m=dl_err)
-        log.error(msg)
-        raise RuntimeError(msg)
+    return artifact_list
 
 
-def get_artifact_nexus3(suppress_status=False, nexus_base_url=sample_nexus_base_url, repository=None,
-                        timeout_sec=600, overwrite=True, username=None, password=None, **kwargs):
+def get_artifact_nexus(base_url, repository, group_id, artifact_id, packaging, destination_dir, version=None,
+                       classifier=None, suppress_status=False, timeout_sec=default_download_timeout_sec,
+                       retry_sec=default_retry_time_sec, max_retries=default_max_retry_attempts, overwrite=True,
+                       username=None, password=None):
     """Retrieves an artifact from the Nexus 3 ReST API
 
     :param suppress_status: (bool) Set to True to suppress printing download status
-    :param nexus_base_url: (str) Base URL of the Nexus Server (domain name portion only, see sample)
-    :param repository: (str) Repository to query (e.g. snapshots) if not provided, will attempt to determine
-    :param timeout_sec: (int) Number of seconds to wait before
-        timing out the artifact retrieval.
+    :param base_url: (str) Base URL of the Nexus Server (domain name portion only, see sample)
+    :param repository: (str) Repository to query (e.g. snapshots, releases)
+    :param group_id: (str) The artifact's Group ID in Nexus
+    :param artifact_id: (str) The artifact's Artifact ID in Nexus
+    :param packaging: (str) The artifact's packaging (e.g. war, zip)
+    :param destination_dir: (str) Full path to the destination directory
+    :param version: (str) optional version of the artifact, when not set, retrieve the latest
+    :param classifier: (str) optional classifier to filter search results
+    :param timeout_sec: (int) Number of seconds to wait before timing out the artifact retrieval
+    :param retry_sec: (int) Number of seconds in between retry attempts
+    :param max_retries: (int) Maximum number of retries
     :param overwrite: (bool) True overwrites the file on the local system if it exists,
-        False does will log an INFO message and exist if the file already exists
     :param username: (str) username for basic auth
     :param password: (str) password for basic auth
-    :param kwargs:
-        group_id: (str) The artifact's Group ID in Nexus
-        artifact_id: (str) The artifact's Artifact ID in Nexus
-        packaging: (str) The artifact's packaging (e.g. war, zip)
-        version: (str) Version of the artifact to retrieve (e.g.
-            LATEST, 4.8.4, 4.9.0-SNAPSHOT)
-        destination_dir: (str) Full path to the destination directory
-        classifier: (str) The artifact's classifier (e.g. bin)
-    :return: None
+    :return: (str) Downloaded artifact path
     :raises: TypeError, ValueError, OSError, RuntimeError
     """
-    log = logging.getLogger(mod_logger + '.get_artifact_nexus3')
+    log = logging.getLogger(mod_logger + '.get_artifact_nexus')
+    log.info('Using Nexus Server URL: {u}'.format(u=base_url))
 
-    required_args = ['group_id', 'artifact_id', 'packaging', 'version', 'destination_dir']
-
-    if not isinstance(overwrite, bool):
-        msg = 'overwrite arg must be a string, found: {t}'.format(t=overwrite.__class__.__name__)
-        log.error(msg)
-        raise TypeError(msg)
-
-    if not isinstance(nexus_base_url, str):
-        msg = 'nexus_url arg must be a string, found: {t}'.format(t=nexus_base_url.__class__.__name__)
-        log.error(msg)
-        raise TypeError(msg)
-
-    log.debug('Using Nexus Server URL: {u}'.format(u=nexus_base_url))
-
-    # Ensure the required args are supplied, and that they are all strings
-    for required_arg in required_args:
-        try:
-            assert required_arg in kwargs
-        except AssertionError as exc:
-            msg = 'A required arg was not supplied. Required args are: group_id, artifact_id, classifier, version, ' \
-                  'packaging and destination_dir'
-            log.error(msg)
-            raise ValueError(msg) from exc
-        if not isinstance(kwargs[required_arg], str):
-            msg = 'Arg {a} should be a string'.format(a=required_arg)
-            log.error(msg)
-            raise TypeError(msg)
-
-    # Set variables to be used in the REST call
-    group_id = kwargs['group_id']
-    artifact_id = kwargs['artifact_id']
-    version = kwargs['version']
-    packaging = kwargs['packaging']
-    destination_dir = kwargs['destination_dir']
+    if not destination_dir:
+        raise RuntimeError('Destination directory is required to download an artifact')
 
     # Ensure the destination directory exists
     if not os.path.isdir(destination_dir):
-        log.debug('Specified destination_dir not found on file system, creating: {d}'.format(d=destination_dir))
+        log.info('Specified destination_dir not found on file system, creating: {d}'.format(d=destination_dir))
         try:
-            mkdir_p(destination_dir)
-        except CommandError:
-            msg = 'Unable to create destination directory: {d}'.format(d=destination_dir)
-            raise OSError(msg)
+            os.makedirs(name=destination_dir, exist_ok=True)
+        except (OSError, IOError) as exc:
+            raise OSError('[{n}] creating destination directory: {d}\n{e}'.format(
+                n=type(exc).__name__, d=destination_dir, e=str(exc)))
 
     # Determine the auth based on username and password
     basic_auth = None
-    if (username is not None) and (password is not None):
+    if all([username, password]):
         log.info('Using the provided username/password for basic authentication...')
         basic_auth = HTTPBasicAuth(username, password)
+    else:
+        log.info('Not using authentication to Nexus')
 
-    # Set the classifier if it was provided
-    classifier = None
-    if 'classifier' in kwargs:
-        if isinstance(kwargs['classifier'], str):
-            classifier = kwargs['classifier']
-            log.debug('Using classifier: {c}'.format(c=classifier))
-        else:
-            log.warning('Arg classifier provided but it was not an instance of str')
-
-    # Determine the repository (snapshots or releases)
-    if not repository:
-        if 'SNAPSHOT' in version:
-            repository = 'snapshots'
-        else:
-            repository = 'releases'
-    log.debug('Using repository: {r}'.format(r=repository))
-
-    # Compute the query URL
-    group_id_url = group_id.replace('.', '/')
-
-    # Get the Maven metadata
-    query_url_version = nexus_base_url + '/repository/{r}/{g}/{a}/{v}'.format(
-        r=repository, g=group_id_url, a=artifact_id, v=version
-    )
-
-    if 'snapshot' in repository.lower():
-        # Query nexus for metadata to determine the proper file name
-        query_url_metadata = query_url_version + '/maven-metadata.xml'
-
-        log.info('Attempting to query Nexus for the snapshot metadata using URL:  {u}'.format(u=query_url_metadata))
-        try:
-            nexus_response = query_nexus(query_url=query_url_metadata, timeout_sec=timeout_sec, basic_auth=basic_auth)
-        except RuntimeError as exc:
-            msg = 'There was a problem querying Nexus URL: {u}'.format(u=query_url_metadata)
-            log.error(msg)
-            raise RuntimeError(msg) from exc
-
-        if nexus_response.status_code != 200:
-            raise RuntimeError('Bad response from Nexus metadata URL [{c}]: {u}'.format(
-                c=nexus_response.status_code, u=query_url_metadata))
-
-        # Parse the XML output
-        root = elementTree.fromstring(nexus_response.text)
-        log.info('Attempting to find the value of the file name...')
-        try:
-            value = root.find('versioning').find('snapshotVersions').find('snapshotVersion').find('value')
-        except AttributeError as exc:
-            msg = 'AttributeError: Unable to find versioning/snapshotVersions/snapshotVersion/value'
-            raise ValueError(msg) from exc
-
-        # Ensure a value was found
-        if value is None:
-            raise ValueError('Unable to determine the value of the snapshot version')
-
-        # Get the text version
-        text_version = value.text
-        log.info('Found version value: {t}'.format(t=text_version))
-
-        # Determine the artifact file name
-        artifact_file_name = '{a}-{t}'.format(
-            a=artifact_id,
-            t=text_version
+    if version:
+        log.info('Searching for artifacts...')
+        search_results = search_nexus_assets(
+            base_url=base_url,
+            repository=repository,
+            group=group_id,
+            name=artifact_id,
+            extension=packaging,
+            version=version,
+            classifier=classifier,
+            username=username,
+            password=password
         )
     else:
-        # Construct the file name for releases (e.g. cons3rt-backend-install-18.14.0-package-otto.zip)
-        artifact_file_name = '{a}-{v}'.format(
-            a=artifact_id,
-            v=version
+        log.info('Searching for the latest artifact...')
+        search_results = search_latest(
+            base_url=base_url,
+            repository=repository,
+            group=group_id,
+            name=artifact_id,
+            extension=packaging,
+            classifier=classifier,
+            username=username,
+            password=password
         )
 
-    # Add classifier if provided and packaging
-    if classifier:
-        artifact_file_name += '-{c}'.format(c=classifier)
-    artifact_file_name += '.{p}'.format(p=packaging)
-    log.info('Using artifact file name: {n}'.format(n=artifact_file_name))
+    # Ensure only 1 result was found in the search
+    if isinstance(search_results, list):
+        if len(search_results) != 1:
+            raise RuntimeError('Expected 1 search result, found [{n}]'.format(n=str(len(search_results))))
+        artifact_data = search_results[0]
+    elif isinstance(search_results, dict):
+        artifact_data = search_results
+    else:
+        raise RuntimeError('Expected a list or dict returned from search, found: [{t}]'.format(
+            t=type(search_results).__name__))
 
-    # Determine the full query URL
-    query_url = query_url_version + '/{n}'.format(n=artifact_file_name)
-    log.info('Using Nexus query URL: {u}'.format(u=query_url))
+    # Get the download URL
+    if 'downloadUrl' not in artifact_data.keys():
+        raise RuntimeError('downloadUrl not found in data: {d}'.format(d=str(artifact_data)))
+    download_url = artifact_data['downloadUrl']
+    artifact_file_name = download_url.split('/')[-1]
+    download_file = os.path.join(destination_dir, artifact_file_name)
 
-    # Set up for download attempts
-    retry_sec = 5
-    max_retries = 6
-    try_num = 1
-    download_success = False
-    dl_err = None
-    failed_attempt = False
+    # If the file exists, either remove it or return
+    if os.path.isfile(download_file) and overwrite:
+        log.info('File already exists, removing: {d}'.format(d=download_file))
+        os.remove(download_file)
+    elif os.path.isfile(download_file):
+        log.info('File already exists [{d}], and overwrite was not requested, not downloading'.format(d=download_file))
+        return download_file
 
-    # Start the retry loop
-    while try_num <= max_retries:
-
-        # Break the loop if the download was successful
-        if download_success:
-            break
-
-        log.info('Attempting to query Nexus for the Artifact using URL:  {u}'.format(u=query_url))
-        try:
-            nexus_response = query_nexus(query_url=query_url, timeout_sec=timeout_sec, basic_auth=basic_auth)
-        except RuntimeError as exc:
-            msg = 'There was a problem querying Nexus URL: {u}'.format(u=query_url)
-            log.error(msg)
-            raise RuntimeError(msg) from exc
-
-        # Attempt to get the content-length
-        file_size = 0
-        try:
-            file_size = int(nexus_response.headers['Content-Length'])
-        except(KeyError, ValueError):
-            log.debug('Could not get Content-Length, suppressing download status...')
-            suppress_status = True
-        else:
-            log.info('Artifact file size: {s}'.format(s=file_size))
-
-        # Determine the full download file path
-        file_name = nexus_response.url.split('/')[-1]
-        download_file = os.path.join(destination_dir, file_name)
-
-        # Attempt to download the content from the response
-        log.info('Attempting to download content of size {s} from Nexus to file: {d}'.format(
-            s=file_size, d=download_file))
-
-        # Remove the existing file if it exists, or exit if the file exists, overwrite is set,
-        # and there was not a previous failed attempted download
-        if os.path.isfile(download_file) and overwrite:
-            log.debug('File already exists, removing: {d}'.format(d=download_file))
-            os.remove(download_file)
-        elif os.path.isfile(download_file) and not overwrite and not failed_attempt:
-            log.info('File already downloaded, and overwrite is set to False.  The Artifact will '
-                     'not be retrieved from Nexus: {f}.  To overwrite the existing downloaded file, '
-                     'set overwrite=True'.format(f=download_file))
-            return
-
-        # Attempt to download content
-        log.debug('Attempt # {n} of {m} to download content from the Nexus response'.format(n=try_num, m=max_retries))
-        chunk_size = 1024
-        file_size_dl = 0
-        try:
-            with open(download_file, 'wb') as f:
-                for chunk in nexus_response.iter_content(chunk_size=chunk_size):
-                    if chunk:
-                        f.write(chunk)
-                        file_size_dl += len(chunk)
-                        status = r"%10d  [%3.2f%%]" % (file_size_dl, file_size_dl * 100. / file_size)
-                        status += chr(8)*(len(status)+1)
-                        if not suppress_status:
-                            print(status),
-        except(requests.exceptions.ConnectionError, requests.exceptions.RequestException, OSError) as exc:
-            dl_err = 'There was an error reading content from the Nexus response. Downloaded ' \
-                     'size: {s}.\n{e}'.format(s=file_size_dl, t=retry_sec, e=str(exc))
-            failed_attempt = True
-            log.warning(dl_err)
-            if try_num < max_retries:
-                log.info('Retrying download in {t} sec...'.format(t=retry_sec))
-                time.sleep(retry_sec)
-        else:
-            log.info('File download of size {s} completed without error: {f}'.format(s=file_size_dl, f=download_file))
-            failed_attempt = False
-            download_success = True
-        try_num += 1
-
-    # Raise an exception if the download did not complete successfully
-    if not download_success:
-        msg = 'Unable to download file content from Nexus after {n} attempts'.format(n=max_retries)
-        if dl_err:
-            msg += '\n{m}'.format(m=dl_err)
-        log.error(msg)
-        raise RuntimeError(msg)
+    # Attempt to download the artifact
+    log.info('Downloading artifact from URL [{u}] to destination: [{d}]'.format(u=download_url, d=download_file))
+    try:
+        http_download(url=download_url, download_file=download_file, basic_auth=basic_auth,
+                      suppress_status=suppress_status, max_retry_attempts=max_retries, retry_time_sec=retry_sec,
+                      timeout_sec=timeout_sec)
+    except Cons3rtClientError as exc:
+        msg = 'Problem downloading artifact from URL [{u}] to [{d}]\n{e}'.format(
+            u=download_url, d=download_file, e=str(exc))
+        raise RuntimeError(msg) from exc
+    return download_file
 
 
 def main():
@@ -542,37 +371,133 @@ def main():
     :return: None
     """
     log = logging.getLogger(mod_logger + '.main')
-    parser = argparse.ArgumentParser(description='This Python module retrieves artifacts from Nexus.')
-    parser.add_argument('-u', '--url', help='Nexus Server URL', required=False)
-    parser.add_argument('-g', '--groupId', help='Group ID', required=True)
-    parser.add_argument('-a', '--artifactId', help='Artifact ID', required=True)
-    parser.add_argument('-v', '--version', help='Artifact Version', required=True)
+    parser = argparse.ArgumentParser(description='Search for and retrieve artifacts from Nexus')
+    parser.add_argument('command', help='Command for the nexus CLI')
+    parser.add_argument('-a', '--artifactId', help='Artifact ID', required=False)
     parser.add_argument('-c', '--classifier', help='Artifact Classifier', required=False)
-    parser.add_argument('-p', '--packaging', help='Artifact Packaging', required=True)
+    parser.add_argument('-d', '--destination', help='Download directory', required=False)
+    parser.add_argument('-x', '--direction', help='Search direction', required=False)
+    parser.add_argument('-f', '--netrc', help='Use the .netrc file for credentials', required=False,
+                        action='store_true')
+    parser.add_argument('-g', '--groupId', help='Group ID', required=False)
+    parser.add_argument('-l', '--latest', help='Set to return only the latest', required=False,
+                        action='store_true')
+    parser.add_argument('-n', '--username', help='Directory to download to', required=False)
+    parser.add_argument('-o', '--overwrite', help='Overwrite if the file exists', required=False,
+                        action='store_true')
+    parser.add_argument('-p', '--packaging', help='Artifact Packaging', required=False)
     parser.add_argument('-r', '--repo', help='Nexus repository name', required=False)
-    parser.add_argument('-d', '--destinationDir', help='Directory to download to', required=True)
-    parser.add_argument('-n', '--username', help='Directory to download to', required=True)
-    parser.add_argument('-w', '--password', help='Directory to download to', required=True)
+    parser.add_argument('-s', '--suppress', help='Suppress download status', required=False,
+                        action='store_true')
+    parser.add_argument('-t', '--sort', help='Sort type (version, group, name, repository',
+                        required=False)
+    parser.add_argument('-u', '--url', help='Nexus Server URL', required=False)
+    parser.add_argument('-v', '--version', help='Artifact Version', required=False)
+    parser.add_argument('-w', '--password', help='Directory to download to', required=False)
     args = parser.parse_args()
-    try:
-        get_artifact(
-            nexus_url=args.url,
-            group_id=args.groupId,
-            artifact_id=args.artifactId,
-            version=args.version,
-            classifier=args.classifier,
-            packaging=args.packaging,
-            repo=args.repo,
-            destination_dir=args.destinationDir,
-            username=args.username,
-            password=args.password
-        )
-    except Exception as e:
-        msg = 'Caught exception {n}, unable for download artifact from Nexus\n{s}'.format(
-            n=e.__class__.__name__, s=e)
-        log.error(msg)
-        return
+
+    # Valid commands
+    valid_commands = ['get', 'search']
+    valid_commands_str = 'Valid commands: {c}'.format(c=', '.join(map(str, valid_commands)))
+
+    # Get the command
+    command = args.command.strip()
+    if command not in valid_commands:
+        print('Invalid command found [{c}]\n'.format(c=command) + valid_commands_str)
+
+    # Determine whether to suppress status
+    suppress_status = False
+    if args.suppress:
+        suppress_status = True
+
+    # Determine whether to overwrite the local downloaded file if it exists
+    overwrite = False
+    if args.overwrite:
+        overwrite = True
+
+    # Determine whether to retrieve the latest artifact
+    latest = False
+    if args.latest:
+        latest = True
+
+    # Determine the destination dir -- default is the downloads directory
+    destination_dir = os.path.join(os.path.expanduser('~'), 'Downloads')
+    if args.destination:
+        destination_dir = args.destination
+
+    # Default username/password
+    username = None
+    password = None
+
+    # Check for the --netrc arg to see if we should read credentials from that file
+    if args.netrc:
+        log.info('Using the ~/.netrc file for authentication...')
+        base_url = args.url.lstrip('https://')
+        try:
+            secrets = netrc().authenticators(base_url)
+        except NetrcParseError as exc:
+            log.error('Problem reading the ~/.netrc file\n{e}\n{t}'.format(e=str(exc), t=traceback.format_exc()))
+            return 1
+        if len(secrets) >= 3:
+            username = secrets[0]
+            password = secrets[2]
+        else:
+            log.error('Read the ~/.netrc file but the list returned was missing data')
+            return 2
+    elif all([args.username, args.password]):
+        log.info('Using the provided username/password for authentication...')
+        username = args.username
+        password = args.password
+    else:
+        log.info('Not providing credentials for authentication...')
+
+    if args.command == 'get':
+        # Attempt to download the artifact
+        try:
+            get_artifact_nexus(
+                base_url=args.url,
+                repository=args.repo,
+                group_id=args.groupId,
+                artifact_id=args.artifactId,
+                packaging=args.packaging,
+                destination_dir=destination_dir,
+                version=args.version,
+                suppress_status=suppress_status,
+                overwrite=overwrite,
+                username=username,
+                password=password
+            )
+        except (TypeError, ValueError, OSError, RuntimeError) as exc:
+            log.error('[{n}] caught unable for download artifact from Nexus:\n{e}\n{t}'.format(
+                n=type(exc).__name__, e=str(exc), t=traceback.format_exc()))
+            return 3
+    elif args.command == 'search':
+        # Search for the artifacts
+        try:
+            search_cli(
+                base_url=args.url,
+                repository=args.repo,
+                group=args.groupId,
+                name=args.artifactId,
+                extension=args.packaging,
+                sort_type=args.sort,
+                direction=args.direction,
+                version=args.version,
+                latest=latest,
+                username=username,
+                password=password
+            )
+        except RuntimeError as exc:
+            log.error('[{n}] caught searching Nexus:\n{e}\n{t}'.format(
+                n=type(exc).__name__, e=str(exc), t=traceback.format_exc()))
+            return 4
+    else:
+        print('Command is not supported: {c}'.format(c=args.command))
+
+    log.debug('Completed running the nexus CLI')
+    return 0
 
 
 if __name__ == '__main__':
-    main()
+    res = main()
+    sys.exit(res)

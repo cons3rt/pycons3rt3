@@ -728,7 +728,6 @@ output = text
 '''
 
 
-
 def get_boto3_client(service, region_name=None, aws_access_key_id=None, aws_secret_access_key=None,
                      aws_session_token=None):
     """Gets an EC2 client

@@ -4,6 +4,7 @@ import logging
 import os
 import sys
 import time
+import traceback
 
 from requests_toolbelt import MultipartEncoder
 
@@ -99,26 +100,12 @@ class Client:
         # Determine the headers
         headers = self.get_auth_headers(rest_user=rest_user)
 
-        attempt_num = 1
-        err_msg_tally = ''
-        while True:
-            if attempt_num >= self.max_retry_attempts:
-                msg = 'Max attempts exceeded: {n}\n{e}'.format(n=str(self.max_retry_attempts), e=err_msg_tally)
-                raise Cons3rtClientError(msg)
-            err_msg = ''
-            try:
-                response = requests.get(url, headers=headers, cert=rest_user.cert_file_path,
-                                        verify=rest_user.cert_bundle)
-            except RequestException as exc:
-                err_msg += 'RequestException on GET attempt #{n}\n{e}'.format(n=str(attempt_num), e=str(exc))
-            except SSLError as exc:
-                err_msg += 'SSLError on GET attempt #{n}\n{e}'.format(n=str(attempt_num), e=str(exc))
-            else:
-                return response
-            err_msg_tally += err_msg + '\n'
-            log.warning('Problem encountered, retrying in {n} sec: {e}'.format(n=str(self.retry_time_sec), e=err_msg))
-            attempt_num += 1
-            time.sleep(self.retry_time_sec)
+        try:
+            response = http_get_with_retries(url=url, headers=headers, client_cert_path=rest_user.cert_file_path,
+                                             cert_bundle_path=rest_user.cert_bundle)
+        except Cons3rtClientError:
+            raise
+        return response
 
     def http_get_download(self, rest_user, target):
         """Runs an HTTP GET request to the CONS3RT ReST API
@@ -138,32 +125,12 @@ class Client:
         headers = self.get_auth_headers(rest_user=rest_user)
         headers['Accept'] = 'application/octet-stream'
 
-        attempt_num = 1
-        err_msg_tally = ''
-        while True:
-            if attempt_num >= self.max_retry_attempts:
-                msg = 'Max attempts exceeded: {n}\n{e}'.format(n=str(self.max_retry_attempts), e=err_msg_tally)
-                raise Cons3rtClientError(msg)
-            err_msg = ''
-            try:
-                response = requests.get(url, headers=headers, cert=rest_user.cert_file_path,
-                                        verify=rest_user.cert_bundle)
-            except SSLError as exc:
-                err_msg += 'SSlError on GET to URL: {u}\n{e}'.format(u=url, e=str(exc))
-            except requests.ConnectionError as exc:
-                err_msg += 'ConnectionError on GET to URL: {u}\n{e}'.format(u=url, e=str(exc))
-            except requests.Timeout as exc:
-                err_msg += 'There was a timeout on GET to URL: {u}\n{e}'.format(u=url, e=str(exc))
-            except RequestException as exc:
-                err_msg += 'RequestException on GET to URL: {u}\n{e}'.format(u=url, e=str(exc))
-            except Exception as exc:
-                err_msg += 'Generic exception on GET to URL: {u}\n{e}'.format(u=url, e=str(exc))
-            else:
-                return response
-            err_msg_tally += err_msg + '\n'
-            log.warning('Problem encountered, retrying in {n} sec: {e}'.format(n=str(self.retry_time_sec), e=err_msg))
-            attempt_num += 1
-            time.sleep(self.retry_time_sec)
+        try:
+            response = http_get_with_retries(url=url, headers=headers, client_cert_path=rest_user.cert_file_path,
+                                             cert_bundle_path=rest_user.cert_bundle)
+        except Cons3rtClientError:
+            raise
+        return response
 
     def http_delete(self, rest_user, target, content=None, keep_alive=False):
         """Runs an HTTP DELETE request to the CONS3RT ReST API
@@ -174,7 +141,7 @@ class Client:
         :param keep_alive: (bool) set True to send a keep alive with the request
         :return: http response
         """
-        log = logging.getLogger(self.cls_logger + '.http_get_download')
+        log = logging.getLogger(self.cls_logger + '.http_delete')
         self.validate_target(target)
         url = self.base + target
         log.debug('Querying http DELETE with URL: {u}'.format(u=url))
@@ -228,19 +195,9 @@ class Client:
 
         headers = self.get_auth_headers(rest_user=rest_user)
         headers['Content-Type'] = '{t}'.format(t=content_type)
-        content = None
-
-        # Read data from the file if provided
-        if content_file:
-            try:
-                with open(content_file, 'r') as f:
-                    content = f.read()
-            except (OSError, IOError) as exc:
-                msg = 'Unable to read contents of file: {f}'.format(f=content_file)
-                raise Cons3rtClientError(msg) from exc
-        # Otherwise use data provided as content
-        elif content_data:
-            content = content_data
+        content_result, content = get_content(content_file=content_file, content_data=content_data)
+        if not content_result:
+            raise Cons3rtClientError('Problem determining the content to send')
 
         # Add content type if content was provided
         if content:
@@ -293,19 +250,9 @@ class Client:
         url = self.base + target
         log.debug('Querying http PUT with URL: {u}'.format(u=url))
         headers = self.get_auth_headers(rest_user=rest_user)
-        content = None
-
-        # Read data from the file if provided
-        if content_file:
-            try:
-                with open(content_file, 'r') as f:
-                    content = f.read()
-            except (OSError, IOError) as exc:
-                msg = 'Unable to read contents of file: {f}'.format(f=content_file)
-                raise Cons3rtClientError(msg) from exc
-        # Otherwise use data provided as content
-        elif content_data:
-            content = content_data
+        content_result, content = get_content(content_file=content_file, content_data=content_data)
+        if not content_result:
+            raise Cons3rtClientError('Problem determining the content to send')
 
         # Add content type if content was provided
         if content:
@@ -377,7 +324,6 @@ class Client:
 
         # Open the content_file to create the multipart encoder
         start_time = time.time()
-        response = None
         with open(content_file, 'rb') as f:
 
             # Create the MultipartEncoder (thanks requests_toolbelt!)
@@ -444,7 +390,8 @@ class Client:
                     return response
 
                 err_msg_tally += err_msg + '\n'
-                log.warning('Problem encountered, retrying in {n} sec: {e}'.format(n=str(self.retry_time_sec), e=err_msg))
+                log.warning('Problem encountered, retrying in {n} sec: {e}'.format(
+                    n=str(self.retry_time_sec), e=err_msg))
                 attempt_num += 1
                 time.sleep(self.retry_time_sec)
 
@@ -480,35 +427,11 @@ class Client:
             content_file=content_file
         )
 
+    # This only exists for backwards compatibility
     def parse_response(self, response):
         log = logging.getLogger(self.cls_logger + '.parse_response')
-
-        # Determine is there is content and if it needs to be decoded
-        if response.content:
-            log.debug('Parsing response with content: {s}'.format(s=response.content))
-            if isinstance(response.content, bytes):
-                log.debug('Decoding bytes: {b}'.format(b=response.content))
-                decoded_content = response.content.decode('utf-8')
-            else:
-                decoded_content = response.content
-        else:
-            decoded_content = None
-
-        # Raise an exception if a bad HTTP code was received
-        if response.status_code not in [requests.codes.ok, 202]:
-            msg = 'Received HTTP code [{n}] with headers:\n{h}'.format(
-                n=str(response.status_code), h=response.headers)
-            if decoded_content:
-                msg += '\nand content:\n{c}'.format(c=decoded_content)
-            raise Cons3rtClientError(msg)
-
-        # Return the decoded content
-        if response.status_code == requests.codes.ok:
-            log.debug('Received an OK HTTP Response Code')
-        elif response.status_code == 202:
-            log.debug('Received an ACCEPTED HTTP Response Code (202)')
-        log.debug('Parsed decoded content: {c}'.format(c=decoded_content))
-        return decoded_content
+        log.debug('Parsing response...')
+        return parse_response(response=response)
 
     def http_download(self, rest_user, target, download_file, overwrite=True, suppress_status=True):
         """Runs an HTTP GET request to the CONS3RT ReST API
@@ -546,14 +469,12 @@ class Client:
                 raise Cons3rtClientError(msg) from exc
     
             # Attempt to get the content-length
-            file_size = 0
-            try:
+            if 'Content-Length' in response.headers.keys():
                 file_size = int(response.headers['Content-Length'])
-            except(KeyError, ValueError):
-                log.debug('Could not get Content-Length, suppressing download status...')
-                suppress_status = True
             else:
-                log.info('Download file size: {s}'.format(s=file_size))
+                log.debug('Could not get Content-Length, suppressing download status...')
+                file_size = 0
+            log.info('Download file size: [{s}] bytes'.format(s=file_size))
 
             # Attempt to download the content from the response
             log.info('Attempting to download content of size {s} to file: {d}'.format(s=file_size, d=download_file))
@@ -572,29 +493,14 @@ class Client:
             # Attempt to download content
             log.info('Attempt # {n} of {m} to download content to: {d}'.format(
                 n=try_num, m=max_retries, d=download_file))
-            chunk_size = 1024
-            file_size_dl = 0
-            try:
-                with open(download_file, 'wb') as f:
-                    for chunk in response.iter_content(chunk_size=chunk_size):
-                        if chunk:
-                            f.write(chunk)
-                            file_size_dl += len(chunk)
-                            status = r"%10d  [%3.2f%%]" % (file_size_dl, file_size_dl * 100. / file_size)
-                            status += chr(8)*(len(status)+1)
-                            if not suppress_status:
-                                print(status),
-            except(requests.exceptions.ConnectionError, requests.exceptions.RequestException, OSError) as exc:
-                dl_err = 'There was an error reading content from the response. Downloaded ' \
-                         'size: {s}.\n{e}'.format(s=file_size_dl, t=retry_sec, e=str(exc))
+
+            if not write_file_download(download_file=download_file, http_response=response, file_size=file_size,
+                                       chunk_size=1024, suppress_status=suppress_status):
                 failed_attempt = True
-                log.warning(dl_err)
                 if try_num < max_retries:
                     log.info('Retrying download in {t} sec...'.format(t=retry_sec))
                     time.sleep(retry_sec)
             else:
-                log.info('File download of size {s} completed without error: {f}'.format(
-                    s=file_size_dl, f=download_file))
                 failed_attempt = False
                 download_success = True
             try_num += 1
@@ -606,3 +512,193 @@ class Client:
                 msg += '\n{m}'.format(m=dl_err)
             raise Cons3rtClientError(msg)
         return download_file
+
+
+def get_content(content_file=None, content_data=None):
+    """Returns the content of a file, provided data, or None
+
+    :param content_file: (str) path to the file containing content
+    :param content_data: (str) actual content data
+    :return: (tuple) Success (bool) and content data (str) or None
+    """
+    log = logging.getLogger(mod_logger + '.get_content')
+    content = None
+    # Read data from the file if provided
+    if content_file:
+        log.debug('Getting content from file: {f}'.format(f=content_file))
+        try:
+            with open(content_file, 'r') as f:
+                content = f.read()
+        except (OSError, IOError) as exc:
+            log.warning('[{n}] reading contents of file: {f}\n{e}\n{t}'.format(
+                n=type(exc).__name__, f=content_file, e=str(exc), t=traceback.format_exc()))
+            return False, None
+    # Otherwise use data provided as content
+    elif content_data:
+        log.debug('Getting content from provided content data')
+        content = content_data
+    return True, content
+
+
+def http_download(url, download_file, headers=None, basic_auth=None, client_cert_path=None, cert_bundle_path=None,
+                  max_retry_attempts=10, retry_time_sec=3, timeout_sec=3600, suppress_status=False):
+    """Download the file and stream content to the download file location
+
+    :param url: (str) URL to query
+    :param download_file: (str) Path to the download file
+    :param headers: (dict) headers
+    :param basic_auth: (HTTPBasicAuth) Basic authentication object
+    :param client_cert_path: (str) path to the client certificate
+    :param cert_bundle_path: (str) path to the certificate root CA bundle
+    :param max_retry_attempts: (int) maximum number of attempts
+    :param retry_time_sec: (int) seconds between attempts
+    :param timeout_sec: (int) timeout on the http download
+    :param suppress_status: (bool) Set true to suppress status output
+    :return: (str) file download location
+    :raises: Cons3rtClientError
+    """
+    log = logging.getLogger(mod_logger + '.http_download')
+    attempt_num = 1
+    err_msg_tally = ''
+    while True:
+        if attempt_num >= max_retry_attempts:
+            msg = 'Max attempts exceeded: {n}\n{e}'.format(n=str(max_retry_attempts), e=err_msg_tally)
+            raise Cons3rtClientError(msg)
+        err_msg = ''
+        try:
+            with requests.get(url, headers=headers, cert=client_cert_path, verify=cert_bundle_path, auth=basic_auth,
+                              stream=True, timeout=timeout_sec) as response:
+                # Attempt to get the content-length
+                if 'Content-Length' in response.headers.keys():
+                    file_size = int(response.headers['Content-Length'])
+                else:
+                    log.debug('Could not get Content-Length, suppressing download status...')
+                    file_size = 0
+                write_file_download(http_response=response, download_file=download_file, file_size=file_size,
+                                    chunk_size=1024, suppress_status=suppress_status)
+        except SSLError as exc:
+            err_msg += 'SSlError on GET to URL: {u}\n{e}'.format(u=url, e=str(exc))
+        except requests.ConnectionError as exc:
+            err_msg += 'ConnectionError on GET to URL: {u}\n{e}'.format(u=url, e=str(exc))
+        except requests.Timeout as exc:
+            err_msg += 'Timeout on GET to URL: {u}\n{e}'.format(u=url, e=str(exc))
+        except RequestException as exc:
+            err_msg += 'RequestException on GET to URL: {u}\n{e}'.format(u=url, e=str(exc))
+        except Exception as exc:
+            err_msg += '[{n}] encountered on GET to URL: {u}\n{e}'.format(n=type(exc).__name__, u=url, e=str(exc))
+        else:
+            return response
+        err_msg_tally += err_msg + '\n'
+        log.warning('Problem encountered, retrying in {n} sec: {e}'.format(n=str(retry_time_sec), e=err_msg))
+        attempt_num += 1
+        time.sleep(retry_time_sec)
+        return download_file
+
+
+def http_get_with_retries(url, headers=None, basic_auth=None, client_cert_path=None, cert_bundle_path=None,
+                          max_retry_attempts=10, retry_time_sec=3):
+    """Run http get request with retries
+
+    :param url: (str) URL to query
+    :param headers: (dict) headers
+    :param basic_auth: (HTTPBasicAuth) Basic authentication object
+    :param client_cert_path: (str) path to the client certificate
+    :param cert_bundle_path: (str) path to the certificate root CA bundle
+    :param max_retry_attempts: (int) maximum number of attempts
+    :param retry_time_sec: (int) seconds between attempts
+    :return: requests.Response object
+    :raises: Cons3rtClientError
+    """
+    log = logging.getLogger(mod_logger + '.http_get_with_retries')
+    attempt_num = 1
+    err_msg_tally = ''
+    while True:
+        if attempt_num >= max_retry_attempts:
+            msg = 'Max attempts exceeded: {n}\n{e}'.format(n=str(max_retry_attempts), e=err_msg_tally)
+            raise Cons3rtClientError(msg)
+        err_msg = ''
+        try:
+            response = requests.get(
+                url,
+                headers=headers,
+                cert=client_cert_path,
+                verify=cert_bundle_path,
+                auth=basic_auth
+            )
+        except SSLError as exc:
+            err_msg += 'SSlError on GET to URL: {u}\n{e}'.format(u=url, e=str(exc))
+        except requests.ConnectionError as exc:
+            err_msg += 'ConnectionError on GET to URL: {u}\n{e}'.format(u=url, e=str(exc))
+        except requests.Timeout as exc:
+            err_msg += 'Timeout on GET to URL: {u}\n{e}'.format(u=url, e=str(exc))
+        except RequestException as exc:
+            err_msg += 'RequestException on GET to URL: {u}\n{e}'.format(u=url, e=str(exc))
+        except Exception as exc:
+            err_msg += '[{n}] encountered on GET to URL: {u}\n{e}'.format(n=type(exc).__name__, u=url, e=str(exc))
+        else:
+            return response
+        err_msg_tally += err_msg + '\n'
+        log.warning('Problem encountered, retrying in {n} sec: {e}'.format(n=str(retry_time_sec), e=err_msg))
+        attempt_num += 1
+        time.sleep(retry_time_sec)
+
+
+def parse_response(response):
+    log = logging.getLogger(mod_logger + '.parse_response')
+
+    # Determine is there is content and if it needs to be decoded
+    if response.content:
+        log.debug('Parsing response with content: {s}'.format(s=response.content))
+        if isinstance(response.content, bytes):
+            log.debug('Decoding bytes: {b}'.format(b=response.content))
+            decoded_content = response.content.decode('utf-8')
+        else:
+            decoded_content = response.content
+    else:
+        decoded_content = None
+
+    # Raise an exception if a bad HTTP code was received
+    if response.status_code not in [requests.codes.ok, 202]:
+        msg = 'Received HTTP code [{n}] with headers:\n{h}'.format(n=str(response.status_code), h=response.headers)
+        if decoded_content:
+            msg += '\nand content:\n{c}'.format(c=decoded_content)
+        raise Cons3rtClientError(msg)
+
+    # Return the decoded content
+    if response.status_code == requests.codes.ok:
+        log.debug('Received an OK HTTP Response Code')
+    elif response.status_code == 202:
+        log.debug('Received an ACCEPTED HTTP Response Code (202)')
+    log.debug('Parsed decoded content: {c}'.format(c=decoded_content))
+    return decoded_content
+
+
+def write_file_download(download_file, http_response, file_size, chunk_size=1024, suppress_status=False):
+    """Writes the downloaded file to disk using the response content
+
+    :param download_file: (str) path to write the file download to
+    :param http_response: (requests.models.Response) object
+    :param file_size: (int) size of the file to download in bytes
+    :param chunk_size (int) number of bytes to request in each chunk
+    :param suppress_status: (bool) Set true to suppress printing status
+    :return: (bool) True if successful, False otherwise
+    :raises: None
+    """
+    log = logging.getLogger(mod_logger + '.write_file_download')
+    file_size_dl = 0
+    try:
+        with open(download_file, 'wb') as f:
+            for chunk in http_response.iter_content(chunk_size=chunk_size):
+                if chunk:
+                    f.write(chunk)
+                    file_size_dl += len(chunk)
+                    if not suppress_status and file_size > 0:
+                        status = r"%10d  [%3.2f%%]" % (file_size_dl, file_size_dl * 100. / file_size)
+                        status += chr(8)*(len(status)+1)
+                        print(status),
+    except (requests.exceptions.ConnectionError, requests.exceptions.RequestException, OSError) as exc:
+        log.warning('[{n}] error reading content from the response after [{s}] bytes downloaded\n{e}\n{t}'.format(
+            n=type(exc).__name__, s=file_size_dl, e=str(exc), t=traceback.format_exc()))
+        return False
+    log.info('File download of [{s}] bytes completed without error: {f}'.format(s=file_size_dl, f=download_file))
+    return True

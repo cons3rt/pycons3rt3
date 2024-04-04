@@ -4,7 +4,7 @@ import json
 import logging
 import os.path
 
-from .httpclient import Client
+from .httpclient import Client, parse_response
 from .exceptions import Cons3rtClientError
 
 
@@ -69,7 +69,7 @@ class Cons3rtClient:
 
         # Get the Cloud ID from the response
         try:
-            cloud_id = self.http_client.parse_response(response=response)
+            cloud_id = parse_response(response=response)
         except Cons3rtClientError as exc:
             raise Cons3rtClientError(str(exc)) from exc
         return cloud_id
@@ -100,7 +100,7 @@ class Cons3rtClient:
 
         # Get the response
         try:
-            result = self.http_client.parse_response(response=response)
+            result = parse_response(response=response)
         except Cons3rtClientError as exc:
             raise Cons3rtClientError(str(exc)) from exc
         return result
@@ -114,7 +114,7 @@ class Cons3rtClient:
         target = 'clouds/{i}'.format(i=str(cloud_id))
         response = self.http_client.http_delete(rest_user=self.user, target=target)
         try:
-            result = self.http_client.parse_response(response=response)
+            result = parse_response(response=response)
         except Cons3rtClientError as exc:
             raise Cons3rtClientError(str(exc)) from exc
         return result
@@ -136,7 +136,7 @@ class Cons3rtClient:
 
         # Get the Cloud ID from the response
         try:
-            cloud_id = self.http_client.parse_response(response=response)
+            cloud_id = parse_response(response=response)
         except Cons3rtClientError as exc:
             raise Cons3rtClientError(str(exc)) from exc
         return cloud_id
@@ -158,7 +158,7 @@ class Cons3rtClient:
 
         # Get the Team ID from the response
         try:
-            team_id = self.http_client.parse_response(response=response)
+            team_id = parse_response(response=response)
         except Cons3rtClientError as exc:
             raise Cons3rtClientError(str(exc)) from exc
         return team_id
@@ -190,7 +190,7 @@ class Cons3rtClient:
 
         # Get the Team ID from the response
         try:
-            self.http_client.parse_response(response=response)
+            parse_response(response=response)
         except Cons3rtClientError as exc:
             raise Cons3rtClientError(str(exc)) from exc
 
@@ -215,7 +215,7 @@ class Cons3rtClient:
 
         # Check the response
         try:
-            self.http_client.parse_response(response=response)
+            parse_response(response=response)
         except Cons3rtClientError as exc:
             raise Cons3rtClientError(str(exc)) from exc
 
@@ -240,7 +240,7 @@ class Cons3rtClient:
 
         # Check the response
         try:
-            result = self.http_client.parse_response(response=response)
+            result = parse_response(response=response)
         except Cons3rtClientError as exc:
             raise Cons3rtClientError(str(exc)) from exc
         return result
@@ -266,7 +266,7 @@ class Cons3rtClient:
 
         # Check the response
         try:
-            result = self.http_client.parse_response(response=response)
+            result = parse_response(response=response)
         except Cons3rtClientError as exc:
             raise Cons3rtClientError(str(exc)) from exc
         return result
@@ -297,7 +297,7 @@ class Cons3rtClient:
 
         # Get the Scenario ID from the response
         try:
-            system_id = self.http_client.parse_response(response=response)
+            system_id = parse_response(response=response)
         except Cons3rtClientError as exc:
             raise Cons3rtClientError(str(exc)) from exc
         return system_id
@@ -329,7 +329,7 @@ class Cons3rtClient:
 
         # Get the Scenario ID from the response
         try:
-            scenario_id = self.http_client.parse_response(response=response)
+            scenario_id = parse_response(response=response)
         except Cons3rtClientError as exc:
             raise Cons3rtClientError(str(exc)) from exc
         return scenario_id
@@ -361,7 +361,7 @@ class Cons3rtClient:
 
         # Get the deployment ID from the response
         try:
-            deployment_id = self.http_client.parse_response(response=response)
+            deployment_id = parse_response(response=response)
         except Cons3rtClientError as exc:
             raise Cons3rtClientError(str(exc)) from exc
         return deployment_id
@@ -369,7 +369,7 @@ class Cons3rtClient:
     def add_cloud_admin(self, cloud_id, username):
         response = self.http_client.http_put(
             rest_user=self.user, target='clouds/' + str(cloud_id) + '/admins?username=' + username)
-        result = self.http_client.parse_response(response=response)
+        result = parse_response(response=response)
         return result
 
     def register_virtualization_realm(self, cloud_id, virtualization_realm_file):
@@ -391,7 +391,7 @@ class Cons3rtClient:
                 c=cloud_id, f=virtualization_realm_file)
             raise Cons3rtClientError(msg) from exc
         try:
-            vr_id = self.http_client.parse_response(response=response)
+            vr_id = parse_response(response=response)
         except Cons3rtClientError as exc:
             raise Cons3rtClientError(str(exc)) from exc
         return vr_id
@@ -415,7 +415,7 @@ class Cons3rtClient:
                 c=cloud_id, f=allocate_virtualization_realm_file)
             raise Cons3rtClientError(msg) from exc
         try:
-            vr_id = self.http_client.parse_response(response=response)
+            vr_id = parse_response(response=response)
         except Cons3rtClientError as exc:
             raise Cons3rtClientError(str(exc)) from exc
         return vr_id
@@ -424,7 +424,7 @@ class Cons3rtClient:
         result = None
 
         response = self.http_client.http_get(rest_user=self.user, target='clouds')
-        content = self.http_client.parse_response(response=response)
+        content = parse_response(response=response)
         clouds = json.loads(content)
         for cloud in clouds:
             if cloud['name'] == cloud_name:
@@ -443,7 +443,7 @@ class Cons3rtClient:
             rest_user=self.user,
             target='projects?maxresults={m}&page={p}'.format(m=str(max_results), p=str(page_num))
         )
-        content = self.http_client.parse_response(response=response)
+        content = parse_response(response=response)
         teams = json.loads(content)
         return teams
 
@@ -475,7 +475,7 @@ class Cons3rtClient:
         if username:
             target += '&name={n}'.format(n=username)
         response = self.http_client.http_get(rest_user=self.user, target=target)
-        content = self.http_client.parse_response(response=response)
+        content = parse_response(response=response)
         members = json.loads(content)
         return members
 
@@ -538,7 +538,7 @@ class Cons3rtClient:
             rest_user=self.user,
             target='projects/expanded?maxresults={m}&page={p}'.format(m=str(max_results), p=str(page_num))
         )
-        content = self.http_client.parse_response(response=response)
+        content = parse_response(response=response)
         projects = json.loads(content)
         return projects
 
@@ -549,7 +549,7 @@ class Cons3rtClient:
         :return: (dict) containing project details
         """
         response = self.http_client.http_get(rest_user=self.user, target='projects/{i}'.format(i=str(project_id)))
-        content = self.http_client.parse_response(response=response)
+        content = parse_response(response=response)
         project_details = json.loads(content)
         return project_details
 
@@ -561,7 +561,7 @@ class Cons3rtClient:
         """
         response = self.http_client.http_get(rest_user=self.user, target='virtualizationrealms/{i}'.format(
             i=str(vr_id)))
-        content = self.http_client.parse_response(response=response)
+        content = parse_response(response=response)
         vr_details = json.loads(content)
         return vr_details
 
@@ -576,7 +576,7 @@ class Cons3rtClient:
             rest_user=self.user,
             target='clouds?maxresults={m}&page={p}'.format(m=str(max_results), p=str(page_num))
         )
-        content = self.http_client.parse_response(response=response)
+        content = parse_response(response=response)
         clouds = json.loads(content)
         return clouds
 
@@ -588,7 +588,7 @@ class Cons3rtClient:
         """
         target = 'clouds/{i}'.format(i=str(cloud_id))
         response = self.http_client.http_get(rest_user=self.user, target=target)
-        content = self.http_client.parse_response(response=response)
+        content = parse_response(response=response)
         cloud_details = json.loads(content)
         return cloud_details
 
@@ -601,9 +601,9 @@ class Cons3rtClient:
         """
         response = self.http_client.http_get(
             rest_user=self.user,
-            target='teams?maxresults={m}&page={p}'.format(m=str(max_results), p=str(page_num))
+            target='admin/teams?maxresults={m}&page={p}'.format(m=str(max_results), p=str(page_num))
         )
-        content = self.http_client.parse_response(response=response)
+        content = parse_response(response=response)
         teams = json.loads(content)
         return teams
 
@@ -614,9 +614,20 @@ class Cons3rtClient:
         :return: (dict) containing team details
         """
         response = self.http_client.http_get(rest_user=self.user, target='teams/{i}'.format(i=str(team_id)))
-        content = self.http_client.parse_response(response=response)
+        content = parse_response(response=response)
         team_details = json.loads(content)
         return team_details
+
+    def list_services_for_team(self, team_id):
+        """Lists the services for a team
+
+        :param team_id: (int) team ID
+        :return: (dict)
+        """
+        response = self.http_client.http_get(rest_user=self.user, target='teams/{i}/services'.format(i=str(team_id)))
+        content = parse_response(response=response)
+        team_services = json.loads(content)
+        return team_services
 
     def get_system_details(self, system_id):
         """Queries CONS3RT for details of a system ID
@@ -625,7 +636,7 @@ class Cons3rtClient:
         :return: (dict) containing system details
         """
         response = self.http_client.http_get(rest_user=self.user, target='systems/{i}'.format(i=str(system_id)))
-        content = self.http_client.parse_response(response=response)
+        content = parse_response(response=response)
         system_details = json.loads(content)
         return system_details
 
@@ -642,7 +653,7 @@ class Cons3rtClient:
                 m=str(max_results),
                 p=str(page_num)
             ))
-        content = self.http_client.parse_response(response=response)
+        content = parse_response(response=response)
         systems = json.loads(content)
         return systems
 
@@ -687,7 +698,7 @@ class Cons3rtClient:
                 m=str(max_results),
                 p=str(page_num)
             ))
-        content = self.http_client.parse_response(response=response)
+        content = parse_response(response=response)
         scenarios = json.loads(content)
         return scenarios
 
@@ -726,7 +737,7 @@ class Cons3rtClient:
         :return: (dict) containing scenario details
         """
         response = self.http_client.http_get(rest_user=self.user, target='scenarios/{i}'.format(i=str(scenario_id)))
-        content = self.http_client.parse_response(response=response)
+        content = parse_response(response=response)
         scenario_details = json.loads(content)
         return scenario_details
 
@@ -736,7 +747,7 @@ class Cons3rtClient:
         :return: (list) Containing Deployment info
         """
         response = self.http_client.http_get(rest_user=self.user, target='deployments?maxresults=0')
-        content = self.http_client.parse_response(response=response)
+        content = parse_response(response=response)
         deployments = json.loads(content)
         return deployments
 
@@ -747,7 +758,7 @@ class Cons3rtClient:
         :return: (dict) containing deployment details
         """
         response = self.http_client.http_get(rest_user=self.user, target='deployments/{i}'.format(i=str(deployment_id)))
-        content = self.http_client.parse_response(response=response)
+        content = parse_response(response=response)
         deployment_details = json.loads(content)
         return deployment_details
 
@@ -762,7 +773,7 @@ class Cons3rtClient:
             rest_user=self.user,
             target='deployments/{i}/bindings?virtualizationRealmId={v}'.format(
                 i=str(deployment_id), v=str(vr_id)))
-        content = self.http_client.parse_response(response=response)
+        content = parse_response(response=response)
         deployment_bindings = json.loads(content)
         return deployment_bindings
 
@@ -773,7 +784,7 @@ class Cons3rtClient:
         :return: (dict) Containing Deployment Run Info
         """
         response = self.http_client.http_get(rest_user=self.user, target='drs/{i}'.format(i=str(dr_id)))
-        content = self.http_client.parse_response(response=response)
+        content = parse_response(response=response)
         dr_details = json.loads(content)
         return dr_details
 
@@ -786,7 +797,7 @@ class Cons3rtClient:
         """
         response = self.http_client.http_get(rest_user=self.user, target='drs/{d}/host/{h}'.format(
             d=str(dr_id), h=str(drh_id)))
-        content = self.http_client.parse_response(response=response)
+        content = parse_response(response=response)
         drh_details = json.loads(content)
         return drh_details
 
@@ -796,7 +807,7 @@ class Cons3rtClient:
         response = self.http_client.http_get(
             rest_user=self.user,
             target='clouds/' + str(cloud_id) + '/virtualizationrealms')
-        content = self.http_client.parse_response(response=response)
+        content = parse_response(response=response)
         vrs = json.loads(content)
         for vr in vrs:
             if vr['name'] == vr_name:
@@ -937,7 +948,7 @@ class Cons3rtClient:
                 m=str(max_results),
                 p=str(page_num)
             ))
-        content = self.http_client.parse_response(response=response)
+        content = parse_response(response=response)
         vrs = json.loads(content)
         return vrs
 
@@ -956,7 +967,7 @@ class Cons3rtClient:
                 m=str(max_results),
                 p=str(page_num)
             ))
-        content = self.http_client.parse_response(response=response)
+        content = parse_response(response=response)
         vrs = json.loads(content)
         return vrs
 
@@ -975,7 +986,7 @@ class Cons3rtClient:
                 m=str(max_results),
                 p=str(page_num)
             ))
-        content = self.http_client.parse_response(response=response)
+        content = parse_response(response=response)
         vrs = json.loads(content)
         return vrs
 
@@ -994,7 +1005,7 @@ class Cons3rtClient:
                 m=str(max_results),
                 p=str(page_num)
             ))
-        content = self.http_client.parse_response(response=response)
+        content = parse_response(response=response)
         vrs = json.loads(content)
         return vrs
 
@@ -1002,14 +1013,14 @@ class Cons3rtClient:
         response = self.http_client.http_put(
             rest_user=self.user,
             target='virtualizationrealms/' + str(vr_id) + '/admins?username=' + username)
-        result = self.http_client.parse_response(response=response)
+        result = parse_response(response=response)
         return result
 
     def add_project_to_virtualization_realm(self, vr_id, project_id):
         response = self.http_client.http_put(
             rest_user=self.user,
             target='virtualizationrealms/' + str(vr_id) + '/projects?projectId=' + str(project_id))
-        result = self.http_client.parse_response(response=response)
+        result = parse_response(response=response)
         return result
 
     def set_virtualization_realm_state(self, vr_id, state):
@@ -1019,7 +1030,7 @@ class Cons3rtClient:
             state_str = 'false'
         target = 'virtualizationrealms/{i}/activate?activate={s}'.format(i=str(vr_id), s=state_str)
         response = self.http_client.http_put(rest_user=self.user, target=target)
-        result = self.http_client.parse_response(response=response)
+        result = parse_response(response=response)
         return result
 
     def list_projects_in_virtualization_realm(self, vr_id, max_results=40, page_num=0):
@@ -1030,7 +1041,7 @@ class Cons3rtClient:
                 m=str(max_results),
                 p=str(page_num)
             ))
-        result = self.http_client.parse_response(response=response)
+        result = parse_response(response=response)
         projects = json.loads(result)
         return projects
 
@@ -1067,7 +1078,7 @@ class Cons3rtClient:
         response = self.http_client.http_delete(
             rest_user=self.user,
             target='virtualizationrealms/' + str(vr_id) + '/projects?projectId=' + str(project_id))
-        result = self.http_client.parse_response(response=response)
+        result = parse_response(response=response)
         return result
 
     def list_deployment_runs(self, search_type='SEARCH_ACTIVE', in_project=False, max_results=40, page_num=0):
@@ -1076,7 +1087,7 @@ class Cons3rtClient:
             target='drs?search_type={s}&in_project={i}&maxresults={m}&page={p}'.format(
                 s=search_type, i=str(in_project).lower(), m=str(max_results), p=str(page_num)))
         try:
-            result = self.http_client.parse_response(response=response)
+            result = parse_response(response=response)
         except Cons3rtClientError as exc:
             raise Cons3rtClientError(str(exc)) from exc
         drs = json.loads(result)
@@ -1119,7 +1130,7 @@ class Cons3rtClient:
             target='deployments/{i}/runs?maxresults={m}&page={p}'.format(
                 i=str(deployment_id), m=str(max_results), p=str(page_num)))
         try:
-            result = self.http_client.parse_response(response=response)
+            result = parse_response(response=response)
         except Cons3rtClientError as exc:
             raise Cons3rtClientError(str(exc)) from exc
         drs = json.loads(result)
@@ -1163,7 +1174,7 @@ class Cons3rtClient:
                 i=str(vr_id), s=search_type, m=str(max_results), p=str(page_num))
         )
         try:
-            result = self.http_client.parse_response(response=response)
+            result = parse_response(response=response)
         except Cons3rtClientError as exc:
             raise Cons3rtClientError(str(exc)) from exc
         drs = json.loads(result)
@@ -1206,7 +1217,7 @@ class Cons3rtClient:
             target='virtualizationrealms/{i}/networks'.format(i=str(vr_id))
         )
         try:
-            result = self.http_client.parse_response(response=response)
+            result = parse_response(response=response)
         except Cons3rtClientError as exc:
             raise Cons3rtClientError(str(exc)) from exc
         networks = json.loads(result)
@@ -1233,7 +1244,7 @@ class Cons3rtClient:
             i=str(vr_id), r=reg_str, s=sub_str)
         response = self.http_client.http_get(rest_user=self.user, target=target)
         try:
-            result = self.http_client.parse_response(response=response)
+            result = parse_response(response=response)
         except Cons3rtClientError as exc:
             raise Cons3rtClientError(str(exc)) from exc
         templates = json.loads(result)
@@ -1249,7 +1260,7 @@ class Cons3rtClient:
         target = 'virtualizationrealms/{i}/templates/registrations'.format(i=str(vr_id))
         response = self.http_client.http_get(rest_user=self.user, target=target)
         try:
-            result = self.http_client.parse_response(response=response)
+            result = parse_response(response=response)
         except Cons3rtClientError as exc:
             raise Cons3rtClientError(str(exc)) from exc
         templates = json.loads(result)
@@ -1265,7 +1276,7 @@ class Cons3rtClient:
         target = 'virtualizationrealms/{i}/templates/subscriptions'.format(i=str(vr_id))
         response = self.http_client.http_get(rest_user=self.user, target=target)
         try:
-            result = self.http_client.parse_response(response=response)
+            result = parse_response(response=response)
         except Cons3rtClientError as exc:
             raise Cons3rtClientError(str(exc)) from exc
         templates = json.loads(result)
@@ -1281,7 +1292,7 @@ class Cons3rtClient:
         target = 'virtualizationrealms/{i}/templates/subscriptions/pending'.format(i=str(vr_id))
         response = self.http_client.http_get(rest_user=self.user, target=target)
         try:
-            result = self.http_client.parse_response(response=response)
+            result = parse_response(response=response)
         except Cons3rtClientError as exc:
             raise Cons3rtClientError(str(exc)) from exc
         templates = json.loads(result)
@@ -1299,7 +1310,7 @@ class Cons3rtClient:
             i=str(vr_id), r=str(template_registration_id))
         response = self.http_client.http_get(rest_user=self.user, target=target)
         try:
-            result = self.http_client.parse_response(response=response)
+            result = parse_response(response=response)
         except Cons3rtClientError as exc:
             raise Cons3rtClientError(str(exc)) from exc
         template_registration_data = json.loads(result)
@@ -1317,7 +1328,7 @@ class Cons3rtClient:
             i=str(vr_id), r=str(template_subscription_id))
         response = self.http_client.http_get(rest_user=self.user, target=target)
         try:
-            result = self.http_client.parse_response(response=response)
+            result = parse_response(response=response)
         except Cons3rtClientError as exc:
             raise Cons3rtClientError(str(exc)) from exc
         template_subscription_data = json.loads(result)
@@ -1333,7 +1344,7 @@ class Cons3rtClient:
         target = 'virtualizationrealms/{i}/templates/registrations'.format(i=str(vr_id))
         response = self.http_client.http_put(rest_user=self.user, target=target)
         try:
-            result = self.http_client.parse_response(response=response)
+            result = parse_response(response=response)
         except Cons3rtClientError as exc:
             raise Cons3rtClientError(str(exc)) from exc
         is_success = json.loads(result)
@@ -1349,7 +1360,7 @@ class Cons3rtClient:
         target = 'virtualizationrealms/{i}/templates/registrations/pending'.format(i=str(vr_id))
         response = self.http_client.http_get(rest_user=self.user, target=target)
         try:
-            result = self.http_client.parse_response(response=response)
+            result = parse_response(response=response)
         except Cons3rtClientError as exc:
             raise Cons3rtClientError(str(exc)) from exc
         unregistered_templates = json.loads(result)
@@ -1378,7 +1389,7 @@ class Cons3rtClient:
 
         response = self.http_client.http_post(rest_user=self.user, target=target, content_data=json_content)
         try:
-            result = self.http_client.parse_response(response=response)
+            result = parse_response(response=response)
         except Cons3rtClientError as exc:
             raise Cons3rtClientError(str(exc)) from exc
         template_registration_data = json.loads(result)
@@ -1410,7 +1421,7 @@ class Cons3rtClient:
             i=str(vr_id), r=str(template_registration_id), o=offline_str)
         response = self.http_client.http_put(rest_user=self.user, target=target, content_data=json_content)
         try:
-            result = self.http_client.parse_response(response=response)
+            result = parse_response(response=response)
         except Cons3rtClientError as exc:
             raise Cons3rtClientError(str(exc)) from exc
         is_success = json.loads(result)
@@ -1428,7 +1439,7 @@ class Cons3rtClient:
             i=str(vr_id), r=str(template_registration_id))
         response = self.http_client.http_post(rest_user=self.user, target=target)
         try:
-            result = self.http_client.parse_response(response=response)
+            result = parse_response(response=response)
         except Cons3rtClientError as exc:
             raise Cons3rtClientError(str(exc)) from exc
         is_success = json.loads(result)
@@ -1457,7 +1468,7 @@ class Cons3rtClient:
             i=str(vr_id), r=str(template_subscription_id), o=offline_str)
         response = self.http_client.http_put(rest_user=self.user, target=target, content_data=json_content)
         try:
-            result = self.http_client.parse_response(response=response)
+            result = parse_response(response=response)
         except Cons3rtClientError as exc:
             raise Cons3rtClientError(str(exc)) from exc
         is_success = json.loads(result)
@@ -1488,7 +1499,7 @@ class Cons3rtClient:
 
         response = self.http_client.http_delete(rest_user=self.user, target=target, content=json_content)
         try:
-            result = self.http_client.parse_response(response=response)
+            result = parse_response(response=response)
         except Cons3rtClientError as exc:
             raise Cons3rtClientError(str(exc)) from exc
         return result
@@ -1509,7 +1520,7 @@ class Cons3rtClient:
             target += '&target_realm_ids={i}'.format(i=str(target_vr_id))
         response = self.http_client.http_post(rest_user=self.user, target=target)
         try:
-            result = self.http_client.parse_response(response=response)
+            result = parse_response(response=response)
         except Cons3rtClientError as exc:
             raise Cons3rtClientError(str(exc)) from exc
         return result
@@ -1524,7 +1535,7 @@ class Cons3rtClient:
         target = 'virtualizationrealms/{i}/updatereachability'.format(i=str(vr_id))
         response = self.http_client.http_put(rest_user=self.user, target=target)
         try:
-            result = self.http_client.parse_response(response=response)
+            result = parse_response(response=response)
         except Cons3rtClientError as exc:
             raise Cons3rtClientError(str(exc)) from exc
         return result
@@ -1534,7 +1545,7 @@ class Cons3rtClient:
             rest_user=self.user,
             target='drs/' + str(dr_id) + '/release?force=true')
         try:
-            result = self.http_client.parse_response(response=response)
+            result = parse_response(response=response)
         except Cons3rtClientError as exc:
             raise Cons3rtClientError(str(exc)) from exc
         return result
@@ -1553,21 +1564,21 @@ class Cons3rtClient:
             target='deployments/{i}/launch'.format(i=deployment_id),
             content_data=json_content)
         try:
-            dr_info = self.http_client.parse_response(response=response)
+            dr_info = parse_response(response=response)
         except Cons3rtClientError as exc:
             raise Cons3rtClientError(str(exc)) from exc
         return dr_info
 
     def delete_deployment_run(self, dr_id):
         response = self.http_client.http_delete(rest_user=self.user, target='drs/' + str(dr_id))
-        result = self.http_client.parse_response(response=response)
+        result = parse_response(response=response)
         return result
 
     def set_deployment_run_lock(self, dr_id, lock):
         response = self.http_client.http_put(
             rest_user=self.user,
             target='drs/{i}/setlock?lock={k}'.format(i=str(dr_id), k=str(lock).lower()))
-        result = self.http_client.parse_response(response=response)
+        result = parse_response(response=response)
         return result
 
     def get_dependent_assets(self, asset_id):
@@ -1575,7 +1586,7 @@ class Cons3rtClient:
             rest_user=self.user,
             target='assets/{i}/dependent'.format(i=str(asset_id))
         )
-        result = self.http_client.parse_response(response=response)
+        result = parse_response(response=response)
         return result
 
     def delete_asset(self, asset_id, force=False):
@@ -1587,7 +1598,7 @@ class Cons3rtClient:
             rest_user=self.user,
             target='assets/{i}?force={f}'.format(i=str(asset_id), f=force_str)
         )
-        result = self.http_client.parse_response(response=response)
+        result = parse_response(response=response)
         return result
 
     def deallocate_virtualization_realm(self, cloud_id, vr_id):
@@ -1596,13 +1607,13 @@ class Cons3rtClient:
             target='clouds/' + str(cloud_id) + '/virtualizationrealms/allocate?virtRealmId=' + str(vr_id),
             keep_alive=True
         )
-        result = self.http_client.parse_response(response=response)
+        result = parse_response(response=response)
         return result
 
     def unregister_virtualization_realm(self, cloud_id, vr_id):
         target = 'clouds/{c}/virtualizationrealms?virtRealmId={v}'.format(c=str(cloud_id), v=str(vr_id))
         response = self.http_client.http_delete(rest_user=self.user, target=target, keep_alive=True)
-        result = self.http_client.parse_response(response=response)
+        result = parse_response(response=response)
         return result
 
     def update_asset_content(self, asset_id, asset_zip_file):
@@ -1624,7 +1635,7 @@ class Cons3rtClient:
             msg = 'Unable to update asset ID {i} with asset zip file: {f}'.format(i=asset_id, f=asset_zip_file)
             raise Cons3rtClientError(msg) from exc
         try:
-            self.http_client.parse_response(response=response)
+            parse_response(response=response)
         except Cons3rtClientError as exc:
             raise Cons3rtClientError(str(exc)) from exc
 
@@ -1644,7 +1655,7 @@ class Cons3rtClient:
             msg = 'Unable to set asset state for asset ID: {i}'.format(i=str(asset_id))
             raise Cons3rtClientError(msg) from exc
         try:
-            self.http_client.parse_response(response=response)
+            parse_response(response=response)
         except Cons3rtClientError as exc:
             raise Cons3rtClientError(str(exc)) from exc
 
@@ -1665,7 +1676,7 @@ class Cons3rtClient:
             msg = 'Problem adding trusted project {p} to asset {a}'.format(p=str(trusted_project_id), a=str(asset_id))
             raise Cons3rtClientError(msg) from exc
         try:
-            self.http_client.parse_response(response=response)
+            parse_response(response=response)
         except Cons3rtClientError as exc:
             raise Cons3rtClientError(str(exc)) from exc
 
@@ -1685,7 +1696,7 @@ class Cons3rtClient:
             msg = 'Unable to set asset visibility for asset ID: {i}'.format(i=str(asset_id))
             raise Cons3rtClientError(msg) from exc
         try:
-            self.http_client.parse_response(response=response)
+            parse_response(response=response)
         except Cons3rtClientError as exc:
             raise Cons3rtClientError(str(exc)) from exc
 
@@ -1706,7 +1717,7 @@ class Cons3rtClient:
             msg = 'Unable to import asset from zip file: {f}'.format(f=asset_zip_file)
             raise Cons3rtClientError(msg) from exc
         try:
-            asset_id = self.http_client.parse_response(response=response)
+            asset_id = parse_response(response=response)
         except Cons3rtClientError as exc:
             raise Cons3rtClientError(str(exc)) from exc
         return asset_id
@@ -1729,7 +1740,7 @@ class Cons3rtClient:
                 i=vr_id)
             raise Cons3rtClientError(msg) from exc
         try:
-            self.http_client.parse_response(response=response)
+            parse_response(response=response)
         except Cons3rtClientError as exc:
             raise Cons3rtClientError(str(exc)) from exc
 
@@ -1750,7 +1761,7 @@ class Cons3rtClient:
                 i=vr_id)
             raise Cons3rtClientError(msg) from exc
         try:
-            self.http_client.parse_response(response=response)
+            parse_response(response=response)
         except Cons3rtClientError as exc:
             raise Cons3rtClientError(str(exc)) from exc
 
@@ -1789,7 +1800,7 @@ class Cons3rtClient:
             except Cons3rtClientError as exc:
                 msg = 'The HTTP response contains a bad status code'
                 raise Cons3rtClientError(msg) from exc
-            result = self.http_client.parse_response(response=response)
+            result = parse_response(response=response)
             found_users = json.loads(result)
             users += found_users
             if len(found_users) < 100:
@@ -1831,7 +1842,7 @@ class Cons3rtClient:
         except Cons3rtClientError as exc:
             raise Cons3rtClientError('Problem retrieving container asset: {i}'.format(i=str(asset_id))) from exc
         try:
-            result = self.http_client.parse_response(response=response)
+            result = parse_response(response=response)
         except Cons3rtClientError as exc:
             raise Cons3rtClientError(str(exc)) from exc
         software_asset = json.loads(result)
@@ -1853,7 +1864,7 @@ class Cons3rtClient:
         except Cons3rtClientError as exc:
             raise Cons3rtClientError('Problem retrieving software asset: {i}'.format(i=str(asset_id))) from exc
         try:
-            result = self.http_client.parse_response(response=response)
+            result = parse_response(response=response)
         except Cons3rtClientError as exc:
             raise Cons3rtClientError(str(exc)) from exc
         software_asset = json.loads(result)
@@ -1885,6 +1896,8 @@ class Cons3rtClient:
             for category_id in category_ids:
                 target += '&categoryids={c}'.format(c=str(category_id))
         target += '&maxresults={m}&page={p}'.format(m=str(max_results), p=str(page_num))
+        target = get_asset_target(target=target, page_num=page_num, asset_type=asset_type, community=community,
+                                  category_ids=category_ids, max_results=max_results)
         try:
             response = self.http_client.http_get(
                 rest_user=self.user,
@@ -1893,7 +1906,7 @@ class Cons3rtClient:
         except Cons3rtClientError as exc:
             raise Cons3rtClientError('Problem querying for software assets') from exc
         try:
-            result = self.http_client.parse_response(response=response)
+            result = parse_response(response=response)
         except Cons3rtClientError as exc:
             raise Cons3rtClientError(str(exc)) from exc
         software_assets = json.loads(result)
@@ -1958,7 +1971,7 @@ class Cons3rtClient:
         except Cons3rtClientError as exc:
             raise Cons3rtClientError('Problem retrieving test asset: {i}'.format(i=str(asset_id))) from exc
         try:
-            result = self.http_client.parse_response(response=response)
+            result = parse_response(response=response)
         except Cons3rtClientError as exc:
             raise Cons3rtClientError(str(exc)) from exc
         test_asset = json.loads(result)
@@ -1980,16 +1993,9 @@ class Cons3rtClient:
             target = 'testassets/expanded?'
         else:
             target = 'testassets?'
-        if asset_type:
-            target += 'type={t}&'.format(t=type)
-        if community:
-            target += 'community=true'
-        else:
-            target += 'community=false'
-        if category_ids:
-            for category_id in category_ids:
-                target += '&categoryids={c}'.format(c=str(category_id))
-        target += '&maxresults={m}&page={p}'.format(m=str(max_results), p=str(page_num))
+        target = get_asset_target(target=target, asset_type=asset_type, page_num=page_num, community=community,
+                                  category_ids=category_ids, max_results=max_results)
+
         try:
             response = self.http_client.http_get(
                 rest_user=self.user,
@@ -1998,7 +2004,7 @@ class Cons3rtClient:
         except Cons3rtClientError as exc:
             raise Cons3rtClientError('Problem querying for test assets') from exc
         try:
-            result = self.http_client.parse_response(response=response)
+            result = parse_response(response=response)
         except Cons3rtClientError as exc:
             raise Cons3rtClientError(str(exc)) from exc
         test_assets = json.loads(result)
@@ -2064,16 +2070,8 @@ class Cons3rtClient:
             target = 'containers/expanded?'
         else:
             target = 'containers?'
-        if asset_type:
-            target += 'type={t}&'.format(t=type)
-        if community:
-            target += 'community=true'
-        else:
-            target += 'community=false'
-        if category_ids:
-            for category_id in category_ids:
-                target += '&categoryids={c}'.format(c=str(category_id))
-        target += '&maxresults={m}&page={p}'.format(m=str(max_results), p=str(page_num))
+        target = get_asset_target(target=target, page_num=page_num, asset_type=asset_type, community=community,
+                                  category_ids=category_ids, max_results=max_results)
         try:
             response = self.http_client.http_get(
                 rest_user=self.user,
@@ -2082,7 +2080,7 @@ class Cons3rtClient:
         except Cons3rtClientError as exc:
             raise Cons3rtClientError('Problem querying for container assets') from exc
         try:
-            result = self.http_client.parse_response(response=response)
+            result = parse_response(response=response)
         except Cons3rtClientError as exc:
             raise Cons3rtClientError(str(exc)) from exc
         container_assets = json.loads(result)
@@ -2141,7 +2139,7 @@ class Cons3rtClient:
         except Cons3rtClientError as exc:
             raise Cons3rtClientError('Problem retrieving a list of categories') from exc
         try:
-            result = self.http_client.parse_response(response=response)
+            result = parse_response(response=response)
         except Cons3rtClientError as exc:
             raise Cons3rtClientError(str(exc)) from exc
         categories = json.loads(result)
@@ -2166,7 +2164,7 @@ class Cons3rtClient:
 
         # Check the response
         try:
-            self.http_client.parse_response(response=response)
+            parse_response(response=response)
         except Cons3rtClientError as exc:
             raise Cons3rtClientError(str(exc)) from exc
 
@@ -2189,7 +2187,7 @@ class Cons3rtClient:
 
         # Check the response
         try:
-            self.http_client.parse_response(response=response)
+            parse_response(response=response)
         except Cons3rtClientError as exc:
             raise Cons3rtClientError(str(exc)) from exc
 
@@ -2244,7 +2242,7 @@ class Cons3rtClient:
             raise Cons3rtClientError(msg) from exc
         # Check the response
         try:
-            self.http_client.parse_response(response=response)
+            parse_response(response=response)
         except Cons3rtClientError as exc:
             raise Cons3rtClientError(str(exc)) from exc
 
@@ -2277,8 +2275,36 @@ class Cons3rtClient:
             raise Cons3rtClientError(msg) from exc
         # Check the response
         try:
-            content = self.http_client.parse_response(response=response)
+            content = parse_response(response=response)
         except Cons3rtClientError as exc:
             raise Cons3rtClientError(str(exc)) from exc
         identity = json.loads(content)
         return identity
+
+
+def get_asset_target(target, page_num, asset_type=None, software_asset_type=None, community=None, category_ids=None,
+                     max_results=100):
+    """Given an asset target URL portion, append provided parameters
+
+    :param target: (str) URL target portion
+    :param page_num: (int) page number for the query
+    :param asset_type: (str) type of asset
+    :param software_asset_type: (str) type of software asset
+    :param community: (bool) set true to include community assets
+    :param category_ids: (list) of (int) IDs for categories to include in the query
+    :param max_results: (int) maximum number of results to return
+    :return: (str) target string
+    """
+    if software_asset_type:
+        target += 'softwareType={t}&'.format(t=software_asset_type)
+    if asset_type:
+        target += 'type={t}&'.format(t=asset_type)
+    if community:
+        target += 'community=true'
+    else:
+        target += 'community=false'
+    if category_ids:
+        for category_id in category_ids:
+            target += '&categoryids={c}'.format(c=str(category_id))
+    target += '&maxresults={m}&page={p}'.format(m=str(max_results), p=str(page_num))
+    return target

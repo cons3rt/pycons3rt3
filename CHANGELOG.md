@@ -6,6 +6,9 @@
 * Added method list_deployment_runs for listing runs in the user context
 * Added logging for the openssl decrypt method
 * Moved the /api/users endpoint to /api/admin/users
+* Modernized the nexus.py module, added a CLI command for it
+* Consolidated duplicated code in httpclient.py
+* Added a method to list services for a team
 
 0.0.20
 ======

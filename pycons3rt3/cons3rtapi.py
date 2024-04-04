@@ -2814,6 +2814,28 @@ class Cons3rtApi(object):
             n=str(len(unique_cross_team_members)), i=','.join(map(str, team_ids))))
         return unique_cross_team_members
 
+    def list_services_for_team(self, team_id):
+        """Lists the services for a team
+
+        :param team_id: (int) team ID
+        :return: (dict)
+        """
+        log = logging.getLogger(self.cls_logger + '.list_services_for_team')
+        if not isinstance(team_id, int):
+            try:
+                team_id = int(team_id)
+            except ValueError as exc:
+                raise ValueError('team_id arg must be an Integer') from exc
+
+        # Attempt to list team services
+        try:
+            team_services = self.cons3rt_client.list_services_for_team(team_id=team_id)
+        except Cons3rtClientError as exc:
+            msg = 'Unable to list services for tram: {i}'.format(i=str(team_id))
+            raise Cons3rtApiError(msg) from exc
+        log.info('Found [{n}] services for team [{i}]'.format(n=str(len(team_services)), i=str(team_id)))
+        return team_services
+
     def create_user(self, username, email, first_name, last_name):
         """Creates a user using the specified parameters
 
