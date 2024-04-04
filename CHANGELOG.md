@@ -1,5 +1,5 @@
-0.0.21a0
-========
+0.0.21
+======
 
 * Added a method to get the latest S3 object in a bucket given a prefix
 * Changed the build method from setup.py to pypa - python3 -m build
