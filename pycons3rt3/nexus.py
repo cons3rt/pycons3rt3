@@ -462,6 +462,7 @@ def main():
                 packaging=args.packaging,
                 destination_dir=destination_dir,
                 version=args.version,
+                classifier=args.classifier,
                 suppress_status=suppress_status,
                 overwrite=overwrite,
                 username=username,
@@ -483,6 +484,7 @@ def main():
                 sort_type=args.sort,
                 direction=args.direction,
                 version=args.version,
+                classifier=args.classifier,
                 latest=latest,
                 username=username,
                 password=password
