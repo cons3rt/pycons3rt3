@@ -14,7 +14,6 @@ pycons3rt3/bin
 pycons3rt3/build
 pycons3rt3/venv
 pycons3rt3/__pycache__
-*.txt
 *.md
 !README.md
 sample-configs
