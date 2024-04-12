@@ -144,6 +144,8 @@ def run_command_large_buffer(command, timeout_sec=3600.0):
     pid = subproc.pid
     log.debug('Opened up PID {p} with a timeout of {s} sec...'.format(p=pid, s=str(timeout_sec)))
     timeout = False
+    stdout = ''
+    stderr = ''
     try:
         stdout, stderr = subproc.communicate(timeout=timeout_sec)
     except ValueError as exc:
@@ -191,22 +193,29 @@ def validate_ip_address(ip_address):
     return network_validate_ip_address(ip_address=ip_address)
 
 
-def ip_addr():
-    """Uses the ip addr command to enumerate IP addresses by device
+def get_ip_addr_output():
+    """Returns the output of [ip addr]
 
-    :return: (dict) Containing device: ip_address
+    :return: (list) of lines
     """
-    log = logging.getLogger(mod_logger + '.ip_addr')
+    log = logging.getLogger(mod_logger + '.get_ip_addr_output')
     log.debug('Running the ip addr command...')
-    ip_addr_output = {}
-
     command = ['ip', 'addr']
     try:
         ip_addr_result = run_command(command, timeout_sec=20, output=True, print_output=False)
     except CommandError as exc:
         raise CommandError('There was a problem running command: {c}'.format(c=' '.join(command))) from exc
-
     ip_addr_lines = ip_addr_result['output'].split('\n')
+    return ip_addr_lines
+
+
+def ip_addr():
+    """Uses the ip addr command to enumerate IP addresses by device
+
+    :return: (dict) Containing device: ip_address
+    """
+    ip_addr_output = {}
+    ip_addr_lines = get_ip_addr_output()
 
     for line in ip_addr_lines:
         line = line.strip()
@@ -238,16 +247,8 @@ def get_mac_addresses():
     :raises: CommandError
     """
     log = logging.getLogger(mod_logger + '.get_mac_addresses')
-    log.debug('Running the ip addr command...')
     mac_addresses = {}
-
-    command = ['ip', 'addr']
-    try:
-        ip_addr_result = run_command(command, timeout_sec=20, output=True, print_output=False)
-    except CommandError as exc:
-        raise CommandError('There was a problem running command: {c}'.format(c=' '.join(command))) from exc
-
-    ip_addr_lines = ip_addr_result['output'].split('\n')
+    ip_addr_lines = get_ip_addr_output()
     mac_address = None
     device = None
     for line in ip_addr_lines:
@@ -402,8 +403,7 @@ def mkdir_p(path):
 
 
 def source(script):
-    """Emulates 'source' command in bash, updates os.environ with
-    environment variables
+    """Emulates 'source' command in bash, updates environment variables
 
     :param script: (str) Full path to the script to source
     :return: (dict) Updated environment
@@ -709,8 +709,18 @@ def update_hosts_file(ip, entry):
 
     :param ip: (str) IP address to be added or updated
     :param entry: (str) Hosts file entry to be added
-    :return: None
     :raises CommandError
+    """
+    update_hosts_file_content(hosts_file_path='/etc/hosts', ip=ip, entry=entry)
+
+
+def update_hosts_file_content(hosts_file_path, ip, entry):
+    """
+
+    :param hosts_file_path: (str) path to the hosts file
+    :param ip: (str) IP address to be added or updated
+    :param entry: (str) Hosts file entry to be added
+    :raises: CommandError
     """
     log = logging.getLogger(mod_logger + '.update_hosts_file')
 
@@ -723,19 +733,15 @@ def update_hosts_file(ip, entry):
         msg = 'entry argument must be a string'
         log.error(msg)
         raise CommandError(msg)
-
-    # Ensure the file_path file exists
-    hosts_file = '/etc/hosts'
-    if not os.path.isfile(hosts_file):
-        msg = 'File not found: {f}'.format(f=hosts_file)
+    if not os.path.isfile(hosts_file_path):
+        msg = 'File not found: {f}'.format(f=hosts_file_path)
         log.error(msg)
         raise CommandError(msg)
 
-    # Updating /etc/hosts file
-    log.info('Updating hosts file: {f} with IP {i} and entry: {e}'.format(f=hosts_file, i=ip, e=entry))
+    log.info('Updating hosts file: {f} with IP {i} and entry: {e}'.format(f=hosts_file_path, i=ip, e=entry))
     full_entry = ip + ' ' + entry.strip() + '\n'
     updated = False
-    for line in fileinput.input(hosts_file, inplace=True):
+    for line in fileinput.input(hosts_file_path, inplace=True):
         if re.search(ip, line):
             if line.split()[0] == ip:
                 log.info('Found IP {i} in line: {li}, updating...'.format(i=ip, li=line))
@@ -744,17 +750,17 @@ def update_hosts_file(ip, entry):
                 updated = True
             else:
                 log.debug('Found ip {i} in line {li} but not an exact match, adding line back to hosts file {f}...'.
-                          format(i=ip, li=line, f=hosts_file))
+                          format(i=ip, li=line, f=hosts_file_path))
                 sys.stdout.write(line)
         else:
             log.debug('IP address {i} not found in line, adding line back to hosts file {f}: {li}'.format(
-                    i=ip, li=line, f=hosts_file))
+                i=ip, li=line, f=hosts_file_path))
             sys.stdout.write(line)
 
     # Append the entry if the hosts file was not updated
     if updated is False:
-        with open(hosts_file, 'a') as f:
-            log.info('Appending hosts file entry to {f}: {e}'.format(f=hosts_file, e=full_entry))
+        with open(hosts_file_path, 'a') as f:
+            log.info('Appending hosts file entry to {f}: {e}'.format(f=hosts_file_path, e=full_entry))
             f.write(full_entry)
 
 
@@ -942,7 +948,7 @@ def remove_ifcfg_file(device_index='0'):
     log.info('Attempting to remove file: {n}'.format(n=network_script))
     try:
         os.remove(network_script)
-    except(IOError, OSError) as exc:
+    except (IOError, OSError) as exc:
         raise OSError('There was a problem removing network script file: {n}'.format(n=network_script)) from exc
     else:
         log.info('Successfully removed file: {n}'.format(n=network_script))
@@ -1560,7 +1566,7 @@ def set_group_id(group_name, new_id):
 def set_user_id(username, new_id):
     """Sets the username to the provided new user ID
 
-    :param username: (str) user name
+    :param username: (str) username
     :param new_id: (int) new ID for the user
     :return: None
     :raises CommandError
