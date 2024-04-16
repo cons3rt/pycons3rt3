@@ -507,23 +507,80 @@ slack_msg.send()
 This module provides simple method of fetching artifacts from a nexus
 repository.
 
-~~~
+```
 from pycons3rt3 import nexus
 
-nexus.get_artifact(
-    username=nexus_username,
-    password=nexus_password,
-    suppress_status=True,
-    nexus_url=nexus_url,
-    timeout_sec=45,
-    overwrite=False,
-    group_id='com.cons3rt',
-    artifact_id='cons3rt-backend-install',
-    version=`18.11.1`,
-    packaging='zip',
-    classifier='package-otto',
-    destination_dir=dest_dir)
-~~~
+nexus.get_artifact_nexus(
+    base_url='https://nexus.example.com',
+    repository='releases|snapshots|etc',
+    group_id='groupId',
+    artifact_id='artifactId',
+    packaging='zip|jar|etc',
+    destination_dir='/path/to/dest/dir',
+    version='x.y.z',
+    classifier='classifier',
+    suppress_status=True|False,
+    overwrite=True|False,
+    username='your_username',
+    password='your_password'
+)
+
+search_results = search_nexus_assets(
+    base_url='https://nexus.example.com',
+    repository='releases|snapshots|etc',
+    group='groupId',
+    name='artifactId',
+    extension='zip|jar|etc',
+    sort_type='version',
+    direction='asc|desc',
+    version='x.y.z',
+    classifier='classifier',
+    username='your_username',
+    password='your_password'
+)
+
+result = search_latest(
+    base_url='https://nexus.example.com',
+    repository='releases|snapshots|etc',
+    group='groupId',
+    name='artifactId',
+    extension='zip|jar|etc',
+    username='your_username',
+    password='your_password'
+)
+```
+
+### nexus cli
+
+The `nexus` CLI command is an easy way to search for and retrieve artifacts from Nexus v3 using its rest API.
+
+Authentication options:
+
+* Provide both `--username` and `--password` args in the CLI call
+* Configure a `~/.netrc` file, and specify the `--netrc` arg in the CLI call
+
+Specify a version or latest:
+
+* To get a specific version, use `--version x.y.z`
+* To get the latest, use `--latest`
+
+For targeting, use: `--group`, `--artifactId`, `--repo`, `--classifier`, `--packaging`.
+
+Additional options: `--overwrite`, `--suppress`
+
+```
+# Search for a latest release
+nexus search --group 'com.cons3rt' --artifactId 'cons3rt-pyotto' --packaging zip --repo releases --netrc --url 'https://nexus.jackpinetech.com' --latest
+
+# Get a latest release
+nexus get --group 'com.cons3rt' --artifactId 'cons3rt-pyotto' --repo releases --packaging zip --netrc --url 'https://nexus.jackpinetech.com' --latest
+
+# Get a latest snapshot
+nexus get --group 'com.cons3rt' --artifactId 'cons3rt-package' --repo snapshots --packaging zip --netrc --url 'https://nexus.jackpinetech.com' --latest
+
+# Get a specific version
+nexus get --group 'com.cons3rt' --artifactId 'cons3rt-pyotto' --repo releases --packaging zip --netrc --url 'https://nexus.jackpinetech.com' --version 24.7.0
+```
 
 ## Bash (Linux only)
 
