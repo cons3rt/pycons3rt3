@@ -13,7 +13,7 @@ from .logify import Logify
 from .awsutil import aws_config_file_content_template, aws_credentials_file_content_template
 from .cloud import Cloud
 from .cons3rtclient import Cons3rtClient
-from .cons3rtenums import cons3rt_deployment_run_status_active, valid_search_type
+from .cons3rtenums import cons3rt_deployment_run_status_active, interval_units, valid_search_type
 from .cons3rtwaiters import RunWaiter
 from .deployment import Deployment
 from .pycons3rtlibs import HostActionResult, RestUser
@@ -846,6 +846,126 @@ class Cons3rtApi(object):
             msg = 'Unable to query CONS3RT for details on project: {i}'.format(i=str(project_id))
             raise Cons3rtApiError(msg) from exc
         return project_details
+
+    def get_project_host_metrics(self, project_id, start=None, end=None, interval=1, interval_unit='HOURS'):
+        """Queries CONS3RT for metrics by project ID
+
+        :param project_id: (int) ID of the project
+        :param start: (int) start time for metrics in unix epoch time
+        :param end: (int) end time for metrics in unix epoch time
+        :param interval: (int) number of intervals
+        :param interval_unit: (str) Enum: "Nanos" "Micros" "Millis" "Seconds" "Minutes" "Hours" "HalfDays" "Days"
+            "Weeks" "Months" "Years" "Decades" "Centuries" "Millennia" "Eras" "Forever"
+        :return: (dict) containing project metrics
+        :raises: Cons3rtApiError
+        """
+        log = logging.getLogger(self.cls_logger + '.get_project_host_metrics')
+
+        # Ensure the project_id is an int
+        if not isinstance(project_id, int):
+            try:
+                project_id = int(project_id)
+            except ValueError as exc:
+                msg = 'project_id arg must be an Integer, found: {t}'.format(t=project_id.__class__.__name__)
+                raise Cons3rtApiError(msg) from exc
+
+        # Ensure the start/end time
+        if not start:
+            start = int(time.time())
+        else:
+            if not isinstance(start, int):
+                msg = 'start arg must be an Integer, found: {t}'.format(t=type(start).__name__)
+                raise Cons3rtApiError(msg)
+        if not end:
+            end = int(time.time())
+        else:
+            if not isinstance(end, int):
+                msg = 'end arg must be an Integer, found: {t}'.format(t=type(end).__name__)
+                raise Cons3rtApiError(msg)
+
+        # Ensure the interval is an int
+        if not isinstance(interval, int):
+            msg = 'interval arg must be an Integer, found: {t}'.format(t=type(interval).__name__)
+            raise Cons3rtApiError(msg)
+
+        # Ensure the interval_unit is a string, and is valid
+        if not isinstance(interval_unit, str):
+            msg = 'interval_unit arg must be a str, found: {t}'.format(t=type(interval_unit).__name__)
+            raise Cons3rtApiError(msg)
+
+        interval_unit = interval_unit.upper()
+        if interval_unit not in interval_units:
+            msg = 'Invalid interval_unit provided [{i}], must be one of: [{u}]'.format(
+                i=interval_unit, u=','.join(interval_units))
+            raise Cons3rtApiError(msg)
+
+        log.debug('Attempting query host metrics from project ID {i}'.format(i=str(project_id)))
+        try:
+            project_metrics = self.cons3rt_client.get_project_host_metrics(
+                project_id=project_id,
+                start=start,
+                end=end,
+                interval=interval,
+                interval_unit=interval_unit
+            )
+        except Cons3rtClientError as exc:
+            msg = 'Unable to query CONS3RT for host metrics on project: {i}'.format(i=str(project_id))
+            raise Cons3rtApiError(msg) from exc
+        return project_metrics
+
+    def get_team_host_metrics(self, team_id):
+        """Compile team host metrics from the project host metrics
+
+        :param team_id: (int) team ID
+        :return: (tuple)
+           (dict) compiling host metrics from each of the team projects
+           (dict) team host maximums
+        :raises: Cons3rtApiError
+        """
+        log = logging.getLogger(self.cls_logger + '.get_team_host_metrics')
+
+        # Tally up metrics for each project
+        team_host_metrics = {
+            'numCpus': 0,
+            'ramInMegabytes': 0,
+            'storageInMegabytes': 0,
+            'virtualMachines': 0
+        }
+
+        # Get the list of owned projects
+        team_details, owned_projects = self.list_projects_in_team(team_id=team_id)
+        team_host_maximums = {
+            'numCpus': team_details['maxNumCpus'],
+            'ramInMegabytes': team_details['maxRamInMegabytes'],
+            'storageInMegabytes': team_details['maxStorageInMegabytes'],
+            'virtualMachines': team_details['maxVirtualMachines']
+        }
+
+        log.info('Collecting host metrics from [{n}] projects in team: {i}'.format(
+            n=str(len(owned_projects)), i=str(team_id)))
+
+        # Loops through team project and collect host metrics
+        for owned_project in owned_projects:
+            log.info('Adding host metrics for project [{n}]'.format(n=owned_project['name']))
+            project_host_metrics = self.get_project_host_metrics(project_id=owned_project['id'])
+
+            # Expecting 1 entry per project host metrics call
+            if len(project_host_metrics.keys()) != 1:
+                msg = 'Expected 1 entry for host metrics for project [{p}], found: {n}'.format(
+                    p=str(owned_project['id']), n=str(len(project_host_metrics.keys())))
+                raise Cons3rtApiError(msg)
+
+            # Add each entry for host metrics
+            for entry in project_host_metrics.keys():
+                team_host_metrics['numCpus'] += project_host_metrics[entry]['numCpus']
+                team_host_metrics['ramInMegabytes'] += project_host_metrics[entry]['ramInMegabytes']
+                team_host_metrics['storageInMegabytes'] += project_host_metrics[entry]['storageInMegabytes']
+                team_host_metrics['virtualMachines'] += project_host_metrics[entry]['virtualMachines']
+
+        return team_host_metrics, team_host_maximums
+
+
+
 
     def get_project_id(self, project_name):
         """Given a project name, return a list of IDs with that name

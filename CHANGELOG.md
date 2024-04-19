@@ -1,7 +1,7 @@
 0.0.22a0
 ========
 
-* TBD
+* Added API calls to get project and team host metrics
 
 0.0.21
 ======

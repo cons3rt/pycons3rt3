@@ -548,10 +548,34 @@ class Cons3rtClient:
         :param project_id: (int) ID of the project
         :return: (dict) containing project details
         """
-        response = self.http_client.http_get(rest_user=self.user, target='projects/{i}'.format(i=str(project_id)))
+        target = 'projects/{i}'.format(i=str(project_id))
+        response = self.http_client.http_get(rest_user=self.user, target=target)
         content = parse_response(response=response)
         project_details = json.loads(content)
         return project_details
+
+    def get_project_host_metrics(self, project_id, start, end, interval=1, interval_unit='HOURS'):
+        """Queries CONS3RT for metrics by project ID
+
+        :param project_id: (int) ID of the project
+        :param start: (int) start time for metrics in unix epoch time
+        :param end: (int) end time for metrics in unix epoch time
+        :param interval: (int) number of intervals
+        :param interval_unit: (str) Enum: "Nanos" "Micros" "Millis" "Seconds" "Minutes" "Hours" "HalfDays" "Days"
+            "Weeks" "Months" "Years" "Decades" "Centuries" "Millennia" "Eras" "Forever"
+        :return: (dict) containing project metrics
+        """
+        target = 'projects/{i}/metrics/hostconfiguration?start={s}&end={e}&interval={v}&intervalUnit={u}'.format(
+            i=str(project_id),
+            s=str(start),
+            e=str(end),
+            v=str(interval),
+            u=interval_unit
+        )
+        response = self.http_client.http_get(rest_user=self.user, target=target)
+        content = parse_response(response=response)
+        project_metrics = json.loads(content)
+        return project_metrics
 
     def get_virtualization_realm_details(self, vr_id):
         """Queries CONS3RT for details by project ID
