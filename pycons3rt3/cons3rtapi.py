@@ -288,7 +288,7 @@ class Cons3rtApi(object):
         try:
             with open(self.config_file, 'r') as f:
                 config_data = json.load(f)
-        except(OSError, IOError) as exc:
+        except (OSError, IOError) as exc:
             raise Cons3rtApiError('Unable to read config file: {f}'.format(f=self.config_file)) from exc
         log.info('Loading config from file: {f}'.format(f=self.config_file))
 
@@ -847,6 +847,35 @@ class Cons3rtApi(object):
             raise Cons3rtApiError(msg) from exc
         return project_details
 
+    def get_project_resources(self, project_id):
+        """Returns resources consumed by the specified project ID
+
+        :param (int) project_id: ID of the project to query
+        :return: (dict) project resources
+        """
+        log = logging.getLogger(self.cls_logger + '.get_project_details')
+
+        # Ensure the project_id is an int
+        if not isinstance(project_id, int):
+            try:
+                project_id = int(project_id)
+            except ValueError as exc:
+                msg = 'project_id arg must be an Integer, found: {t}'.format(t=project_id.__class__.__name__)
+                raise Cons3rtApiError(msg) from exc
+
+        log.debug('Attempting query project ID {i}'.format(i=str(project_id)))
+        try:
+            project_details = self.get_project_details(project_id=project_id)
+        except Cons3rtClientError as exc:
+            msg = 'Unable to query CONS3RT for details on project: {i}'.format(i=str(project_id))
+            raise Cons3rtApiError(msg) from exc
+
+        # Get the project resources
+        if 'resourceUsage' not in project_details.keys():
+            msg = 'resourceUsage not found in project details: [{d}]'.format(d=str(project_details))
+            raise Cons3rtApiError(msg)
+        return project_details['resourceUsage']
+
     def get_project_host_metrics(self, project_id, start=None, end=None, interval=1, interval_unit='HOURS'):
         """Queries CONS3RT for metrics by project ID
 
@@ -964,8 +993,48 @@ class Cons3rtApi(object):
 
         return team_host_metrics, team_host_maximums
 
+    def get_team_resources(self, team_id):
+        """Compile team resources from the project resources
 
+        :param team_id: (int) team ID
+        :return: (tuple)
+           (dict) compiling resources from each of the team projects
+           (dict) team host maximums
+        :raises: Cons3rtApiError
+        """
+        log = logging.getLogger(self.cls_logger + '.get_team_resources')
 
+        # Tally up resources for each project
+        team_resources = {
+            'numCpus': 0,
+            'ramInMegabytes': 0,
+            'storageInMegabytes': 0,
+            'virtualMachines': 0
+        }
+
+        # Get the list of owned projects
+        team_details, owned_projects = self.list_projects_in_team(team_id=team_id)
+        team_resource_maximums = {
+            'numCpus': team_details['maxNumCpus'],
+            'ramInMegabytes': team_details['maxRamInMegabytes'],
+            'storageInMegabytes': team_details['maxStorageInMegabytes'],
+            'virtualMachines': team_details['maxVirtualMachines']
+        }
+
+        log.info('Collecting resources from [{n}] projects in team: {i}'.format(
+            n=str(len(owned_projects)), i=str(team_id)))
+
+        # Loops through team project and collect host metrics
+        for owned_project in owned_projects:
+            log.info('Adding resources for project [{n}]'.format(n=owned_project['name']))
+            project_resources = self.get_project_resources(project_id=owned_project['id'])
+
+            # Add project resources to the team resources
+            team_resources['numCpus'] += project_resources['numCpus']
+            team_resources['ramInMegabytes'] += project_resources['ramInMegabytes']
+            team_resources['storageInMegabytes'] += project_resources['storageInMegabytes']
+            team_resources['virtualMachines'] += project_resources['virtualMachines']
+        return team_resources, team_resource_maximums
 
     def get_project_id(self, project_name):
         """Given a project name, return a list of IDs with that name
@@ -1634,7 +1703,6 @@ class Cons3rtApi(object):
         log.info('Found [{n}] runs with search type [{s}] and in_project [{i}]'.format(
             n=str(len(drs)), s=search_type, i=str(in_project)))
         return drs
-
 
     def list_deployment_runs_for_deployment(self, deployment_id):
         """Query CONS3RT to return a list of deployment runs for a deployment
@@ -6969,7 +7037,8 @@ class Cons3rtApi(object):
                 for subscriber_vr_existing_sub in subscriber_vr_existing_subs:
                     if 'templateRegistration' not in subscriber_vr_existing_sub.keys():
                         continue
-                    if subscriber_vr_existing_sub['templateRegistration']['templateUuid'] == reg_details['templateUuid']:
+                    if (subscriber_vr_existing_sub['templateRegistration']['templateUuid'] ==
+                            reg_details['templateUuid']):
                         log.info('Template {n} already subscribed in VR ID: {i}'.format(
                             n=template_name, i=str(subscriber_vr_id)))
                         existing_subscription = True

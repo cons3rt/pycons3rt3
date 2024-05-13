@@ -2,6 +2,7 @@
 ========
 
 * Added API calls to get project and team host metrics
+* Added API calls to get project and team resource usage
 
 0.0.21
 ======
