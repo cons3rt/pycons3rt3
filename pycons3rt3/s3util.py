@@ -122,7 +122,8 @@ class S3Util(object):
             k=aws_access_key_id, r=region_name))
         self.s3resource = boto3.resource('s3', region_name=region_name, aws_access_key_id=aws_access_key_id,
                                          aws_secret_access_key=aws_secret_access_key)
-        self.bucket_resource = self.s3resource.Bucket(self.bucket_name)
+        if self.bucket_name:
+            self.bucket_resource = self.s3resource.Bucket(self.bucket_name)
         self.s3client = boto3.client('s3', region_name=region_name, aws_access_key_id=aws_access_key_id,
                                      aws_secret_access_key=aws_secret_access_key)
 
@@ -204,7 +205,7 @@ class S3Util(object):
         return True
 
     def create_bucket(self):
-        return create_bucket(client=self.s3client, bucket_name=self.bucket_name, region=self.bucket_resource)
+        return create_bucket(client=self.s3client, bucket_name=self.bucket_name)
 
     def delete_all_bucket_objects(self):
         return delete_all_bucket_objects(client=self.s3client, bucket_name=self.bucket_name)
