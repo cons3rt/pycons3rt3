@@ -3081,6 +3081,35 @@ class Cons3rtApi(object):
             raise Cons3rtApiError(msg) from exc
         log.info('Successfully created User from file: {f}'.format(f=json_file))
 
+    def create_single_user(self, username, first_name, last_name, email_address, encoded_pem, phone=None, organization=None):
+        """Creates a CONS3RT User using the provided PEM file and information
+
+        NOTE - Currently this call is not supporting the teamServiceMap and nonTeamServiceProjectMap objects
+
+        :param username: (str) CONS3RT username
+        :param first_name: (str) first name
+        :param last_name: (str) last name
+        :param email_address: (str) email address
+        :param encoded_pem: (str) encoded public key pem file
+        :param phone: (str) phone number (optional)
+        :param organization: (str) organization (optional)
+        :return: Created user data
+        :raises: Cons3rtClientError
+        """
+        log = logging.getLogger(self.cls_logger + '.create_users')
+
+        # Attempt to create the users
+        try:
+            created_user_data = self.cons3rt_client.create_single_user(
+                username=username, first_name=first_name, last_name=last_name, email_address=email_address,
+                encoded_pem=encoded_pem, phone=phone, organization=organization
+            )
+        except Cons3rtClientError as exc:
+            msg = 'Unable to create username [{u}] with pem file [{p}]'.format(u=username, p=encoded_pem)
+            raise Cons3rtApiError(msg) from exc
+        log.info('Successfully created user with username: {u}'.format(u=username))
+        return created_user_data
+
     def delete_user(self, user_id):
         """Delete a user by user ID
 

@@ -194,6 +194,57 @@ class Cons3rtClient:
         except Cons3rtClientError as exc:
             raise Cons3rtClientError(str(exc)) from exc
 
+    def create_single_user(self, username, first_name, last_name, email_address, encoded_pem, phone=None, organization=None):
+        """Creates a CONS3RT User using the provided PEM file and information
+
+        NOTE - Currently this call is not supporting the teamServiceMap and nonTeamServiceProjectMap objects
+
+        :param username: (str) CONS3RT username
+        :param first_name: (str) first name
+        :param last_name: (str) last name
+        :param email_address: (str) email address
+        :param encoded_pem: (str) encoded public key pem file
+        :param phone: (str) phone number (optional)
+        :param organization: (str) organization (optional)
+        :return: Created user data
+        :raises: Cons3rtClientError
+        """
+        poc_info = {
+            'email': email_address,
+            'firstname': first_name,
+            'lastname': last_name
+        }
+        if phone:
+            poc_info['phone'] = phone
+        if organization:
+            poc_info['organization'] = organization
+        user_content = [{
+            'pocInfo': poc_info,
+            'encodedPem': encoded_pem,
+            'username': username
+        }]
+
+        # Create JSON content
+        try:
+            json_content = json.dumps(user_content)
+        except SyntaxError as exc:
+            msg = 'There was a problem converting data to JSON: {d}'.format(d=str(user_content))
+            raise Cons3rtClientError(msg) from exc
+
+        # Create the user
+        try:
+            response = self.http_client.http_post(rest_user=self.user, target='/users', content_data=json_content)
+        except Cons3rtClientError as exc:
+            msg = 'Unable to create a user from content: {d}'.format(d=str(user_content))
+            raise Cons3rtClientError(msg) from exc
+
+        # Get the created users from the response
+        try:
+            created_users_response = parse_response(response=response)
+        except Cons3rtClientError as exc:
+            raise Cons3rtClientError(str(exc)) from exc
+        return created_users_response
+
     def add_user_to_project(self, username, project_id):
         """Adds the username to the project ID
 

@@ -3,6 +3,7 @@
 
 * Added API calls to get project and team host metrics
 * Added API calls to get project and team resource usage
+* Added the /api/users/ API call and a method to create a single user using a public cert
 
 0.0.21
 ======
