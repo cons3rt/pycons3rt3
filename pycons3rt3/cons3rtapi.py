@@ -13,7 +13,7 @@ from .logify import Logify
 from .awsutil import aws_config_file_content_template, aws_credentials_file_content_template
 from .cloud import Cloud
 from .cons3rtclient import Cons3rtClient
-from .cons3rtenums import cons3rt_deployment_run_status_active, interval_units, valid_search_type
+from .cons3rtenums import cons3rt_deployment_run_status_active, interval_units, service_types, valid_search_type
 from .cons3rtwaiters import RunWaiter
 from .deployment import Deployment
 from .pycons3rtlibs import HostActionResult, RestUser
@@ -3007,22 +3007,120 @@ class Cons3rtApi(object):
 
         :param team_id: (int) team ID
         :return: (dict)
+        :raises: Cons3rtApiError
         """
         log = logging.getLogger(self.cls_logger + '.list_services_for_team')
         if not isinstance(team_id, int):
             try:
                 team_id = int(team_id)
             except ValueError as exc:
-                raise ValueError('team_id arg must be an Integer') from exc
+                raise Cons3rtApiError('team_id arg must be an Integer') from exc
 
         # Attempt to list team services
         try:
             team_services = self.cons3rt_client.list_services_for_team(team_id=team_id)
         except Cons3rtClientError as exc:
-            msg = 'Unable to list services for tram: {i}'.format(i=str(team_id))
+            msg = 'Unable to list services for team: {i}'.format(i=str(team_id))
             raise Cons3rtApiError(msg) from exc
         log.info('Found [{n}] services for team [{i}]'.format(n=str(len(team_services)), i=str(team_id)))
         return team_services
+
+    def list_users_for_team_service(self, team_id, service_type):
+        """Lists the users in a service for team
+
+        :param team_id: (int) team ID
+        :param service_type: (str) Service Type: 'AtlassianBitbucket', 'AtlassianConfluence', 'AtlassianJira',
+            'AtlassianJiraAssetManagement', 'AtlassianJiraServiceManagement', 'GitlabPremium', 'GitlabUltimate',
+            'Mattermost', 'ProvisioningUser'
+        :return: (list) user (dict)
+        :raises: Cons3rtApiError
+        """
+        log = logging.getLogger(self.cls_logger + '.list_services_for_team')
+
+        # Ensure the team ID is an int
+        if not isinstance(team_id, int):
+            try:
+                team_id = int(team_id)
+            except ValueError as exc:
+                raise Cons3rtApiError('team_id arg must be an Integer') from exc
+
+        if not isinstance(service_type, str):
+            raise Cons3rtApiError('service_type arg must be a str')
+
+        # Ensure the service type is valid
+        if service_type not in service_types:
+            raise Cons3rtApiError('Provided service type must be one of: [{s}]'.format(s=','.join(service_types)))
+
+        # Retrieve users for team service
+        log.info('Retrieving users for team ID [{t}] service type [{s}]'.format(t=str(team_id), s=service_type))
+        try:
+            service_users = self.cons3rt_client.list_users_for_team_service(team_id=team_id, service_type=service_type)
+        except Cons3rtClientError as exc:
+            msg = 'Unable to list users of service [{s}] in team ID: [{t}]'.format(s=service_type, t=str(team_id))
+            raise Cons3rtApiError(msg) from exc
+        log.info('Found [{n}] users of service [{s}] in team ID: [{t}]'.format(
+            n=str(len(service_users)), s=service_type, t=str(team_id)))
+        return service_users
+
+    def list_all_service_users_for_team(self, team_id):
+        """Lists the users in all service for team
+
+        :param team_id: (int) team ID
+        :return: (list) of service user info with service type appended
+        :raises: Cons3rtApiError
+        """
+        log = logging.getLogger(self.cls_logger + '.list_all_service_users_for_team')
+
+        try:
+            team_services = self.list_services_for_team(team_id=team_id)
+        except Cons3rtApiError as exc:
+            msg = 'Problem listing services for team ID [{t}]'.format(t=str(team_id))
+            raise Cons3rtApiError(msg) from exc
+
+        log.info('List users in all services for team: [{t}]'.format(t=str(team_id)))
+        service_users = []
+
+        # Collect the users for each team service
+        for team_service in team_services:
+            if 'serviceType' not in team_service.keys():
+                raise Cons3rtApiError('serviceType not found in team service: [{d}]'.format(d=str(team_service)))
+            service_type = team_service['serviceType']
+            service_type_users = self.cons3rt_client.list_users_for_team_service(
+                team_id=team_id, service_type=service_type)
+            for service_type_user in service_type_users:
+                service_type_user['service_type'] = service_type
+                service_users.append(service_type_user)
+        log.info('Found [{n}] users of team services in team ID [{t}]'.format(
+            n=str(len(service_users)), t=str(team_id)))
+        return service_users
+
+    def list_bitbucket_users_for_team(self, team_id):
+        return self.list_users_for_team_service(team_id=team_id, service_type='AtlassianBitbucket')
+
+    def list_confluence_users_for_team(self, team_id):
+        return self.list_users_for_team_service(team_id=team_id, service_type='AtlassianConfluence')
+
+    def list_jira_users_for_team(self, team_id):
+        return self.list_users_for_team_service(team_id=team_id, service_type='AtlassianJira')
+
+    def list_jira_asset_management_users_for_team(self, team_id):
+        return self.list_users_for_team_service(team_id=team_id, service_type='AtlassianJiraAssetManagement')
+
+    def list_jira_service_management_users_for_team(self, team_id):
+        return self.list_users_for_team_service(team_id=team_id, service_type='AtlassianJiraServiceManagement')
+
+    def list_gitlab_premium_users_for_team(self, team_id):
+        return self.list_users_for_team_service(team_id=team_id, service_type='GitlabPremium')
+
+    def list_gitlab_ultimate_users_for_team(self, team_id):
+        return self.list_users_for_team_service(team_id=team_id, service_type='GitlabUltimate')
+
+    def list_mattermost_users_for_team(self, team_id):
+        return self.list_users_for_team_service(team_id=team_id, service_type='Mattermost')
+
+    def list_provisioning_users_for_team(self, team_id):
+        return self.list_users_for_team_service(team_id=team_id, service_type='ProvisioningUser')
+
 
     def create_user(self, username, email, first_name, last_name):
         """Creates a user using the specified parameters
@@ -3076,8 +3174,7 @@ class Cons3rtApi(object):
         try:
             self.cons3rt_client.create_user(user_file=json_file)
         except Cons3rtClientError as exc:
-            msg = 'Unable to create a User using JSON file: {f}'.format(
-                f=json_file)
+            msg = 'Unable to create a User using JSON file: {f}'.format(f=json_file)
             raise Cons3rtApiError(msg) from exc
         log.info('Successfully created User from file: {f}'.format(f=json_file))
 

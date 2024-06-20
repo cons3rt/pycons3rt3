@@ -1830,7 +1830,8 @@ class TeamCli(Cons3rtCli):
             'members',
             'project',
             'report',
-            'run'
+            'run',
+            'service'
         ]
         self.skip_run_ids = []
 
@@ -1893,6 +1894,11 @@ class TeamCli(Cons3rtCli):
         elif self.subcommands[0] == 'run':
             try:
                 self.handle_runs()
+            except Cons3rtCliError:
+                return False
+        elif self.subcommands[0] == 'service':
+            try:
+                self.handle_team_services()
             except Cons3rtCliError:
                 return False
         return True
@@ -1985,7 +1991,7 @@ class TeamCli(Cons3rtCli):
 
     def handle_runs(self):
         if not self.ids:
-            msg = '--id or --ids arg required to specify the project ID(s)'
+            msg = '--id or --ids arg required to specify the team ID(s)'
             self.err(msg)
             raise Cons3rtCliError(msg)
         if len(self.subcommands) < 2:
@@ -1996,6 +2002,24 @@ class TeamCli(Cons3rtCli):
             self.list_team_runs()
         elif self.subcommands[1] == 'snapshot':
             self.snapshot()
+        else:
+            msg = 'Unrecognized command: {c}'.format(c=self.subcommands[1])
+            self.err(msg)
+            raise Cons3rtCliError(msg)
+
+    def handle_team_services(self):
+        if not self.ids:
+            msg = '--id or --ids arg required to specify the team ID(s)'
+            self.err(msg)
+            raise Cons3rtCliError(msg)
+        if len(self.subcommands) < 2:
+            msg = 'team service subcommand not provided'
+            self.err(msg)
+            raise Cons3rtCliError(msg)
+        if self.subcommands[1] == 'list':
+            self.list_team_services()
+        elif self.subcommands[1] == 'users':
+            self.list_team_service_users()
         else:
             msg = 'Unrecognized command: {c}'.format(c=self.subcommands[1])
             self.err(msg)
@@ -2083,6 +2107,54 @@ class TeamCli(Cons3rtCli):
                 included_columns=['team_id', 'team_name', 'tool_name', 'active_user_count']
             )
         return collab_tool_users
+
+    def list_team_services(self):
+        services = []
+        for team_id in self.ids:
+            try:
+                team_services = self.c5t.list_services_for_team(team_id=team_id)
+                for team_service in team_services:
+                    team_service['team_id'] = team_id
+                    services.append(team_service)
+            except Cons3rtApiError as exc:
+                msg = 'Problem listing services for team: {i}'.format(i=str(team_id))
+                self.err(msg)
+                raise Cons3rtCliError(msg) from exc
+        if len(services) > 0:
+            self.print_formatted_list(
+                item_list=services, included_columns=['team_id', 'id', 'serviceType', 'numLicenses'])
+
+    def list_team_service_users(self):
+        service_users = []
+        if self.args.tool:
+            for team_id in self.ids:
+                try:
+                    team_service_users = self.c5t.list_users_for_team_service(
+                        team_id=team_id, service_type=self.args.tool)
+                    for team_service_user in team_service_users:
+                        team_service_user['team_id'] = team_id
+                        team_service_user['service_type'] = self.args.tool
+                        service_users.append(team_service_user)
+                except Cons3rtApiError as exc:
+                    msg = 'Problem listing users in service [{s}] for team [{t}]'.format(
+                        s=self.args.tool, t=str(team_id))
+                    self.err(msg)
+                    raise Cons3rtCliError(msg) from exc
+        else:
+            for team_id in self.ids:
+                try:
+                    team_service_users = self.c5t.list_all_service_users_for_team(team_id=team_id)
+                    for team_service_user in team_service_users:
+                        team_service_user['team_id'] = team_id
+                        service_users.append(team_service_user)
+                except Cons3rtApiError as exc:
+                    msg = 'Problem listing users in service [{s}] for team [{t}]'.format(
+                        s=self.args.tool, t=str(team_id))
+                    self.err(msg)
+                    raise Cons3rtCliError(msg) from exc
+        if len(service_users) > 0:
+            self.print_formatted_list(
+                item_list=service_users, included_columns=['team_id', 'service_type', 'id', 'username', 'email'])
 
     def list_team_unique_collab_tool_users(self):
         # Storge the list of unique collab tools users

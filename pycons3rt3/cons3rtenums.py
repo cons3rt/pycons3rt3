@@ -32,6 +32,11 @@ interval_units = [
 ]
 
 
+service_types = [
+    'AtlassianBitbucket', 'AtlassianConfluence', 'AtlassianJira', 'AtlassianJiraAssetManagement',
+    'AtlassianJiraServiceManagement', 'GitlabPremium', 'GitlabUltimate', 'Mattermost', 'ProvisioningUser'
+]
+
 valid_search_type = [
     'SEARCH_ACTIVE', 'SEARCH_ALL', 'SEARCH_AVAILABLE', 'SEARCH_COMPOSING', 'SEARCH_DECOMPOSING', 'SEARCH_INACTIVE',
     'SEARCH_PROCESSING', 'SEARCH_SCHEDULED', 'SEARCH_TESTING', 'SEARCH_SCHEDULED_AND_ACTIVE']

@@ -704,6 +704,19 @@ class Cons3rtClient:
         team_services = json.loads(content)
         return team_services
 
+    def list_users_for_team_service(self, team_id, service_type):
+        """Lists the services for a team
+
+        :param team_id: (int) team ID
+        :param service_type: (str) Service Type
+        :return: (list) user (dict)
+        """
+        response = self.http_client.http_get(rest_user=self.user, target='teams/{t}/services/{s}/users'.format(
+            t=str(team_id), s=service_type))
+        content = parse_response(response=response)
+        service_users = json.loads(content)
+        return service_users
+
     def get_system_details(self, system_id):
         """Queries CONS3RT for details of a system ID
 
