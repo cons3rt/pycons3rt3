@@ -1,4 +1,4 @@
-0.0.22a0
+0.0.22
 ========
 
 * Added API calls to get project and team host metrics

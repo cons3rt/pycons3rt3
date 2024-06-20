@@ -299,7 +299,16 @@ The `--id=1` or `--ids=1,2,3` args can be used to indicate which team IDs.
 # Get a list of teams (site admins only)
 cons3rt team list
 
-# Get a count of ACTIVE users using various collabd tools like Jira
+# Get a list of team services
+cons3rt team service list --id=2
+
+# Get a list of team service users for a particular tool
+cons3rt team service users --id=2 --tool=AtlassianJira
+
+# Get a list of all team service users for a team
+cons3rt team service users --id=2
+
+# Get a count of ACTIVE users using various collab tools like Jira
 cons3rt team collabtools users --id=2
 
 # Get a unique list of ACTIVE users in collab tools projects for a team or list of teams
