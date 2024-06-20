@@ -1,5 +1,10 @@
-0.0.22
+0.0.23a0
 ========
+
+* TBD
+
+0.0.22
+======
 
 * Added API calls to get project and team host metrics
 * Added API calls to get project and team resource usage
