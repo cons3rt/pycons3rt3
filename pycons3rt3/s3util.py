@@ -72,6 +72,25 @@ bucket_lifecycle_deletion_rules = {
     ]
 }
 
+# S3 bucket lifecycle rules to delete object versions from the bucket
+# Ref: https://repost.aws/knowledge-center/s3-empty-bucket-lifecycle-rule
+bucket_delete_all_noncurrent_version_rules = {
+    "Rules": [{
+        "ID": "Delete_All_Versions",
+        "Filter": {
+            "Prefix": ""
+        },
+        "Status": "Enabled",
+        "NoncurrentVersionExpiration": {
+            "NoncurrentDays": 1
+        },
+        "AbortIncompleteMultipartUpload": {
+            "DaysAfterInitiation": 30
+        }
+    }
+    ]
+}
+
 
 class S3MultiUtil(threading.Thread):
 
@@ -207,6 +226,9 @@ class S3Util(object):
     def create_bucket(self):
         return create_bucket(client=self.s3client, bucket_name=self.bucket_name)
 
+    def delete_all_bucket_non_latest_object_versions(self):
+        return delete_all_bucket_non_latest_object_versions(client=self.s3client, bucket_name=self.bucket_name)
+
     def delete_all_bucket_objects(self):
         return delete_all_bucket_objects(client=self.s3client, bucket_name=self.bucket_name)
     
@@ -222,6 +244,13 @@ class S3Util(object):
 
     def delete_object(self, key_to_delete):
         return self.delete_key(key_to_delete=key_to_delete)
+
+    def delete_object_version(self, key_to_delete, version_id):
+        return delete_object_version(client=self.s3client, bucket_name=self.bucket_name, object_key=key_to_delete,
+                                     version_id=version_id)
+
+    def disable_and_remove_versions_for_all_buckets(self):
+        return disable_and_remove_versions_for_all_buckets(client=self.s3client)
 
     def disable_bucket_versioning(self):
         return disable_bucket_versioning(client=self.s3client, bucket_name=self.bucket_name)
@@ -420,6 +449,10 @@ class S3Util(object):
 
     def set_bucket_lifecycle_deletion_rules(self):
         return set_bucket_lifecycle_deletion_rules(client=self.s3client, bucket_name=self.bucket_name)
+
+    def set_bucket_lifecycle_noncurrent_version_deletion_rules(self):
+        return set_bucket_lifecycle_noncurrent_version_deletion_rules(
+            client=self.s3client, bucket_name=self.bucket_name)
 
     def set_bucket_lifecycle_rules(self, lifecycle_rules):
         return set_bucket_lifecycle_rules(
@@ -1070,6 +1103,66 @@ def delete_bucket_object_versions(bucket_resource=None, bucket_name=None, region
     log.info('Completed deleting object versions from bucket: {b}'.format(b=bucket_name))
 
 
+def disable_and_remove_versions_for_all_buckets(client):
+    """Disables versioning and removes object versions from all buckets
+
+    :param client: boto3 client
+    :return: (tuple) completed_buckets, failed_buckets (lists)
+    :raises: None
+    """
+    log = logging.getLogger(mod_logger + '.disable_and_remove_versions_for_all_buckets')
+
+    # Get a list of S3 buckets
+    try:
+        buckets = list_buckets(client=client)
+    except S3UtilError as exc:
+        msg = 'Problem listing S3 buckets'
+        raise S3UtilError(msg) from exc
+
+    # Track buckets that failed to delete objects
+    failed_buckets = []
+    completed_buckets = []
+
+    # Set the default encryption for each bucket
+    log.info('Disabling versions on {n} S3 buckets'.format(n=str(len(buckets))))
+    for bucket in buckets:
+        # Ensure the bucket name is found
+        if 'Name' not in bucket.keys():
+            msg = 'Name not found in bucket data: {d}'.format(d=str(bucket))
+            raise S3UtilError(msg)
+        bucket_name = bucket['Name']
+
+        # Set the encryption for the bucket
+        log.info('Disabling versioning on bucket: {b}'.format(b=bucket_name))
+        try:
+            disable_bucket_versioning(client=client, bucket_name=bucket_name)
+        except S3UtilError as exc:
+            log.warning('Problem disabling versioning on bucket: {b}\n{e}'.format(b=bucket_name, e=str(exc)))
+            failed_buckets.append(bucket_name)
+
+        # Remove non-latest object verisons from the bucket
+        try:
+            delete_all_bucket_non_latest_object_versions(client=client, bucket_name=bucket_name)
+        except S3UtilError as exc:
+            log.warning('Problem deleting non-latest object versions from bucket: {b}\n{e}'.format(
+                b=bucket_name, e=str(exc)))
+            failed_buckets.append(bucket_name)
+        else:
+            completed_buckets.append(bucket_name)
+
+    # List completed buckets
+    log.info('Completed disabling versioning on {n} S3 buckets'.format(n=str(len(completed_buckets))))
+    for completed_bucket in completed_buckets:
+        log.info('Completed bucket: {b}'.format(b=completed_bucket))
+
+    # List failed buckets
+    if len(failed_buckets) > 0:
+        log.info('Failed disabling versioning on {n} S3 buckets'.format(n=str(len(failed_buckets))))
+        for failed_bucket in failed_buckets:
+            log.error('Failed bucket: {b}'.format(b=failed_bucket))
+    return completed_buckets, failed_buckets
+
+
 def disable_bucket_versioning(client, bucket_name):
     """Disable bucket versioning
 
@@ -1221,6 +1314,54 @@ def list_bucket_object_versions(client, bucket_name, prefix=''):
 ############################################################################
 
 
+def delete_all_bucket_non_latest_object_versions(client, bucket_name):
+    """Delete all non-latest object version in a bucket
+
+    :param client: boto3.client
+    :param bucket_name: (str) bucket name
+    :return: list of deleted objects
+    :raises: S3UtilError
+    """
+    log = logging.getLogger(mod_logger + '.delete_all_bucket_non_latest_object_versions')
+    log.info('Attempting to find and delete all non-latest object versions in bucket: {b}'.format(b=bucket_name))
+
+    # Get a list of object versions
+    object_versions = list_bucket_object_versions(client=client, bucket_name=bucket_name)
+
+    # Track the deleted objects and failed deleted objects
+    deleted_objects = []
+    failed_deleted_objects = []
+
+    for object_version in object_versions:
+        if 'Key' not in object_version.keys():
+            log.warning('Key not found in object data: [{d}]'.format(d=str(object_version)))
+            continue
+        if 'VersionId' not in object_version.keys():
+            log.warning('VersionId not found in object data: [{d}]'.format(d=str(object_version)))
+            continue
+        if 'IsLatest' not in object_version.keys():
+            log.warning('IsLatest not found in object data: [{d}]'.format(d=str(object_version)))
+            continue
+        if not object_version['IsLatest']:
+            log.info('Deleting non-latest object [{k}] version [{v}]'.format(
+                k=object_version['Key'], v=object_version['VersionId']))
+            if delete_object_version(
+                    client=client,
+                    bucket_name=bucket_name,
+                    object_key=object_version['Key'],
+                    version_id=object_version['VersionId']):
+                deleted_objects.append(object_version)
+            else:
+                failed_deleted_objects.append(object_version)
+
+    # Log the result, raise exception if there were failed object deletions
+    log.info('Deleted {n} bucket objects'.format(n=str(len(deleted_objects))))
+    if len(failed_deleted_objects):
+        msg = 'Failed to delete {n} bucket objects'.format(n=str(len(failed_deleted_objects)))
+        raise S3UtilError(msg)
+    return deleted_objects
+
+
 def delete_all_bucket_objects(client, bucket_name):
     """Delete all objects in a bucket
 
@@ -1269,6 +1410,26 @@ def delete_object(client, bucket_name, object_key):
         client.delete_object(Bucket=bucket_name, Key=object_key)
     except ClientError as exc:
         log.warning('Unable to delete key: {k}\n{e}'.format(k=object_key, e=str(exc)))
+        return False
+    return True
+
+
+def delete_object_version(client, bucket_name, object_key, version_id):
+    """Deletes the specified object version
+
+    :param client: boto3.client
+    :param bucket_name: (str) bucket nam
+    :param object_key: (str) key to delete
+    :param version_id: (str) ID of the object version
+    :return: bool, True is successful, False otherwise
+    """
+    log = logging.getLogger(mod_logger + '.delete_object_version')
+
+    log.info('Deleting object by bucket key [{k}] version [{v}]...'.format(k=object_key, v=version_id))
+    try:
+        client.delete_object(Bucket=bucket_name, Key=object_key, VersionId=version_id)
+    except ClientError as exc:
+        log.warning('Unable to delete key: [{k}] version [{v}]\n{e}'.format(k=object_key, v=version_id, e=str(exc)))
         return False
     return True
 
@@ -1491,7 +1652,7 @@ def set_bucket_policy(client, bucket_name, policy_document):
 
 
 def set_bucket_lifecycle_deletion_rules(client, bucket_name):
-    """Sets the bucket lifecycle rules to the static deletion rules defined above
+    """Sets the bucket lifecycle rules to delete all objects and versions
 
     :param client: boto3.client
     :param bucket_name: (str) bucket name
@@ -1499,12 +1660,31 @@ def set_bucket_lifecycle_deletion_rules(client, bucket_name):
     :raises: S3UtilError
     """
     log = logging.getLogger(mod_logger + '.set_bucket_lifecycle_deletion_rules')
-    log.info('Setting lifecycle rules on bucket [{n}]'.format(n=bucket_name))
+    log.info('Setting lifecycle rules to delete all objects and versions on bucket [{n}]'.format(n=bucket_name))
     try:
         set_bucket_lifecycle_rules(client=client, bucket_name=bucket_name,
                                    lifecycle_rules=bucket_lifecycle_deletion_rules)
     except S3UtilError as exc:
-        msg = 'Problem setting lifecycle deletion rules for [{n}] to: [{d}]'.format(
+        msg = 'Problem setting lifecycle deletion rules to delete all objects and versions for [{n}] to: [{d}]'.format(
+            n=bucket_name, d=str(bucket_lifecycle_deletion_rules))
+        raise S3UtilError(msg) from exc
+
+
+def set_bucket_lifecycle_noncurrent_version_deletion_rules(client, bucket_name):
+    """Sets the bucket lifecycle rules to delete only the old versions of objects
+
+    :param client: boto3.client
+    :param bucket_name: (str) bucket name
+    :return: None
+    :raises: S3UtilError
+    """
+    log = logging.getLogger(mod_logger + '.set_bucket_lifecycle_noncurrent_version_deletion_rules')
+    log.info('Setting lifecycle rules to delete noncurrent object versions on bucket [{n}]'.format(n=bucket_name))
+    try:
+        set_bucket_lifecycle_rules(client=client, bucket_name=bucket_name,
+                                   lifecycle_rules=bucket_delete_all_noncurrent_version_rules)
+    except S3UtilError as exc:
+        msg = 'Problem setting lifecycle rules to delete noncurrent object versions for [{n}] to: [{d}]'.format(
             n=bucket_name, d=str(bucket_lifecycle_deletion_rules))
         raise S3UtilError(msg) from exc
 

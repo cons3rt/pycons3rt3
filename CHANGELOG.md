@@ -1,7 +1,8 @@
 0.0.23a0
 ========
 
-* TBD
+* Added a methods to s3util for handling: object version deletion, disabling versioning in all buckets, and removing 
+non-latest versions from the bucket.
 
 0.0.22
 ======
