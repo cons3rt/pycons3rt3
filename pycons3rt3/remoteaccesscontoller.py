@@ -11,10 +11,10 @@ remote access actions including:
 
 Usage:
 
-ractl [command] [level] [args]
+ractl [level] [action] [args]
 
-commands = 'enable', 'disable', 'lock', 'print', 'toggle', 'unlock'
 level =    'cloud', 'cloudspace', 'site'
+action = 'enable', 'disable', 'lock', 'print', 'toggle', 'unlock'
 args =
     --id               cloud/cloudspace ID
     --ids              comma separated list of cloud/cloudspace IDs
@@ -69,11 +69,11 @@ mod_logger = Logify.get_name() + '.remoteaccesscontroller'
 # Output File
 out_file = os.path.join(get_report_dir(), 'remote_access_data.csv')
 
-valid_commands = ['enable', 'disable', 'lock', 'print', 'toggle', 'unlock']
-valid_commands_str = ','.join(valid_commands)
+valid_levels = ['cloud', 'cloudspace', 'site']
+valid_levels_str = ','.join(valid_levels)
 
-valid_subcommands = ['cloud', 'cloudspace', 'site']
-valid_subcommands_str = ','.join(valid_subcommands)
+valid_actions = ['enable', 'disable', 'lock', 'print', 'toggle', 'unlock']
+valid_actions_str = ','.join(valid_actions)
 
 # Default time between enabling/disabling remote access for a cloudspace
 default_cloudspace_wait_time_sec = 180
@@ -201,8 +201,8 @@ class RemoteAccessController(object):
     def __init__(self, level, ids=None, slack_channel=None, slack_url=None, unlock=False, load_data=False,
                  skip_cloudspace_ids=None, delay_sec=None):
         self.cls_logger = mod_logger + '.RemoteAccessController'
-        if level not in valid_subcommands:
-            msg = 'Invalid level [{z}], must be: {c}'.format(z=level, c=valid_subcommands_str)
+        if level not in valid_levels:
+            msg = 'Invalid level [{z}], must be: {c}'.format(z=level, c=valid_levels_str)
             raise RemoteAccessControllerError(msg)
         self.level = level
         self.ids = ids
@@ -688,7 +688,7 @@ class RemoteAccessController(object):
         :param lock: (bool) set True to lock RA DRs, false otherwise
         :return:
         """
-        log = logging.getLogger(self.cls_logger + '.set_remote_access_run_locks')
+        log = logging.getLogger(self.cls_logger + '.set_remote_access_run_locks_all_cloudspaces')
 
         # Set the run locks
         for enabled_ra in self.remote_access_run_info:
@@ -718,13 +718,28 @@ class RemoteAccessController(object):
                 log.error(msg)
                 self.send_slack(msg=msg, color='danger')
 
-    def disable_remote_access(self):
+    def disable_remote_access(self, cloudspace_id):
+        """Disables remote access for a single cloudspace
+
+        :param cloudspace_id: (int) cloudspace ID
+        :return: None
+        :raises: RemoteAccessControllerError
+        """
+        log = logging.getLogger(self.cls_logger + '.disable_remote_access')
+        log.info('Disabling remote access for cloudspace: {i}'.format(i=str(cloudspace_id)))
+        try:
+            self.c5t.disable_remote_access(vr_id=cloudspace_id)
+        except Cons3rtApiError as exc:
+            msg = 'Problem disabling remote access for cloudspace: {i}'.format(i=str(cloudspace_id))
+            raise RemoteAccessControllerError(msg) from exc
+
+    def disable_remote_access_all_enabled_cloudspaces(self):
         """Disables remote access for all enabled cloudspaces found, does not unlock
 
         :return: None
         :raises: RemoteAccessControllerError
         """
-        log = logging.getLogger(self.cls_logger + '.disable_remote_access')
+        log = logging.getLogger(self.cls_logger + '.disable_remote_access_all_enabled_cloudspaces')
 
         for enabled_ra in self.remote_access_run_info:
             if enabled_ra.cloudspace_id in self.skip_cloudspace_ids:
@@ -736,11 +751,7 @@ class RemoteAccessController(object):
                 continue
             log.info('Attempting to disable remote access for cloudspace ID: {i}'.format(
                 i=str(enabled_ra.cloudspace_id)))
-            try:
-                self.c5t.disable_remote_access(vr_id=enabled_ra.cloudspace_id)
-            except Cons3rtApiError as exc:
-                msg = 'Problem disabling remote access for cloudspace: {i}'.format(i=str(enabled_ra.cloudspace_id))
-                raise RemoteAccessControllerError(msg) from exc
+            self.disable_remote_access(cloudspace_id=enabled_ra.cloudspace_id)
             log.info('Waiting {t} seconds before proceeding to the next cloudspace'.format(
                 t=str(self.cloudspace_wait_time_sec)))
             time.sleep(self.cloudspace_wait_time_sec)
@@ -764,13 +775,7 @@ class RemoteAccessController(object):
             log.info('Attempting to unlock and disable remote access for cloudspace ID: {i}'.format(
                 i=str(enabled_ra.cloudspace_id)))
             self.set_run_lock_for_cloudspace(cloudspace_id=enabled_ra.cloudspace_id, lock=False)
-            try:
-                self.c5t.disable_remote_access(vr_id=enabled_ra.cloudspace_id)
-            except Cons3rtApiError as exc:
-                msg = 'Problem disabling remote access for cloudspace: {i}'.format(i=str(enabled_ra.cloudspace_id))
-                raise RemoteAccessControllerError(msg) from exc
-            log.info('Waiting {t} seconds before proceeding to the next cloudspace'.format(
-                t=str(self.cloudspace_wait_time_sec)))
+            self.disable_remote_access(cloudspace_id=enabled_ra.cloudspace_id)
             time.sleep(self.cloudspace_wait_time_sec)
 
     def unlock_and_disable_remote_access_for_cloudspace(self, cloudspace_id):
@@ -1031,8 +1036,8 @@ class RemoteAccessController(object):
 
 def main():
     parser = argparse.ArgumentParser(description='cons3rt remote access controller CLI')
-    parser.add_argument('command', help='Command for the RemoteAccessController CLI')
-    parser.add_argument('subcommand', help='Subcommand for the RemoteAccessController CLI')
+    parser.add_argument('command_level', help='ractl level [site, cloud, or cloudspace]')
+    parser.add_argument('command_action', help='ractl action [enable, disable, lock, print, toggle, unlock]')
     parser.add_argument('--delay', help='Override the default delay between remote access actions', required=False)
     parser.add_argument('--id', help='cloud or cloudspace ID to take action on', required=False)
     parser.add_argument('--ids', help='Comma-separated list of cloud or cloudspace IDs to take action on',
@@ -1045,20 +1050,24 @@ def main():
     parser.add_argument('--unlock', help='Unlock the remote access run', required=False, action='store_true')
     args = parser.parse_args()
 
-    # Get the command
-    command = args.command.strip().lower()
+    # Get the command_level
+    command_level = args.command_level.strip().lower()
 
-    # Ensure the command is valid
-    if command not in valid_commands:
-        print('Invalid command found [{c}]\n'.format(c=command) + valid_commands_str)
+    # TODO
+    print('NOTE -- ractl command is currently broken, RA DR info is no longer available via the cloudspace, '
+          'update needed')
+
+    # Ensure the command_level is valid
+    if command_level not in valid_levels:
+        print('Invalid command_level found [{c}]\n'.format(c=command_level) + valid_levels_str)
         return 1
 
-    # Get the subcommand
-    subcommand = args.subcommand.strip().lower()
+    # Get the command_action
+    command_action = args.command_action.strip().lower()
 
-    # Ensure the subcommand is valid
-    if subcommand not in valid_subcommands:
-        print('Invalid subcommand found [{c}]\n'.format(c=subcommand) + valid_subcommands_str)
+    # Ensure the command_action is valid
+    if command_action not in valid_actions:
+        print('Invalid command_action found [{c}]\n'.format(c=command_action) + valid_actions_str)
         return 1
 
     # Parse the delay arg
@@ -1071,10 +1080,10 @@ def main():
 
     # Parse the IDs args
     ids = None
-    if subcommand != 'site':
+    if command_level != 'site':
         ids = validate_ids(args=args)
         if not ids:
-            print('--id or --ids required when the subcommand is not [site]')
+            print('--id or --ids required when the command_level is not [site]')
             return 1
 
     # Parse the load arg
@@ -1094,6 +1103,7 @@ def main():
                 print(msg)
                 traceback.print_exc()
                 return 1
+            skip_ids.append(candidate_skip_id)
 
     # Parse the slack args
     slack_channel = None
@@ -1108,16 +1118,16 @@ def main():
     if args.unlock:
         unlock = True
 
-    rac = RemoteAccessController(level=subcommand, ids=ids, slack_channel=slack_channel, slack_url=slack_url,
+    rac = RemoteAccessController(level=command_level, ids=ids, slack_channel=slack_channel, slack_url=slack_url,
                                  unlock=unlock, load_data=load_data, skip_cloudspace_ids=skip_ids, delay_sec=delay_sec)
     rac.read_remote_access_run_data_from_file()
     rac.get_remote_access_runs()
     rac.print_remote_access_runs()
 
-    # Process the provided command
-    if command == 'enable':
+    # Process the provided command_action
+    if command_action == 'enable':
         print('COMING SOON: enable option is TBD')
-    elif command == 'disable':
+    elif command_action == 'disable':
         if unlock:
             try:
                 rac.unlock_and_disable_remote_access()
@@ -1127,21 +1137,21 @@ def main():
                 return 2
         else:
             try:
-                rac.disable_remote_access()
+                rac.disable_remote_access_all_enabled_cloudspaces()
             except RemoteAccessControllerError as exc:
                 print('Problem disabling remote access runs\n{e}'.format(e=str(exc)))
                 traceback.print_exc()
                 return 2
-    elif command == 'lock':
+    elif command_action == 'lock':
         try:
             rac.set_remote_access_run_locks_all_cloudspaces(lock=True)
         except RemoteAccessControllerError as exc:
             print('Problem setting run locks\n{e}'.format(e=str(exc)))
             traceback.print_exc()
             return 2
-    elif command == 'print':
+    elif command_action == 'print':
         print('Remote Access run output completed!')
-    elif command == 'toggle':
+    elif command_action == 'toggle':
         if unlock:
             try:
                 rac.unlock_and_toggle_remote_access()
@@ -1156,7 +1166,7 @@ def main():
                 print('Problem toggling remote access runs\n{e}'.format(e=str(exc)))
                 traceback.print_exc()
                 return 2
-    elif command == 'unlock':
+    elif command_action == 'unlock':
         try:
             rac.set_remote_access_run_locks_all_cloudspaces(lock=False)
         except RemoteAccessControllerError as exc:
