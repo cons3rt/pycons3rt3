@@ -3,6 +3,10 @@
 
 * Added a methods to s3util for handling: object version deletion, disabling versioning in all buckets, and removing 
 non-latest versions from the bucket.
+* Fixed handling asset_type and asset_subtype in the asset module, fixed querying assets, fixed setting asset_data.yml
+entries for new asset imports
+* Added --loglevel arg to the asset command
+* General code inspection cleanup
 
 0.0.22
 ======

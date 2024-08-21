@@ -8,7 +8,6 @@ with ansible-vault
 """
 import logging
 import os
-import shutil
 
 from .logify import Logify
 from .bash import run_command

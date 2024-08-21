@@ -13,7 +13,8 @@ from .logify import Logify
 from .awsutil import aws_config_file_content_template, aws_credentials_file_content_template
 from .cloud import Cloud
 from .cons3rtclient import Cons3rtClient
-from .cons3rtenums import cons3rt_deployment_run_status_active, interval_units, service_types, valid_search_type
+from .cons3rtenums import (cons3rt_deployment_run_status_active, cons3rt_software_asset_types,
+                           cons3rt_test_asset_types, interval_units, service_types, valid_search_type)
 from .cons3rtwaiters import RunWaiter
 from .deployment import Deployment
 from .pycons3rtlibs import HostActionResult, RestUser
@@ -5195,11 +5196,11 @@ class Cons3rtApi(object):
             raise Cons3rtApiError(msg) from exc
         return software_asset
 
-    def retrieve_software_assets(self, asset_type=None, community=False, expanded=False, category_ids=None,
+    def retrieve_software_assets(self, software_asset_type=None, community=False, expanded=False, category_ids=None,
                                  max_results=None):
         """Get a list of software assets
 
-        :param asset_type: (str) the software asset type, defaults to null
+        :param software_asset_type: (str) the software asset type, defaults to null
         :param community: (bool) the boolean to include community assets
         :param expanded: (bool) the boolean to include project assets
         :param category_ids: (list) the list of categories to filter by
@@ -5208,10 +5209,19 @@ class Cons3rtApi(object):
         :raises: Cons3rtApiError
         """
         log = logging.getLogger(self.cls_logger + '.retrieve_software_assets')
+
+        # Validate the software asset type arg if provided
+        if software_asset_type:
+            if not isinstance(software_asset_type, str):
+                raise Cons3rtApiError('software_asset_type must be a string')
+            if software_asset_type not in cons3rt_software_asset_types:
+                raise Cons3rtApiError('Found software_asset_type [{t}], must be one of [{n}]'.format(
+                    t=software_asset_type, n=','.join(cons3rt_software_asset_types)))
+
         log.info('Attempting to query CONS3RT to retrieve software assets...')
         try:
             software_assets = self.cons3rt_client.retrieve_all_software_assets(
-                asset_type=asset_type,
+                software_asset_type=software_asset_type,
                 community=community,
                 category_ids=category_ids,
                 expanded=expanded,
@@ -5223,10 +5233,11 @@ class Cons3rtApi(object):
         log.info('Retrieved {n} software assets'.format(n=str(len(software_assets))))
         return software_assets
 
-    def retrieve_expanded_software_assets(self, asset_type=None, community=False, category_ids=None, max_results=None):
+    def retrieve_expanded_software_assets(self, software_asset_type=None, community=False, category_ids=None,
+                                          max_results=None):
         """Get a list of software assets with expanded info
 
-        :param asset_type: (str) the software asset type, defaults to null
+        :param software_asset_type: (str) the software asset type, defaults to null
         :param community: (bool) the boolean to include community assets
         :param category_ids: (list) the list of categories to filter by
         :param max_results: (int) maximum number of software assets to return
@@ -5237,7 +5248,7 @@ class Cons3rtApi(object):
         log.info('Attempting to query CONS3RT to retrieve expanded software assets...')
         try:
             software_asset_ids = self.retrieve_software_assets(
-                asset_type=asset_type,
+                software_asset_type=software_asset_type,
                 community=community,
                 category_ids=category_ids,
                 expanded=True,
@@ -5249,10 +5260,10 @@ class Cons3rtApi(object):
         log.info('Retrieved {n} software assets'.format(n=str(len(software_asset_ids))))
         return software_asset_ids
 
-    def retrieve_all_expanded_software_assets(self, asset_type=None, community=False, category_ids=None):
+    def retrieve_all_expanded_software_assets(self, software_asset_type=None, community=False, category_ids=None):
         """Leaving this for backwards compatibility
         """
-        return self.retrieve_expanded_software_assets(asset_type=asset_type, community=community,
+        return self.retrieve_expanded_software_assets(software_asset_type=software_asset_type, community=community,
                                                       category_ids=category_ids)
 
     def retrieve_test_asset(self, asset_id):
@@ -5271,11 +5282,11 @@ class Cons3rtApi(object):
             raise Cons3rtApiError(msg) from exc
         return test_asset
 
-    def retrieve_test_assets(self, asset_type=None, community=False, expanded=False, category_ids=None,
+    def retrieve_test_assets(self, test_asset_type=None, community=False, expanded=False, category_ids=None,
                              max_results=None):
         """Get a list of test assets
 
-        :param asset_type: (str) the test asset type, defaults to null: "UNKNOWN" "NESSUS" "SCRIPT" "POWERSHELL" "MOCK"
+        :param test_asset_type: (str) the test asset type
         :param community: (bool) the boolean to include community assets
         :param expanded: (bool) the boolean to include project assets
         :param category_ids: (list) the list of categories to filter by
@@ -5284,10 +5295,19 @@ class Cons3rtApi(object):
         :raises: Cons3rtApiError
         """
         log = logging.getLogger(self.cls_logger + '.retrieve_test_assets')
+
+        # Validate the test asset type arg if provided
+        if test_asset_type:
+            if not isinstance(test_asset_type, str):
+                raise Cons3rtApiError('test_asset_type must be a string')
+            if test_asset_type not in cons3rt_test_asset_types:
+                raise Cons3rtApiError('Found test_asset_type [{t}], must be one of [{n}]'.format(
+                    t=test_asset_type, n=','.join(cons3rt_test_asset_types)))
+
         log.info('Attempting to query CONS3RT to retrieve test assets...')
         try:
             test_assets = self.cons3rt_client.retrieve_all_test_assets(
-                asset_type=asset_type,
+                test_asset_type=test_asset_type,
                 community=community,
                 category_ids=category_ids,
                 expanded=expanded,
@@ -5299,10 +5319,10 @@ class Cons3rtApi(object):
         log.info('Retrieved {n} test assets'.format(n=str(len(test_assets))))
         return test_assets
 
-    def retrieve_expanded_test_assets(self, asset_type=None, community=False, category_ids=None, max_results=None):
+    def retrieve_expanded_test_assets(self, test_asset_type=None, community=False, category_ids=None, max_results=None):
         """Get a list of test assets with expanded info
 
-        :param asset_type: (str) the test asset type, defaults to null
+        :param test_asset_type: (str) the test asset type, defaults to null
         :param community: (bool) the boolean to include community assets
         :param category_ids: (list) the list of categories to filter by
         :param max_results: (int) maximum number of test assets to return
@@ -5310,10 +5330,11 @@ class Cons3rtApi(object):
         :raises: Cons3rtApiError
         """
         log = logging.getLogger(self.cls_logger + '.retrieve_expanded_test_assets')
+
         log.info('Attempting to query CONS3RT to retrieve expanded test assets...')
         try:
             test_asset_ids = self.retrieve_test_assets(
-                asset_type=asset_type,
+                test_asset_type=test_asset_type,
                 community=community,
                 category_ids=category_ids,
                 expanded=True,
@@ -5325,17 +5346,15 @@ class Cons3rtApi(object):
         log.info('Retrieved {n} test assets'.format(n=str(len(test_asset_ids))))
         return test_asset_ids
 
-    def retrieve_all_expanded_test_assets(self, asset_type=None, community=False, category_ids=None):
+    def retrieve_all_expanded_test_assets(self, test_asset_type=None, community=False, category_ids=None):
         """Leaving this for backwards compatibility
         """
-        return self.retrieve_expanded_test_assets(asset_type=asset_type, community=community,
+        return self.retrieve_expanded_test_assets(test_asset_type=test_asset_type, community=community,
                                                   category_ids=category_ids)
 
-    def retrieve_container_assets(self, asset_type=None, community=False, expanded=False, category_ids=None,
-                                  max_results=None):
+    def retrieve_container_assets(self, community=False, expanded=False, category_ids=None, max_results=None):
         """Get a list of container assets
 
-        :param asset_type: (str) the container asset type, defaults to null
         :param community: (bool) the boolean to include community assets
         :param expanded: (bool) the boolean to include project assets
         :param category_ids: (list) the list of categories to filter by
@@ -5347,7 +5366,6 @@ class Cons3rtApi(object):
         log.info('Attempting to query CONS3RT to retrieve container assets...')
         try:
             container_assets = self.cons3rt_client.retrieve_all_container_assets(
-                asset_type=asset_type,
                 community=community,
                 expanded=expanded,
                 category_ids=category_ids,
@@ -5359,10 +5377,9 @@ class Cons3rtApi(object):
         log.info('Retrieved {n} container assets'.format(n=str(len(container_assets))))
         return container_assets
 
-    def retrieve_expanded_container_assets(self, asset_type=None, community=False, category_ids=None, max_results=None):
+    def retrieve_expanded_container_assets(self, community=False, category_ids=None, max_results=None):
         """Get a list of container assets with expanded info
 
-        :param asset_type: (str) the container asset type, defaults to null
         :param community: (bool) the boolean to include community assets
         :param category_ids: (list) the list of categories to filter by
         :param max_results: (int) maximum number of container assets to return
@@ -5373,7 +5390,6 @@ class Cons3rtApi(object):
         log.info('Attempting to query CONS3RT to retrieve expanded data on container assets...')
         try:
             container_assets = self.retrieve_container_assets(
-                asset_type=asset_type,
                 community=community,
                 category_ids=category_ids,
                 expanded=True,

@@ -4,9 +4,6 @@ This module provides utilities for interacting AWS KMS
 
 """
 import logging
-import os
-import shutil
-import time
 
 from botocore.client import ClientError
 

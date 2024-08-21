@@ -20,6 +20,7 @@ from .logify import Logify
 from .bash import mkdir_p
 from .cons3rtapi import Cons3rtApi
 from .cons3rtcli import validate_ids
+from .cons3rtenums import cons3rt_asset_types
 from .exceptions import AssetError, AssetZipCreationError, Cons3rtApiError, Cons3rtAssetStructureError, Cons3rtCliError
 
 __author__ = 'Joe Yennaco'
@@ -213,7 +214,7 @@ class Asset(object):
     def update_site_asset_id(self, site_url, asset_id, project=None):
         """Update or add the site's asset ID for the provided site URL
 
-        * Add if its not already on the list
+        * Add if it is not already on the list
         * Include project if provided
 
         :param site_url: (str) CONS3RT site API URL
@@ -432,12 +433,13 @@ def validate_asset_structure(asset_dir_path):
             elif line.strip().startswith('licenseFile='):
                 license_file_rel_path = line.strip().split('=')[1]
             elif line.strip().startswith('assetType='):
-                asset_type = line.strip().split('=')[1]
-                asset_type = asset_type.lower()
-                if asset_type == 'container':
-                    asset_type = 'containers'
-            elif 'AssetType=' in line.strip():
-                asset_subtype = line.strip().split('=')[1]
+                asset_type = line.strip().split('=')[1].upper()
+            elif line.strip().startswith('softwareAssetType='):
+                asset_subtype = line.strip().split('=')[1].upper()
+            elif line.strip().startswith('testAssetType='):
+                asset_subtype = line.strip().split('=')[1].upper()
+            elif line.strip().startswith('containerAssetType='):
+                asset_subtype = line.strip().split('=')[1].upper()
             elif line.strip().startswith('name='):
                 asset_name = line.strip().split('=')[1]
 
@@ -980,22 +982,22 @@ def print_assets(asset_list):
     print(msg)
 
 
-def query_assets_args(args, id_only=False):
+def query_assets_args(args, id_only=False, log_level='WARNING'):
     """Queries assets and prints IDs of assets matching the query
 
     :param args: command line args
     :param id_only: print the ID(s) only
+    :param log_level: (str) Set the log level
     :return: (int) 0 if successful, non-zero otherwise
     """
-    Logify.set_log_level(log_level='WARNING')
+    Logify.set_log_level(log_level=log_level)
     if not args.asset_type:
         print('ERROR: Required arg not found: --asset_type')
         return 1
-    asset_type = args.asset_type
-    valid_asset_types = ['software', 'containers']
+    asset_type = args.asset_type.upper()
 
-    if asset_type not in valid_asset_types:
-        print('Invalid --asset_type found, valid asset types: {t}'.format(t=','.join(valid_asset_types)))
+    if asset_type not in cons3rt_asset_types:
+        print('Invalid --asset_type found, valid asset types: [{t}]'.format(t=','.join(cons3rt_asset_types)))
         return 2
 
     expanded = False
@@ -1009,7 +1011,7 @@ def query_assets_args(args, id_only=False):
     if args.community:
         community = True
     if args.asset_subtype:
-        asset_subtype = args.asset_subtype
+        asset_subtype = args.asset_subtype.upper()
     if args.name:
         asset_name = args.name
     if args.latest:
@@ -1066,15 +1068,15 @@ def query_assets(asset_type, asset_subtype=None, expanded=False, community=False
     :raises: AssetError
     """
     log = logging.getLogger(mod_logger + '.query_assets')
-    valid_asset_types = ['software', 'containers']
-    if asset_type not in valid_asset_types:
-        raise AssetError('Invalid asset_type found, valid asset types: {t}'.format(t=','.join(valid_asset_types)))
+    asset_type = asset_type.upper()
+    if asset_type not in cons3rt_asset_types:
+        raise AssetError('Invalid asset_type found, valid asset types: [{t}]'.format(t=','.join(cons3rt_asset_types)))
     assets = []
     c = Cons3rtApi()
-    if asset_type == 'software':
+    if asset_type == 'SOFTWARE':
         try:
             assets = c.retrieve_software_assets(
-                asset_type=asset_subtype,
+                software_asset_type=asset_subtype,
                 community=community,
                 expanded=expanded,
                 category_ids=category_ids,
@@ -1082,10 +1084,9 @@ def query_assets(asset_type, asset_subtype=None, expanded=False, community=False
             )
         except Cons3rtApiError as exc:
             raise AssetError('Problem retrieving software assets') from exc
-    elif asset_type == 'containers':
+    elif asset_type == 'CONTAINER':
         try:
             assets = c.retrieve_container_assets(
-                asset_type=asset_subtype,
                 community=community,
                 expanded=expanded,
                 category_ids=category_ids,
@@ -1093,6 +1094,19 @@ def query_assets(asset_type, asset_subtype=None, expanded=False, community=False
             )
         except Cons3rtApiError as exc:
             raise AssetError('Problem retrieving container assets') from exc
+    elif asset_type == 'TEST':
+        try:
+            assets = c.retrieve_test_assets(
+                test_asset_type=asset_subtype,
+                community=community,
+                expanded=expanded,
+                category_ids=category_ids,
+                max_results=max_results
+            )
+        except Cons3rtApiError as exc:
+            raise AssetError('Problem retrieving test assets') from exc
+    else:
+        raise AssetError('Unrecognized asset type found: [{t}]'.format(t=asset_type))
 
     # Return empty list if no assets found
     if len(assets) < 1:
@@ -1138,10 +1152,14 @@ def main():
     parser.add_argument('--community', help='Include to retrieve community assets', action='store_true')
     parser.add_argument('--config', help='Path to a config file to load', required=False)
     parser.add_argument('--dest_dir', help='Destination directory for the asset zip (default is Downloads)')
-    parser.add_argument('--expanded', help='Include to retrieve expanded info on assets', action='store_true')
+    parser.add_argument('--expanded', help='Include to retrieve expanded info on assets',
+                        action='store_true')
     parser.add_argument('--id', help='Asset ID to download or update')
-    parser.add_argument('--keep', help='Include to keep the asset zip file after import/update', action='store_true')
-    parser.add_argument('--latest', help='Include to only return the latest with the highest ID', action='store_true')
+    parser.add_argument('--keep', help='Include to keep the asset zip file after import/update',
+                        action='store_true')
+    parser.add_argument('--latest', help='Include to only return the latest with the highest ID',
+                        action='store_true')
+    parser.add_argument('--loglevel', help='Set the log level to: DEBUG, INFO, WARNING, ERROR')
     parser.add_argument('--name', help='Asset name to filter on')
     parser.add_argument('--visibility', help='Set to the desired visibility')
     args = parser.parse_args()
@@ -1226,6 +1244,20 @@ def main():
             print('ERROR: Invalid ID: {i}'.format(i=str(args.id)))
             return 5
 
+    # Set the log level
+    log_level = 'WARNING'
+    if args.loglevel:
+        if 'WARN' in args.loglevel:
+            log_level = 'WARNING'
+        elif 'INFO' in args.loglevel:
+            log_level = 'INFO'
+        elif 'DEBUG' in args.loglevel:
+            log_level = 'DEBUG'
+        elif 'ERROR' in args.loglevel:
+            log_level = 'ERROR'
+        else:
+            print('Invalid --loglevel arg, must be one of: [DEBUG, INFO, WARNING, ERROR], using: [WARNING]')
+
     # Process the command
     res = 0
 
@@ -1235,18 +1267,18 @@ def main():
         res = download_cli(args)
     elif command == 'import':
         asset, res, err = import_update(asset_dir=asset_dir, dest_dir=dest_dir, import_only=True,
-                                        visibility=visibility, log_level='WARNING', config_file=config_file)
+                                        visibility=visibility, log_level=log_level, config_file=config_file)
     elif command == 'query':
-        res = query_assets_args(args)
+        res = query_assets_args(args, log_level=log_level)
     elif command == 'queryids':
-        res = query_assets_args(args, id_only=True)
+        res = query_assets_args(args, id_only=True, log_level=log_level)
     elif command == 'update':
         asset, res, err = import_update(asset_dir=asset_dir, dest_dir=dest_dir, visibility=visibility,
-                                        log_level='WARNING', keep_asset_zip=keep, update_asset_id=asset_id,
+                                        log_level=log_level, keep_asset_zip=keep, update_asset_id=asset_id,
                                         config_file=config_file)
     elif command == 'updateonly':
         asset, res, err = import_update(asset_dir=asset_dir, dest_dir=dest_dir, visibility=visibility,
-                                        log_level='WARNING', keep_asset_zip=keep, update_only=True,
+                                        log_level=log_level, keep_asset_zip=keep, update_only=True,
                                         update_asset_id=asset_id, config_file=config_file)
     elif command == 'validate':
         validate(asset_dir=asset_dir)

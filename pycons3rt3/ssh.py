@@ -102,6 +102,7 @@ def ssh_copy_id(pub_key_path, host, remote_username=None, port=22):
     :param pub_key_path: (str) path to the SSH key file to copy
     :param host: (str) hostname or IP address to copy the file to
     :param remote_username: (str) username on the remote machine
+    :param port: (int) TCP port number for ssh
     :return: True if successful
     :raises: SshConfigError
     """
@@ -117,7 +118,7 @@ def ssh_copy_id(pub_key_path, host, remote_username=None, port=22):
     command = 'echo "{p}" >> $HOME/.ssh/authorized_keys'.format(p=pub_key_contents)
     log.info('Copying key {k} to host: {h}'.format(k=pub_key_path, h=user_host_str))
     try:
-        result = run_remote_command(host=user_host_str, command=command, timeout_sec=30.0)
+        result = run_remote_command(host=user_host_str, command=command, port=port, timeout_sec=30.0)
     except CommandError as exc:
         raise SshConfigError('There was a problem running: {c}'.format(c=' '.join(command))) from exc
     if result['code'] != 0:
@@ -401,7 +402,7 @@ def scp_file(host, src_path, dest_path, put=False, username=None, password=None,
     try:
         client.connect(hostname=host, port=port, username=username, password=password, key_filename=key_filename,
                        passphrase=passphrase)
-    except (paramiko.client.SSHException, socket.error) as exc:
+    except (paramiko.SSHException, socket.error) as exc:
         msg = 'SSH problem: ' + connection_msg
         raise SshConfigError(msg) from exc
 
@@ -461,7 +462,7 @@ def read_file_over_ssh(host, file_path, username=None, password=None, key_filena
     try:
         client.connect(hostname=host, port=port, username=username, password=password, key_filename=key_filename,
                        passphrase=passphrase)
-    except (paramiko.client.SSHException, socket.error) as exc:
+    except (paramiko.SSHException, socket.error) as exc:
         err_msg = 'SSH problem: ' + connection_msg
         raise SshConfigError(err_msg) from exc
 

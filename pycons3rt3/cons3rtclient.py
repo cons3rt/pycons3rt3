@@ -1958,11 +1958,11 @@ class Cons3rtClient:
         software_asset = json.loads(result)
         return software_asset
 
-    def retrieve_software_assets(self, asset_type=None, community=False, category_ids=None, expanded=False,
+    def retrieve_software_assets(self, software_asset_type=None, community=False, category_ids=None, expanded=False,
                                  max_results=40, page_num=0):
         """Get a list of software assets
 
-        :param asset_type: (str) the software asset type, defaults to null
+        :param software_asset_type: (str) the software asset type, defaults to null
         :param community: (bool) the boolean to include community assets
         :param category_ids: (list) the list of categories to filter by
         :param expanded: (bool) whether to retrieve expanded info
@@ -1974,18 +1974,8 @@ class Cons3rtClient:
             target = 'software/expanded?'
         else:
             target = 'software?'
-        if asset_type:
-            target += 'softwareType={t}&'.format(t=type)
-        if community:
-            target += 'community=true'
-        else:
-            target += 'community=false'
-        if category_ids:
-            for category_id in category_ids:
-                target += '&categoryids={c}'.format(c=str(category_id))
-        target += '&maxresults={m}&page={p}'.format(m=str(max_results), p=str(page_num))
-        target = get_asset_target(target=target, page_num=page_num, asset_type=asset_type, community=community,
-                                  category_ids=category_ids, max_results=max_results)
+        target = get_asset_target(target=target, page_num=page_num, software_asset_type=software_asset_type,
+                                  community=community, category_ids=category_ids, max_results=max_results)
         try:
             response = self.http_client.http_get(
                 rest_user=self.user,
@@ -2000,11 +1990,11 @@ class Cons3rtClient:
         software_assets = json.loads(result)
         return software_assets
 
-    def retrieve_all_software_assets(self, asset_type=None, community=False, category_ids=None, expanded=False,
+    def retrieve_all_software_assets(self, software_asset_type=None, community=False, category_ids=None, expanded=False,
                                      max_results=None):
         """Get a list of software assets with expanded info
 
-        :param asset_type: (str) the software asset type, defaults to null
+        :param software_asset_type: (str) the software asset type, defaults to null
         :param community: (bool) the boolean to include community assets
         :param category_ids: (list) the list of categories to filter by
         :param expanded: (bool) whether to retrieve expanded info
@@ -2019,7 +2009,7 @@ class Cons3rtClient:
             try:
                 print('Retrieving software assets: page {p}'.format(p=str(page_num)))
                 software_assets_page = self.retrieve_software_assets(
-                    asset_type=asset_type,
+                    software_asset_type=software_asset_type,
                     community=community,
                     category_ids=category_ids,
                     expanded=expanded,
@@ -2065,11 +2055,11 @@ class Cons3rtClient:
         test_asset = json.loads(result)
         return test_asset
 
-    def retrieve_test_assets(self, asset_type=None, community=False, category_ids=None, expanded=False,
+    def retrieve_test_assets(self, test_asset_type=None, community=False, category_ids=None, expanded=False,
                              max_results=40, page_num=0):
         """Get a list of test assets
 
-        :param asset_type: (str) the test asset type, defaults to null: "UNKNOWN" "NESSUS" "SCRIPT" "POWERSHELL" "MOCK"
+        :param test_asset_type: (str) the test asset type, defaults to null: "UNKNOWN" "NESSUS" "SCRIPT" "POWERSHELL" "MOCK"
         :param community: (bool) the boolean to include community assets
         :param category_ids: (list) the list of categories to filter by
         :param expanded: (bool) whether to retrieve expanded info
@@ -2081,8 +2071,8 @@ class Cons3rtClient:
             target = 'testassets/expanded?'
         else:
             target = 'testassets?'
-        target = get_asset_target(target=target, asset_type=asset_type, page_num=page_num, community=community,
-                                  category_ids=category_ids, max_results=max_results)
+        target = get_asset_target(target=target, test_asset_type=test_asset_type, page_num=page_num,
+                                  community=community, category_ids=category_ids, max_results=max_results)
 
         try:
             response = self.http_client.http_get(
@@ -2098,11 +2088,11 @@ class Cons3rtClient:
         test_assets = json.loads(result)
         return test_assets
 
-    def retrieve_all_test_assets(self, asset_type=None, community=False, category_ids=None, expanded=False,
+    def retrieve_all_test_assets(self, test_asset_type=None, community=False, category_ids=None, expanded=False,
                                  max_results=None):
         """Get a list of test assets with expanded info
 
-        :param asset_type: (str) the test asset type, defaults to null
+        :param test_asset_type: (str) the test asset type, defaults to null
         :param community: (bool) the boolean to include community assets
         :param category_ids: (list) the list of categories to filter by
         :param expanded: (bool) whether to retrieve expanded info
@@ -2117,7 +2107,7 @@ class Cons3rtClient:
             try:
                 print('Retrieving test assets: page {p}'.format(p=str(page_num)))
                 test_assets_page = self.retrieve_test_assets(
-                    asset_type=asset_type,
+                    test_asset_type=test_asset_type,
                     community=community,
                     category_ids=category_ids,
                     expanded=expanded,
@@ -2141,11 +2131,9 @@ class Cons3rtClient:
         print('Retrieved a total of {n} test assets'.format(n=str(len(test_assets))))
         return test_assets
 
-    def retrieve_container_assets(self, asset_type=None, community=False, category_ids=None, expanded=False,
-                                  max_results=40, page_num=0):
+    def retrieve_container_assets(self, community=False, category_ids=None, expanded=False, max_results=40, page_num=0):
         """Get a list of container assets
 
-        :param asset_type: (str) the container asset type, defaults to null
         :param community: (bool) the boolean to include community assets
         :param category_ids: (list) the list of categories to filter by
         :param expanded: (bool) whether to retrieve expanded info
@@ -2158,8 +2146,8 @@ class Cons3rtClient:
             target = 'containers/expanded?'
         else:
             target = 'containers?'
-        target = get_asset_target(target=target, page_num=page_num, asset_type=asset_type, community=community,
-                                  category_ids=category_ids, max_results=max_results)
+        target = get_asset_target(
+            target=target, page_num=page_num, community=community, category_ids=category_ids, max_results=max_results)
         try:
             response = self.http_client.http_get(
                 rest_user=self.user,
@@ -2174,11 +2162,9 @@ class Cons3rtClient:
         container_assets = json.loads(result)
         return container_assets
 
-    def retrieve_all_container_assets(self, asset_type=None, community=False, category_ids=None, expanded=False,
-                                      max_results=None):
+    def retrieve_all_container_assets(self, community=False, category_ids=None, expanded=False, max_results=None):
         """Get a list of container assets with expanded info
 
-        :param asset_type: (str) the container asset type, defaults to null
         :param community: (bool) the boolean to include community assets
         :param category_ids: (list) the list of categories to filter by
         :param expanded: (bool) whether to retrieve expanded info
@@ -2193,7 +2179,6 @@ class Cons3rtClient:
             try:
                 print('Retrieving container assets: page {p}'.format(p=str(page_num)))
                 container_asset_page = self.retrieve_container_assets(
-                    asset_type=asset_type,
                     community=community,
                     category_ids=category_ids,
                     expanded=expanded,
@@ -2370,14 +2355,15 @@ class Cons3rtClient:
         return identity
 
 
-def get_asset_target(target, page_num, asset_type=None, software_asset_type=None, community=None, category_ids=None,
-                     max_results=100):
+def get_asset_target(target, page_num, asset_type=None, software_asset_type=None, test_asset_type=None, community=None,
+                     category_ids=None, max_results=100):
     """Given an asset target URL portion, append provided parameters
 
-    :param target: (str) URL target portion
+    :param target: (str) URL target base portion
     :param page_num: (int) page number for the query
-    :param asset_type: (str) type of asset
+    :param asset_type: (str) type of asset for systems
     :param software_asset_type: (str) type of software asset
+    :param test_asset_type: (str) type of test asset
     :param community: (bool) set true to include community assets
     :param category_ids: (list) of (int) IDs for categories to include in the query
     :param max_results: (int) maximum number of results to return
@@ -2385,7 +2371,9 @@ def get_asset_target(target, page_num, asset_type=None, software_asset_type=None
     """
     if software_asset_type:
         target += 'softwareType={t}&'.format(t=software_asset_type)
-    if asset_type:
+    elif test_asset_type:
+        target += 'testAssetType={t}&'.format(t=test_asset_type)
+    elif asset_type:
         target += 'type={t}&'.format(t=asset_type)
     if community:
         target += 'community=true'

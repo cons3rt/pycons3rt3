@@ -230,7 +230,7 @@ def main():
 
     # Retrieve the software assets
     log.info('Retrieving software assets by category ID: {i}'.format(i=str(category_id)))
-    export_assets = c.retrieve_expanded_software_assets(asset_type='software', community=True,
+    export_assets = c.retrieve_expanded_software_assets(software_asset_type='APPLICATION', community=True,
                                                         category_ids=[category_id])
     log.info('Found {n} software assets for category: {c}'.format(n=str(len(export_assets)), c=category_name))
 
