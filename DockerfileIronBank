@@ -1,4 +1,4 @@
-FROM registry1.dso.mil/ironbank/redhat/python/python39:latest as base
+FROM docker.jackpinetech.com/ironbank/redhat/python/python39:latest AS base
 
 ENV SRC_DIR=/opt/app-root/src
 ENV DIST_DIR=$SRC_DIR/dist
@@ -12,7 +12,7 @@ RUN mkdir -p $PACKAGES_DIR \
     && chmod +x /opt/app-root/src/entrypoint.sh
 
 
-FROM registry1.dso.mil/ironbank/redhat/python/python39:latest as build
+FROM docker.jackpinetech.com/ironbank/redhat/python/python39:latest AS build
 
 ENV SRC_DIR=/opt/app-root/src
 ENV DIST_DIR=$SRC_DIR/dist
@@ -33,7 +33,7 @@ RUN python3 -m build \
     && /opt/app-root/bin/python3 -m pip download --requirement requirements.txt --dest $PACKAGES_DIR
 
 
-FROM base as final
+FROM base AS final
 
 COPY --from=build $PACKAGES_DIR/* $PACKAGES_DIR/
 COPY --from=build $DIST_DIR/*.whl $DIST_DIR/
@@ -48,5 +48,5 @@ ENTRYPOINT ["/opt/app-root/src/entrypoint.sh"]
 CMD ["cons3rt", "--version"]
 
 
-# docker build -f DockerfileIronBank -t pycons3rt3:0.0.22a0-iron .
+# docker build -f DockerfileIronBank -t pycons3rt3:0.0.23a0-iron .
 # docker run --rm -it -v $PYCONS3RT_HOME:/opt/app-root/src/.cons3rt pycons3rt3:0.0.22a0-iron cons3rt cloud list

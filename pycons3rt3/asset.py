@@ -111,7 +111,7 @@ except KeyError:
 
 class Asset(object):
 
-    def __init__(self, asset_dir_path, name=None, asset_type=None, asset_subtype=None, asset_zip_path=None,
+    def __init__(self, asset_dir_path=None, name=None, asset_type=None, asset_subtype=None, asset_zip_path=None,
                  asset_id=None, site_url=None):
         self.asset_dir_path = asset_dir_path
         self.name = name
@@ -121,7 +121,8 @@ class Asset(object):
         self.asset_id = asset_id
         self.site_url = site_url
         self.site_asset_list = []
-        self.asset_yml = os.path.join(self.asset_dir_path, 'asset_data.yml')
+        if self.asset_dir_path:
+            self.asset_yml = os.path.join(self.asset_dir_path, 'asset_data.yml')
 
     def __str__(self):
         return str(self.name + ' @ ' + self.asset_dir_path)
@@ -165,6 +166,10 @@ class Asset(object):
         """
         # Reset the site asset data list
         self.site_asset_list = []
+
+        # Return if there is no asset_dir (e.g. zip import/update)
+        if not self.asset_dir_path:
+            return
 
         # Read in existing asset data yaml file
         asset_data_list = []
@@ -222,7 +227,7 @@ class Asset(object):
         :param project: (str) name of the project to include in the asset data
         :return: None
         """
-        print('Adding asset ID [{i}] for site URL: [{u}]'.format(i=str(asset_id), u=site_url))
+        #print('Adding asset ID [{i}] for site URL: [{u}]'.format(i=str(asset_id), u=site_url))
 
         # Update these to the most recent update/import
         self.asset_id = asset_id
@@ -235,12 +240,16 @@ class Asset(object):
         else:
             self.__update_site_asset_id_without_project__(site_url=site_url, asset_id=asset_id)
 
+        # Return if there is not an asset directory
+        if not self.asset_dir_path:
+            return
+
         # Remove and replace the asset data yaml file
         if os.path.isfile(self.asset_yml):
             os.remove(self.asset_yml)
         dump_data = []
         for site_asset_data in self.site_asset_list:
-            print('Updating site data: {d}'.format(d=str(site_asset_data)))
+            #print('Updating site data: {d}'.format(d=str(site_asset_data)))
             dump_data.append(site_asset_data.yaml_dump)
         with open(self.asset_yml, 'w') as f:
             yaml.dump(dump_data, f, sort_keys=True)
@@ -283,14 +292,12 @@ class Asset(object):
         updated = False
         for site_asset_data in self.site_asset_list:
             if site_asset_data.site_url == site_url:
-                print('Found existing asset ID: [{i}]'.format(i=site_asset_data.asset_id))
-                print('Updating asset ID to [{i}] for site URL [{u}] without specifying a project'.format(
-                    i=asset_id, u=site_url))
+                print('Updating asset ID from [{e}] to [{i}] for site URL [{u}] without a project'.format(
+                    e=site_asset_data.asset_id, i=asset_id, u=site_url))
                 site_asset_data.update_asset_id(asset_id=asset_id)
                 updated = True
         if not updated:
-            print('Adding asset ID to [{i}] for site URL [{u}] without a project'.format(
-                i=asset_id, u=site_url))
+            print('Adding asset ID [{i}] for site URL [{u}] without a project'.format(i=asset_id, u=site_url))
             self.site_asset_list.append(
                 SiteAssetData(
                     asset_id=asset_id,
@@ -819,7 +826,8 @@ def update_asset(cons3rt_api, asset_info, asset_id):
     :param asset_id: (int) asset ID to update
     :return: (tuple) Asset, updated_asset_id (int), Success (bool)
     """
-    print('Attempting to update asset ID: {i}'.format(i=str(asset_id)))
+    print('Attempting to update asset ID [{i}] with asset zip file: {f}'.format(
+        i=str(asset_id), f=asset_info.asset_zip_path))
     asset_info.update_site_asset_id(
         asset_id=asset_id,
         site_url=cons3rt_api.rest_user.rest_api_url,
@@ -832,37 +840,50 @@ def update_asset(cons3rt_api, asset_info, asset_id):
             a=str(asset_id), z=asset_info.asset_zip_path, u=cons3rt_api.rest_user.rest_api_url, e=str(exc)))
         traceback.print_exc()
         return asset_info, asset_id, False
-    print('Updated asset ID: {a}'.format(a=str(asset_id)))
+    print('Updated asset ID successfully: {a}'.format(a=str(asset_id)))
     return asset_info, asset_id, True
 
 
-def import_update(asset_dir, dest_dir, visibility=None, import_only=False, update_only=False, update_asset_id=None,
-                  log_level=None, config_file=None, keep_asset_zip=False):
+def import_update(dest_dir, asset_dir=None, asset_zip_file=None, visibility=None, log_level=None, keep_asset_zip=False,
+                  config_file=None, update_asset_id=None, import_only=False, update_only=False,):
     """Creates an asset zip, and attempts to import/update the asset
 
-    :param asset_dir: (str) path to asset directory
     :param dest_dir: (str) full path to the destination directory of the asset zip
+    :param asset_dir: (str) path to asset directory
+    :param asset_zip_file: (str) path to the asset zip file
     :param visibility: (str) desired visibility default: OWNER
+    :param log_level: (str) set the desired log level
+    :param keep_asset_zip: (bool) Set True to not remove the asset zip after import/update
+    :param config_file: (str) path to a config file to use for the asset import/update
+    :param update_asset_id: (int) When provided, update the provided asset ID
     :param import_only: (bool) When True, import even if an existing ID is found
     :param update_only: (bool) When True, only process an asset updates, no failover to import if ID is not found
-    :param update_asset_id: (int) When provided, update the provided asset ID
-    :param log_level: (str) set the desired log level
-    :param config_file: (str) path to a config file to use for the asset import/update
-    :param keep_asset_zip: (bool) Set True to not remove the asset zip after import/update
+
     :return: (tuple) Asset, (int) 0 = Success, non-zero otherwise, (str) Error message
     :raises: AssetError
     """
+
+    # Initialize the asset ID
+    asset_id = None
+
+    # Set the log level
     if log_level:
         Logify.set_log_level(log_level=log_level)
 
-    # Make the asset zip file
-    try:
-        asset_info = make_asset_zip(asset_dir_path=asset_dir, destination_directory=dest_dir)
-    except AssetZipCreationError as exc:
-        msg = 'AssetZipCreationError: Problem with asset zip creation\n{e}'.format(e=str(exc))
-        print('ERROR: {m}'.format(m=msg))
-        traceback.print_exc()
-        return None, 1, msg
+    # Create an Asset object from just the zip file if provided
+    if asset_zip_file:
+        asset_info = Asset(asset_zip_path=asset_zip_file)
+    elif asset_dir:
+        # Make the asset zip file
+        try:
+            asset_info = make_asset_zip(asset_dir_path=asset_dir, destination_directory=dest_dir)
+        except AssetZipCreationError as exc:
+            msg = 'AssetZipCreationError: Problem with asset zip creation\n{e}'.format(e=str(exc))
+            print('ERROR: {m}'.format(m=msg))
+            traceback.print_exc()
+            return None, 1, msg
+    else:
+        raise AssetError('Either an asset_dir or asset_zip_file arg is required')
 
     # Get the asset CONS3RT site info
     asset_info.generate_site_asset_list()
@@ -873,11 +894,19 @@ def import_update(asset_dir, dest_dir, visibility=None, import_only=False, updat
     # Get existing asset ID
     if update_asset_id:
         existing_asset_id = update_asset_id
-    else:
+    elif asset_dir:
         existing_asset_id = asset_info.get_asset_id_for_url(site_url=c5t.rest_user.rest_api_url)
+    else:
+        # Set to import only if this is an asset zip file and no update_asset_id was specified
+        import_only = True
+        existing_asset_id = None
 
     # If import_only is set, import and update the asset data for the yaml
-    if import_only:
+    if update_only and not existing_asset_id:
+        msg = 'updateonly command was specified, and no existing asset ID was found to update'
+        print(msg)
+        return asset_info, 1, msg
+    elif import_only or not existing_asset_id:
         print('Attempting to import asset zip: {f}'.format(f=asset_info.asset_zip_path))
         asset_info, asset_id, result = import_asset(cons3rt_api=c5t, asset_info=asset_info)
         if result:
@@ -886,37 +915,14 @@ def import_update(asset_dir, dest_dir, visibility=None, import_only=False, updat
             msg = 'ERROR: Failed to import asset'
             print(msg)
             return asset_info, 1, msg
-
-    else:
+    elif existing_asset_id:
         # If there is an existing asset ID, update it otherwise import it
-        if existing_asset_id:
-            print('Attempting to update asset ID [{i}] with asset zip: {f}'.format(
-                i=str(existing_asset_id), f=asset_info.asset_zip_path))
-            asset_info, asset_id, result = update_asset(cons3rt_api=c5t, asset_info=asset_info,
-                                                        asset_id=existing_asset_id)
-            if result:
-                print('Updated asset ID successfully: {i}'.format(i=str(asset_id)))
-            else:
-                msg = 'ERROR: Problem updating asset ID: {i}'.format(i=str(asset_id))
-                print(msg)
-                return asset_info, 1, msg
-
-        # If there is not an existing asset ID, import and append the resulting ID
-        else:
-            if not update_only:
-                print('No existing asset ID found, attempting to import asset zip: {f}'.format(
-                    f=asset_info.asset_zip_path))
-                asset_info, asset_id, result = import_asset(cons3rt_api=c5t, asset_info=asset_info)
-                if result:
-                    print('Imported asset successfully')
-                else:
-                    msg = 'ERROR: Failed to import asset'
-                    print(msg)
-                    return asset_info, 1, msg
-            else:
-                msg = 'updateonly command was specified, and no existing asset ID was found to update'
-                print(msg)
-                return asset_info, 1, msg
+        asset_info, asset_id, result = update_asset(
+            cons3rt_api=c5t, asset_info=asset_info, asset_id=existing_asset_id)
+        if not result:
+            msg = 'ERROR: Problem updating asset ID: {i}'.format(i=str(asset_id))
+            print(msg)
+            return asset_info, 1, msg
 
     # Remove the asset zip file
     if not keep_asset_zip:
@@ -925,13 +931,14 @@ def import_update(asset_dir, dest_dir, visibility=None, import_only=False, updat
     else:
         print('FYI... keeping asset zip file: {f}'.format(f=asset_info.asset_zip_path))
 
-    # Exit if no asset data with an ID exists
-    if not asset_id:
-        print('WARNING: No asset ID available, cannot set visibility')
-        return asset_info, 0
-
     # Attempt to set visibility
     if visibility:
+        # Exit if there is no asset ID to set visibility for
+        if not asset_id:
+            print('WARNING: No asset ID available, cannot set visibility')
+            return asset_info, 0
+
+        # Attempt to set visibility
         print('Attempting to set visibility on asset ID {n} to: {v}'.format(n=str(asset_id), v=visibility))
         try:
             c5t.update_asset_visibility(
@@ -946,6 +953,7 @@ def import_update(asset_dir, dest_dir, visibility=None, import_only=False, updat
             traceback.print_exc()
             return asset_info, 1, msg
         print('Set visibility for asset ID {i} to: {v}'.format(i=str(asset_id), v=visibility))
+
     print('Completed import/update for asset ID: {i}'.format(i=str(asset_id)))
     return asset_info, 0, None
 
@@ -1162,6 +1170,7 @@ def main():
     parser.add_argument('--loglevel', help='Set the log level to: DEBUG, INFO, WARNING, ERROR')
     parser.add_argument('--name', help='Asset name to filter on')
     parser.add_argument('--visibility', help='Set to the desired visibility')
+    parser.add_argument('--zip', help='Path to the asset zip file to import')
     args = parser.parse_args()
 
     valid_commands = ['create', 'download', 'import', 'query', 'queryids', 'update', 'updateonly', 'validate']
@@ -1177,7 +1186,10 @@ def main():
 
     # Determine asset_dir, use current directory if not provided
     if args.asset_dir:
-        # Get the asset directory and ensure it exists
+        # When an asset_dir is specified, set the zip file path to None
+        zip_file_path = None
+
+        # Get the asset directory arg
         asset_dir_provided = args.asset_dir.strip()
 
         # Handle ~ as the leading char
@@ -1186,12 +1198,39 @@ def main():
         else:
             asset_dir = str(asset_dir_provided)
 
+        # If the asset_dir is not a directory, it could be a relative path
         if not os.path.isdir(asset_dir):
             asset_dir = os.path.join(working_dir, asset_dir)
+
+        # Ensure the asset directory exists
         if not os.path.isdir(asset_dir):
             print('ERROR: Asset directory not found: {d}'.format(d=asset_dir_provided))
             return 2
+    elif args.zip:
+        # When a zip file is specified, set the asset_dir to None
+        asset_dir = None
+
+        # Get the zip file arg
+        zip_file_path_provided = args.zip.strip()
+
+        # Handle ~ as the leading char
+        if zip_file_path_provided.startswith('~'):
+            zip_file_path = str(zip_file_path_provided.replace('~', os.path.expanduser('~')))
+        else:
+            zip_file_path = str(zip_file_path_provided)
+
+        # If the asset_dir is not a directory, it could be a relative path
+        if not os.path.isfile(zip_file_path):
+            zip_file_path = os.path.join(working_dir, zip_file_path)
+
+        # Ensure the zip file exists
+        if not os.path.isfile(zip_file_path):
+            print('ERROR: Asset zip file not found: {d}'.format(d=zip_file_path_provided))
+            return 2
+
     else:
+        # As a default, assume the current directory is the asset_dir to import
+        zip_file_path = None
         asset_dir = working_dir
 
     # Determine if a config file was provided
@@ -1266,20 +1305,21 @@ def main():
     elif command == 'download':
         res = download_cli(args)
     elif command == 'import':
-        asset, res, err = import_update(asset_dir=asset_dir, dest_dir=dest_dir, import_only=True,
-                                        visibility=visibility, log_level=log_level, config_file=config_file)
+        asset, res, err = import_update(dest_dir=dest_dir, asset_dir=asset_dir, asset_zip_file=zip_file_path,
+                                        visibility=visibility, log_level=log_level, keep_asset_zip=keep,
+                                        config_file=config_file, import_only=True)
     elif command == 'query':
         res = query_assets_args(args, log_level=log_level)
     elif command == 'queryids':
         res = query_assets_args(args, id_only=True, log_level=log_level)
     elif command == 'update':
-        asset, res, err = import_update(asset_dir=asset_dir, dest_dir=dest_dir, visibility=visibility,
-                                        log_level=log_level, keep_asset_zip=keep, update_asset_id=asset_id,
-                                        config_file=config_file)
+        asset, res, err = import_update(dest_dir=dest_dir, asset_dir=asset_dir, asset_zip_file=zip_file_path,
+                                        visibility=visibility, log_level=log_level, keep_asset_zip=keep,
+                                        config_file=config_file, update_asset_id=asset_id)
     elif command == 'updateonly':
-        asset, res, err = import_update(asset_dir=asset_dir, dest_dir=dest_dir, visibility=visibility,
-                                        log_level=log_level, keep_asset_zip=keep, update_only=True,
-                                        update_asset_id=asset_id, config_file=config_file)
+        asset, res, err = import_update(dest_dir=dest_dir,asset_dir=asset_dir, asset_zip_file=zip_file_path,
+                                        visibility=visibility, log_level=log_level, keep_asset_zip=keep,
+                                        config_file=config_file, update_asset_id=asset_id, update_only=True)
     elif command == 'validate':
         validate(asset_dir=asset_dir)
     return res

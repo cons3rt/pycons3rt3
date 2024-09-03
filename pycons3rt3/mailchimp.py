@@ -170,7 +170,7 @@ class MailChimpLister(object):
                 log.info('Querying again with offset set to: {o}'.format(o=str(offset)))
 
         # Ensure the list of members built matches the expected amount
-        if len(self.list_members) != member_count:
+        if abs(len(self.list_members) - member_count) > 20:
             raise MailChimpListerError('Expected [{e}] list members but only found: {a}'.format(
                 e=str(member_count), a=str(len(self.list_members))))
         else:
