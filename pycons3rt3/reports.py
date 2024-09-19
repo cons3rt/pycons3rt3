@@ -141,6 +141,16 @@ def generate_cons3rt_data(team_id, cons3rt_api):
             if 'snapshotDate' in drh_details.keys():
                 snapshot_date_str = drh_details['snapshotDate']
 
+            # Get the GPU profile
+            gpu_profile_str = 'None'
+            if 'gpuProfile' in drh_details.keys():
+                gpu_profile_str = drh_details['gpuProfile']
+
+            # Get the GPU type
+            gpu_type_str = 'None'
+            if 'gpuType' in drh_details.keys():
+                gpu_type_str = drh_details['gpuType']
+
             drh_data.append(
                 {
                     'team_id': team_id,
@@ -161,6 +171,8 @@ def generate_cons3rt_data(team_id, cons3rt_api):
                     'cpus': drh_details['numCpus'],
                     'ram_mb': drh_details['ram'],
                     'storage_gb': storage_gb,
+                    'gpu_profile': gpu_profile_str,
+                    'gpu_type': gpu_type_str,
                     'snapshot_available': drh_details['snapshotAvailable'],
                     'snapshot_date': snapshot_date_str,
                     'snapshot_storage_gb': storage_gb if drh_details['snapshotAvailable'] else 0,
@@ -213,33 +225,15 @@ def generate_team_asset_list(team_id):
 
 
 def generate_cons3rt_header():
-    return 'TeamId,' \
-           'TeamName,' \
-           'ProjectId,' \
-           'ProjectName,' \
-           'CloudspaceId,' \
-           'CloudspaceName,' \
-           'RunId,' \
-           'RunName,' \
-           'RunStatus,' \
-           'DeploymentProperties,' \
-           'HostId,' \
-           'Hostname,' \
-           'SystemRole,' \
-           'HostStatus,' \
-           'OsTemplate,' \
-           'Cpus,' \
-           'RamMb,' \
-           'StorageGb,' \
-           'Snapshot,' \
-           'SnapshotDate,' \
-           'SnapshotStorageGb,' \
-           'Networks,' \
-           'Assets'
+    header = 'TeamId,TeamName,ProjectId,ProjectName,CloudspaceId,CloudspaceName,RunId,RunName,RunStatus,'
+    header += 'DeploymentProperties,HostId,Hostname,SystemRole,HostStatus,OsTemplate,Cpus,RamMb,StorageGb,'
+    header += 'GpuProfile,GpuType,Snapshot,SnapshotDate,SnapshotStorageGb,Networks,Assets'
+    return header
 
 
 def generate_asset_header():
-    return 'AssetId,AssetName'
+    header = 'AssetId,AssetName'
+    return header
 
 
 def generate_cons3rt_row(cons3rt_vm):
@@ -261,6 +255,8 @@ def generate_cons3rt_row(cons3rt_vm):
            str(cons3rt_vm['cpus']) + ',' + \
            str(cons3rt_vm['ram_mb']) + ',' + \
            str(cons3rt_vm['storage_gb']) + ',' + \
+           str(cons3rt_vm['gpu_profile']) + ',' + \
+           str(cons3rt_vm['gpu_type']) + ',' + \
            str(cons3rt_vm['snapshot_available']) + ',' + \
            str(cons3rt_vm['snapshot_date']) + ',' + \
            str(cons3rt_vm['snapshot_storage_gb']) + ',' + \
@@ -289,7 +285,7 @@ def read_cons3rt_data():
 
 
 def generate_cons3rt_output(team_id, cons3rt_data):
-    csv = str(generate_cons3rt_header()) + '\n'
+    csv = generate_cons3rt_header() + '\n'
     for cons3rt_vm in cons3rt_data:
         csv += generate_cons3rt_row(cons3rt_vm=cons3rt_vm) + '\n'
     report_time = datetime.datetime.now()

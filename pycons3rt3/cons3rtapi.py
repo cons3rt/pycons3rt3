@@ -2073,8 +2073,11 @@ class Cons3rtApi(object):
         if 'properties' not in dr_details:
             log.warning('No properties found for deployment run ID: {i}'.format(i=str(dr_details['id'])))
             return
+        if 'legacyProperties' not in dr_details['properties']:
+            log.warning('No legacyProperties found for deployment run ID: {i}'.format(i=str(dr_details['id'])))
+            return
         custom_props = []
-        for dep_prop in dr_details['properties']:
+        for dep_prop in dr_details['properties']['legacyProperties']:
             if 'cons3rt.fap.' in dep_prop['key']:
                 continue
             elif 'cons3rt.deploymentRun.' in dep_prop['key']:

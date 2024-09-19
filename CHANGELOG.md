@@ -7,6 +7,8 @@ non-latest versions from the bucket.
 entries for new asset imports
 * Added --loglevel arg to the asset command
 * General code inspection cleanup
+* Updated the cons3rt team report to include GPU data
+* Updated the cons3rt team report to reflect API changes in return legacy deployment properties
 
 0.0.22
 ======
