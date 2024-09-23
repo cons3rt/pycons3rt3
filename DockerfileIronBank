@@ -48,5 +48,5 @@ ENTRYPOINT ["/opt/app-root/src/entrypoint.sh"]
 CMD ["cons3rt", "--version"]
 
 
-# docker build -f DockerfileIronBank -t pycons3rt3:0.0.23a0-iron .
+# docker build -f DockerfileIronBank -t pycons3rt3:0.0.24a0-iron .
 # docker run --rm -it -v $PYCONS3RT_HOME:/opt/app-root/src/.cons3rt pycons3rt3:0.0.22a0-iron cons3rt cloud list
