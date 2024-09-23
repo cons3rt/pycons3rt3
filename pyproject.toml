@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "pycons3rt3"
-version = "0.0.23a0"
+version = "0.0.23"
 description = "A python3 library for CONS3RT assets and API calls"
 authors = [
     {name = "Joe Yennaco", email = "joe.yennaco@jackpinetech.com"},
