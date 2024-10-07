@@ -266,7 +266,7 @@ class MailChimpLister(object):
         log = logging.getLogger(self.cls_logger + '.update_list')
 
         # Validate the site tag prefix is short and has no special chars
-        special_char = re.compile('[@_!#$%^&*()<>?/\|}{~:-]')
+        special_char = re.compile('[@_!#$%^&*()<>?/|}{~:-]')
         if special_char.search(tag_prefix) is None:
             log.info('Validated site tag prefix: {t}'.format(t=tag_prefix))
         else:
@@ -300,13 +300,16 @@ class MailChimpLister(object):
             user_found = False
 
             # Ensure email and state are in the user data
-            if 'email' not in user:
+            if 'pocInfo' not in user.keys():
+                log.warning('User does not have poc info data: {u}'.format(u=str(user)))
+                continue
+            if 'email' not in user['pocInfo'].keys():
                 log.warning('User does not have an email address: {u}'.format(u=str(user)))
                 continue
             if 'state' not in user:
                 log.warning('User does not have an state: {u}'.format(u=str(user)))
                 continue
-            user_email = user['email'].strip().lower()
+            user_email = user['pocInfo']['email'].strip().lower()
             log.info('Looking at CONS3RT user with email: {e}'.format(e=user_email))
 
             # Check user for domains to skip
@@ -334,7 +337,7 @@ class MailChimpLister(object):
                     new_user_email = user_email_username + '@' + replace_domain['replace']
                     log.info('Replacing email [{o}] with [{n}]'.format(o=user_email, n=new_user_email))
                     user_email = new_user_email
-                    user['email'] = new_user_email
+                    user['pocInfo']['email'] = new_user_email
 
             if user['state'] == 'ACTIVE':
                 user_tag = '{t}_Active'.format(t=tag_prefix)
@@ -353,12 +356,13 @@ class MailChimpLister(object):
                 member_email = member['email'].strip().lower()
                 if user_email == member_email:
                     user_found = True
-                    log.info('Found existing list member: [{e}]'.format(e=user['email']))
+                    log.info('Found existing list member: [{e}]'.format(e=user['pocInfo']['email']))
                     self.update_list_member(member=member, user=user)
                     self.update_member_tags(member=member, tag=user_tag)
                     break
             if not user_found:
-                log.info('User email not subscribed to MailChimp list, adding email: {e}'.format(e=user['email']))
+                log.info('User email not subscribed to MailChimp list, adding email: {e}'.format
+                         (e=user['pocInfo']['email']))
                 self.add_list_member(user=user, tag=user_tag)
         msg = 'List update complete for list ID: {i}\nMembers Added: {a}\nMembers Updated: {u}\nAdd Fails: {af}\n' \
               'Update Fails: {uf}\nUpdates Not Needed: {n}\nTags Updated: {t}'.format(i=self.list_id,
@@ -388,11 +392,11 @@ class MailChimpLister(object):
             'Content-Type': 'application/json',
         }
         content = {
-            'email_address': user['email'],
+            'email_address': user['pocInfo']['email'],
             'status': 'subscribed',
             'merge_fields': {
-                'FNAME': user['firstname'],
-                'LNAME': user['lastname']
+                'FNAME': user['pocInfo']['firstname'],
+                'LNAME': user['pocInfo']['lastname']
             },
             'tags': [tag]
         }
@@ -401,12 +405,12 @@ class MailChimpLister(object):
         json_content = json.dumps(content)
 
         # Add the user using the MailChimp API
-        log.debug('Adding user with email {e} to list ID: {i}'.format(i=self.list_id, e=user['email']))
+        log.debug('Adding user with email {e} to list ID: {i}'.format(i=self.list_id, e=user['pocInfo']['email']))
         try:
             response = requests.post(url, headers=headers, data=json_content)
         except RequestException as exc:
             msg = 'There was a problem querying the MailChimp API to add member with email: {m}\n{e}'.format(
-                m=user['email'], e=str(exc))
+                m=user['pocInfo']['email'], e=str(exc))
             log.error(msg)
             self.add_fail_count += 1
             self.post_to_slack(msg, error=True)
@@ -418,12 +422,12 @@ class MailChimpLister(object):
         if response.status_code == requests.codes.ok:
             self.add_count += 1
             msg = 'User with email [{e}] and tag [{t}] successfully added to MailChimp List ID: {i}'.format(
-                e=user['email'], t=tag, i=self.list_id)
+                e=user['pocInfo']['email'], t=tag, i=self.list_id)
             log.info(msg)
             self.post_to_slack(msg)
         else:
             msg = 'Unable to add user with email {m}, MailChimp API returned code {o} with content:\n{c}'.format(
-                m=user['email'], o=str(response.status_code), c=decoded_content)
+                m=user['pocInfo']['email'], o=str(response.status_code), c=decoded_content)
             log.error(msg)
             self.add_fail_count += 1
             self.post_to_slack(msg, error=True)
@@ -487,17 +491,17 @@ class MailChimpLister(object):
         try:
             member_firstname = member['firstname'].strip()
             member_lastname = member['lastname'].strip()
-            user_firstname = user['firstname'].strip()
-            user_lastname = user['lastname'].strip()
+            user_firstname = user['pocInfo']['firstname'].strip()
+            user_lastname = user['pocInfo']['lastname'].strip()
             if member_firstname != user_firstname:
                 update_member = True
                 content['merge_fields'] = {}
-                content['merge_fields']['FNAME'] = user['firstname']
+                content['merge_fields']['FNAME'] = user['pocInfo']['firstname']
             if member_lastname != user_lastname:
                 update_member = True
                 if 'merge_fields' not in content:
                     content['merge_fields'] = {}
-                content['merge_fields']['LNAME'] = user['lastname']
+                content['merge_fields']['LNAME'] = user['pocInfo']['lastname']
         except KeyError as exc:
             raise MailChimpListerError('Problem looking for First/Last name updates') from exc
 
@@ -519,7 +523,7 @@ class MailChimpLister(object):
                 response = requests.patch(url, headers=headers, data=json_content)
             except RequestException as exc:
                 msg = 'Problem querying the MailChimp API to update member with email: {m}\n{e}'.format(
-                    m=user['email'], e=str(exc))
+                    m=user['pocInfo']['email'], e=str(exc))
                 log.error(msg)
                 self.update_fail_count += 1
                 self.post_to_slack(msg, error=True)
@@ -530,19 +534,19 @@ class MailChimpLister(object):
             # Check the status code
             if response.status_code == requests.codes.ok:
                 msg = 'User with email {e} successfully updated in MailChimp List ID: {i}'.format(
-                    e=user['email'], i=self.list_id)
+                    e=user['pocInfo']['email'], i=self.list_id)
                 log.info(msg)
                 self.update_count += 1
                 # self.post_to_slack(msg)
             else:
                 msg = 'There was a problem updating member with email {m}, MailChimp API returned code {o} with ' \
-                      'content:\n{c}'.format(m=user['email'], o=str(response.status_code), c=decoded_content)
+                      'content:\n{c}'.format(m=user['pocInfo']['email'], o=str(response.status_code), c=decoded_content)
                 log.error(msg)
                 self.update_fail_count += 1
                 self.post_to_slack(msg, error=True)
         else:
             self.no_updated_needed_count += 1
-            log.debug('No need to update user with email: {e}'.format(e=user['email']))
+            log.debug('No need to update user with email: {e}'.format(e=user['pocInfo']['email']))
 
     def determine_update_tags(self, member, tag):
         """Updates an existing list member tags
