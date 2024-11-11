@@ -8,13 +8,15 @@ import time
 import traceback
 import yaml
 
+from .bash import validate_ip_address
 from .logify import Logify
 
 from .awsutil import aws_config_file_content_template, aws_credentials_file_content_template
 from .cloud import Cloud
 from .cons3rtclient import Cons3rtClient
 from .cons3rtenums import (cons3rt_deployment_run_status_active, cons3rt_software_asset_types,
-                           cons3rt_test_asset_types, interval_units, service_types, valid_search_type)
+                           cons3rt_test_asset_types, interval_units, k8s_types, remote_access_sizes, service_types,
+                           valid_search_type)
 from .cons3rtwaiters import RunWaiter
 from .deployment import Deployment
 from .pycons3rtlibs import HostActionResult, RestUser
@@ -2419,49 +2421,565 @@ class Cons3rtApi(object):
             f=asset_zip_file, i=str(asset_id)))
         return asset_id
 
-    def enable_remote_access(self, vr_id, size=None):
-        """Enables Remote Access for a specific virtualization realm, and uses SMALL
-        as the default size if none is provided.
+    def update_k8s_virtualization_realm_service(self, vr_id, display_name='kubernetes', k8s_type='RKE2',
+                                                    retain_on_error=True, num_worker_nodes=3, service_id=None):
+        """Adds or updates a virtualization realm service
 
-        :param vr_id: (int) ID of the virtualization
-        :param size: (str) small, medium, or large
-        :return: None
+        Provide the service_id param to update an existing service, leave it blank to add a new service
+
+        {
+         "k8sFlavorType": "RKE2",
+         "retainOnError": true,
+         "workerNodes": 3,
+         "displayName": "kubernetes",
+         "type": "Kubernetes"
+        }
+
+        :param vr_id: (int) Virtualization Realm ID
+        :param display_name: (str) Display name for the service
+        :param k8s_type: (str) Type of kubernetes service
+        :param retain_on_error: (bool) Set True to retain if deployed services fail
+        :param num_worker_nodes: (int) Number of worker nodes
+        :param service_id: (int) Provide the service ID to update an existing service
+        :return: (dict) Containing the service info
         :raises: Cons3rtApiError
         """
-        log = logging.getLogger(self.cls_logger + '.enable_remote_access')
+        log = logging.getLogger(self.cls_logger + '.update_k8s_virtualization_realm_service')
 
         # Ensure the vr_id is an int
         if not isinstance(vr_id, int):
             try:
                 vr_id = int(vr_id)
             except ValueError as exc:
-                raise ValueError('vr_id arg must be an Integer') from exc
+                raise Cons3rtApiError('vr_id arg must be an Integer') from exc
 
-        # Use small as the default size
-        if size is None:
-            size = 'SMALL'
+        # Validate the kubernetes type
+        if k8s_type not in k8s_types:
+            msg = 'Invalid kubernetes type provided [{t}], must be one of: [{a}]'.format(
+                t=k8s_type, a=','.join(k8s_types))
+            raise Cons3rtApiError(msg)
 
-        # Ensure size is a string
-        if not isinstance(size, str):
-            raise ValueError('The size arg must be a string')
+        # Set the service type
+        service_type = 'Kubernetes'
 
-        # Acceptable sizes
-        size_options = ['SMALL', 'MEDIUM', 'LARGE']
-        size = size.upper()
-        if size not in size_options:
-            raise ValueError('The size arg must be set to SMALL, MEDIUM, or LARGE')
+        # Build the content
+        service_content = {
+            'displayName': display_name,
+            'k8sFlavorType': k8s_type,
+            'retainOnError': retain_on_error,
+            'type': service_type,
+            'workerNodes': num_worker_nodes
+        }
 
         # Attempt to enable remote access
-        log.info('Attempting to enable remote access in virtualization realm ID {i} with size: {s}'.format(
-            i=vr_id, s=size))
+        msg_body = ('virtualization realm ID [{i}] service type [{t}] with kubernetes type [{k}], display name '
+                    '[{n}], retain set to [{r}], and [{w}] nodes').format(
+            i=vr_id, t=service_type, k=k8s_type, n=display_name, r=str(retain_on_error), w=str(num_worker_nodes))
+
+        if service_id:
+            log.info('Attempting to update service ID [{s}] '.format(s=str(service_id)) + msg_body)
+            try:
+                vr_service = self.cons3rt_client.update_virtualization_realm_service(
+                    vr_id=vr_id, service_id=service_id, service_content=service_content)
+            except Cons3rtClientError as exc:
+                raise Cons3rtApiError('Problem updating service ID [{s}] '.format(
+                    s=str(service_id)) + msg_body) from exc
+            log.info('Successfully updated service ID [{s}] '.format(s=str(service_id)) + msg_body)
+        else:
+            log.info('Attempting to add ' + msg_body)
+            try:
+                vr_service = self.cons3rt_client.add_virtualization_realm_service(
+                    vr_id=vr_id, service_content=service_content)
+            except Cons3rtClientError as exc:
+                raise Cons3rtApiError('Problem adding ' + msg_body) from exc
+            log.info('Successfully added ' + msg_body)
+        return vr_service
+
+    def update_remote_access_virtualization_realm_service(self, vr_id, display_name='remote-access',
+                                                          guac_ip_address='172.16.10.253', instance_type='MEDIUM',
+                                                          remote_access_port=9443, rdp_proxy_enabled=True,
+                                                          retain_on_error=True, service_id=None):
+        """Adds or updates a remote access service
+
+        Provide the service_id param to update an existing service, leave it blank to add a new service
+
+        {
+         "guacIpAddress": "172.16.10.253",
+         "instanceType": "SMALL",
+         "rdpProxyingEnabled": true,
+         "remoteAccessPort": 9443,
+         "retainOnError": true,
+         "displayName": "remote-access",
+         "type": "RemoteAccess"
+        }
+
+        :param vr_id: (int) Virtualization Realm ID
+        :param display_name: (str) Display name for the service
+        :param guac_ip_address: (str) IP address of the guacd server
+        :param instance_type: (str) SMALL/MEDIUM/LARGE
+        :param remote_access_port: (int) TCP port for the guacd server
+        :param rdp_proxy_enabled: (bool) Set True to enable RDP proxy
+        :param retain_on_error: (bool) Set True to retain if deployed services fail
+        :param service_id: (int) Provide the service ID to update an existing service
+        :return: (dict) Containing the service info
+        :raises: Cons3rtApiError
+        """
+        log = logging.getLogger(self.cls_logger + '.update_remote_access_virtualization_realm_service')
+
+        # Ensure the vr_id is an int
+        if not isinstance(vr_id, int):
+            try:
+                vr_id = int(vr_id)
+            except ValueError as exc:
+                raise Cons3rtApiError('vr_id arg must be an Integer') from exc
+
+        # Validate the kubernetes type
+        if instance_type not in remote_access_sizes:
+            msg = 'Invalid instance type provided [{t}], must be one of: [{a}]'.format(
+                t=instance_type, a=','.join(remote_access_sizes))
+            raise Cons3rtApiError(msg)
+
+        # Set the service type
+        service_type = 'RemoteAccess'
+
+        # Build the content
+        service_content = {
+            'displayName': display_name,
+            'guacIpAddress': guac_ip_address,
+            'instanceType': instance_type,
+            'rdpProxyingEnabled': rdp_proxy_enabled,
+            'remoteAccessPort': remote_access_port,
+            'retainOnError': retain_on_error,
+            'type': service_type
+        }
+
+        # Attempt to enable remote access
+        msg_body = ('virtualization realm ID [{i}] service type [{t}] with instance type [{k}], display name '
+                    '[{n}], guac IP address:port [{a}:{p}], RDP proxy [x], and retain set to [{r}]').format(
+            i=vr_id, t=service_type, k=instance_type, n=display_name, r=str(retain_on_error),
+            a=guac_ip_address, p=str(remote_access_port), x=str(rdp_proxy_enabled))
+
+        if service_id:
+            log.info('Attempting to update service ID [{s}] '.format(s=str(service_id)) + msg_body)
+            try:
+                vr_service = self.cons3rt_client.update_virtualization_realm_service(
+                    vr_id=vr_id, service_id=service_id, service_content=service_content)
+            except Cons3rtClientError as exc:
+                raise Cons3rtApiError('Problem updating service ID [{s}] '.format(
+                    s=str(service_id)) + msg_body) from exc
+            log.info('Successfully updated service ID [{s}] '.format(s=str(service_id)) + msg_body)
+        else:
+            log.info('Attempting to add ' + msg_body)
+            try:
+                vr_service = self.cons3rt_client.add_virtualization_realm_service(
+                    vr_id=vr_id, service_content=service_content)
+            except Cons3rtClientError as exc:
+                raise Cons3rtApiError('Problem adding ' + msg_body) from exc
+            log.info('Successfully added ' + msg_body)
+        return vr_service
+
+    def retrieve_virtualization_realm_service(self, vr_id, service_id):
+        """Retrieves the virtualization realm service
+
+        :param vr_id: (int) Virtualization Realm ID
+        :param service_id: (int) Service ID
+        :return: None
+        :raises: Cons3rtApiError
+        """
+        log = logging.getLogger(self.cls_logger + '.retrieve_virtualization_realm_service')
+
+        # Ensure the vr_id is an int
+        if not isinstance(vr_id, int):
+            try:
+                vr_id = int(vr_id)
+            except ValueError as exc:
+                raise Cons3rtApiError('vr_id arg must be an Integer') from exc
+
+        # Ensure the service_id is an int
+        if not isinstance(service_id, int):
+            try:
+                service_id = int(service_id)
+            except ValueError as exc:
+                raise Cons3rtApiError('service_id arg must be an Integer') from exc
+
+        # Get the VR service
+        log.info('Retrieving VR [{v}] service ID [{s}]...'.format(v=str(vr_id), s=str(service_id)))
         try:
-            self.cons3rt_client.enable_remote_access(vr_id=vr_id, size=size)
+            vr_service = self.cons3rt_client.retrieve_virtualization_realm_service(
+                vr_id=vr_id, service_id=service_id)
         except Cons3rtClientError as exc:
-            msg = 'There was a problem enabling remote access in virtualization realm ID: {i} with size: ' \
-                  '{s}'.format(i=vr_id, s=size)
+            msg = 'Retrieving service ID [{s}] from VR ID [{v}]'.format(
+                s=str(service_id), v=str(vr_id))
             raise Cons3rtApiError(msg) from exc
-        log.info('Successfully enabled remote access in virtualization realm: {i}, with size: {s}'.format(
-            i=vr_id, s=size))
+        return vr_service
+
+    def update_virtualization_realm_service_state(self, vr_id, service_id, state):
+        """Updates the state of the virtualization realm service
+
+        :param vr_id: (int) Virtualization Realm ID
+        :param service_id: (int) Service ID
+        :param state: (str) enable/disable
+        :return: None
+        :raises: Cons3rtApiError
+        """
+        log = logging.getLogger(self.cls_logger + '.update_virtualization_realm_service_state')
+
+        # Ensure the vr_id is an int
+        if not isinstance(vr_id, int):
+            try:
+                vr_id = int(vr_id)
+            except ValueError as exc:
+                raise Cons3rtApiError('vr_id arg must be an Integer') from exc
+
+        # Ensure the service_id is an int
+        if not isinstance(service_id, int):
+            try:
+                service_id = int(service_id)
+            except ValueError as exc:
+                raise Cons3rtApiError('service_id arg must be an Integer') from exc
+
+        # Ensure state is enable/disable
+        valid_states = ['enable', 'disable']
+        state = state.lower()
+        if state not in valid_states:
+            msg = 'Invalid state requested [{s}], must be one of: [{v}]'.format(s=state, v=','.join(valid_states))
+            raise Cons3rtApiError(msg)
+
+        # Set the end state and processing state
+        if state == 'enable':
+            end_state = 'ENABLED'
+            processing_state = 'ENABLING'
+        else:
+            end_state = 'DISABLED'
+            processing_state = 'DISABLING'
+
+        # Check the current status
+        vr_service = self.retrieve_virtualization_realm_service(vr_id=vr_id, service_id=service_id)
+        if 'serviceStatus' not in vr_service.keys():
+            msg = 'Problem determining current status for VR [{v}] service [{s}]'.format(
+                v=str(vr_id), s=str(service_id))
+            raise Cons3rtApiError(msg)
+        current_state = vr_service['serviceStatus']
+
+        # Return if requesting enable and already enabled/enabling
+        if end_state == current_state:
+            log.info('VR [{v}] service [{s}] is already [{x}]'.format(v=str(vr_id), s=str(service_id), x=end_state))
+            return
+        elif processing_state == current_state:
+            log.info('VR [{v}] service [{s}] is already [{x}]...'.format(v=str(vr_id), s=str(service_id), x=end_state))
+        else:
+        # Update the VR service ID to the requested state
+            log.info('Updating state for VR [{v}] service ID [{i}] to state [{s}]...'.format(
+                v=str(vr_id), i=str(service_id), s=state))
+            try:
+                self.cons3rt_client.update_virtualization_realm_service_state(
+                    vr_id=vr_id, service_id=service_id, state=state)
+            except Cons3rtClientError as exc:
+                msg = 'Updating state for VR [{v}] service ID [{i}] to state [{s}]\n{e}'.format(
+                    v=str(vr_id), i=str(service_id), s=state, e=str(exc))
+                raise Cons3rtApiError(msg) from exc
+
+        # Wait for the service to reach the end state
+        self.wait_virtualization_realm_service_state(vr_id=vr_id, service_id=service_id, end_state=end_state)
+
+    def wait_virtualization_realm_service_state(self, vr_id, service_id, end_state, status_type='serviceStatus'):
+        """Updates the state of the virtualization realm service
+
+        :param vr_id: (int) Virtualization Realm ID
+        :param service_id: (int) Service ID
+        :param end_state: (str) ENABLED/DISABLED
+        :param status_type: (str) Which type of status to monitor:
+            serviceStatus - top level service
+            raStatus      - remote access service while the DR releases
+        :return: None
+        :raises: Cons3rtApiError
+        """
+        log = logging.getLogger(self.cls_logger + '.wait_virtualization_realm_service_state')
+
+        # Ensure the vr_id is an int
+        if not isinstance(vr_id, int):
+            try:
+                vr_id = int(vr_id)
+            except ValueError as exc:
+                raise Cons3rtApiError('vr_id arg must be an Integer') from exc
+
+        # Validate the end state
+        valid_end_states = ['DISABLED', 'ENABLED']
+        end_state = end_state.upper()
+        if end_state not in valid_end_states:
+            msg = 'Invalid end_state found [{x}], must be one of [{v}]'.format(
+                x=end_state, v=','.join(valid_end_states))
+            raise Cons3rtApiError(msg)
+
+        # Attempt to disable remote access
+        log.info('Waiting for VR ID [{i}] service [{s}] to reach state: [x]'.format(
+            i=str(vr_id), s=str(service_id), x=end_state))
+        max_checks = 3600
+        try_num = 1
+        retry_time_sec = 30
+        while True:
+            # Fail when the maximum time exceeded
+            if try_num > max_checks:
+                msg = 'Max checks [{m}] exceeded waiting for VR ID [{i}] service [{s}] to reach state [{x}]'.format(
+                    i=str(vr_id), m=str(max_checks), s=str(service_id), x=end_state)
+                raise Cons3rtApiError(msg)
+
+            # Check the status
+            try:
+                vr_service = self.retrieve_virtualization_realm_service(vr_id=vr_id, service_id=service_id)
+            except Cons3rtApiError as exc:
+                log.warning('Problem retrieving the VR ID [{i}] service [{s}]\n{e}'.format(
+                    i=str(vr_id), s=str(service_id), e=str(exc)))
+            else:
+                # Fail if ERROR state reached
+                if vr_service[status_type] == 'ERROR':
+                    msg = 'VR ID [{i}] service [{s}] completed with [ERROR]'.format(i=str(vr_id), s=str(service_id))
+                    raise Cons3rtApiError(msg)
+                # Return when desired state reached
+                elif vr_service[status_type] == end_state:
+                    log.info('VR ID [{i}] service [{s}] reached desired state: [{x}]'.format(
+                        i=str(vr_id), s=str(service_id), x=end_state))
+                    return
+                elif vr_service[status_type] in valid_end_states:
+                    msg = 'VR ID [{i}] service [{s}] completed unexpected end state [{x}]'.format(
+                        i=str(vr_id), s=str(service_id), x=vr_service[status_type])
+                    raise Cons3rtApiError(msg)
+                else:
+                    log.info('VR ID [{i}] service [{s}] currently has state: [{x}]'.format(
+                        i=str(vr_id), s=str(service_id), x=vr_service[status_type]))
+
+            # Re-try after a waiting period
+            log.info('Retrying in {t} sec...'.format(t=str(retry_time_sec)))
+            try_num += 1
+            time.sleep(retry_time_sec)
+
+    def remove_virtualization_realm_service(self, vr_id, service_id):
+        """Removes the service from the virtualization realm
+
+        :param vr_id: (int) Virtualization Realm ID
+        :param service_id: (int) Service ID
+        :return: None
+        :raises: Cons3rtApiError
+        """
+        log = logging.getLogger(self.cls_logger + '.remove_virtualization_realm_service')
+
+        # Ensure the vr_id is an int
+        if not isinstance(vr_id, int):
+            try:
+                vr_id = int(vr_id)
+            except ValueError as exc:
+                raise Cons3rtApiError('vr_id arg must be an Integer') from exc
+
+        # Ensure the service_id is an int
+        if not isinstance(service_id, int):
+            try:
+                service_id = int(service_id)
+            except ValueError as exc:
+                raise Cons3rtApiError('service_id arg must be an Integer') from exc
+
+        # Remove the VR service
+        log.info('Removing VR [{v}] service [{s}]...'.format(v=str(vr_id), s=str(service_id)))
+        try:
+            self.cons3rt_client.remove_virtualization_realm_service(vr_id=vr_id, service_id=service_id)
+        except Cons3rtClientError as exc:
+            msg = 'Removing VR [{v}] service [{s}]'.format(v=str(vr_id), s=str(service_id))
+            raise Cons3rtApiError(msg) from exc
+
+    def get_remote_access_service(self, vr_id):
+        """Query the VR to get the service ID for remote access
+
+        :param vr_id: (int) Virtualization Realm ID
+        :return: (dict) the Remote Access VR service info or None:
+        {
+            "id"
+            "type"
+            "displayName"
+            "status"
+        }
+        """
+        log = logging.getLogger(self.cls_logger + '.get_remote_access_service')
+
+        # Ensure the vr_id is an int
+        if not isinstance(vr_id, int):
+            try:
+                vr_id = int(vr_id)
+            except ValueError as exc:
+                raise Cons3rtApiError('vr_id arg must be an Integer') from exc
+
+        # Get the VR details
+        vr_details = self.get_virtualization_realm_details(vr_id=vr_id)
+
+        # Check for services
+        if 'services' not in vr_details.keys():
+            log.info('VR ID [{{i}] has no services'.format(i=str(vr_id)))
+            return
+
+        # Loop through service to find the remote access service
+        for service in vr_details['services']:
+            if 'type' not in service.keys():
+                continue
+            if 'id' not in service.keys():
+                continue
+            if service['type'] != 'RemoteAccess':
+                continue
+            log.info('Found VR [{v}] remote access service ID: [{s}]'.format(v=str(vr_id), s=str(service['id'])))
+            ra_service_details = self.retrieve_virtualization_realm_service(vr_id=vr_id, service_id=service['id'])
+            return ra_service_details
+
+        # Log RA service was not found
+        log.info('Remote access service not found for VR ID: [{v}]'.format(v=str(vr_id)))
+
+    def enable_remote_access(self, vr_id, rdp_proxy_enabled=True, instance_type=None, guac_ip_address=None,
+                             remote_access_port=None, ra_vr_service=None):
+        """Enables Remote Access for a specific virtualization realm, and uses SMALL
+        as the default size if none is provided.
+
+        :param vr_id: (int) Virtualization Realm ID
+        :param rdp_proxy_enabled: (bool) Set True to enable RDP proxy
+        :param instance_type: (str) SMALL/MEDIUM/LARGE
+        :param guac_ip_address: (str) IP address of the guacd server
+        :param remote_access_port: (int) TCP port for the guacd server
+        :param ra_vr_service: (dict) Service info
+        :return: None
+        :raises: Cons3rtApiError
+        """
+        log = logging.getLogger(self.cls_logger + '.enable_remote_access')
+
+        # Default values
+        default_instance_type = 'MEDIUM'
+        default_guac_ip_address = '172.16.10.253'
+        default_remote_access_port = 9443
+
+        # Actual values to be determined
+        actual_instance_type = None
+        actual_guac_ip_address = None
+        actual_remote_access_port = None
+
+        # Ensure the vr_id is an int
+        if not isinstance(vr_id, int):
+            try:
+                vr_id = int(vr_id)
+            except ValueError as exc:
+                raise Cons3rtApiError('vr_id arg must be an Integer') from exc
+
+        # Get the remote access service ID/info
+        if not ra_vr_service:
+            ra_vr_service = self.get_remote_access_service(vr_id=vr_id)
+
+        # Acceptable sizes
+        if instance_type:
+            instance_type = instance_type.upper()
+            if instance_type not in remote_access_sizes:
+                raise Cons3rtApiError('The size arg must be one of [{s}]'.format(s=','.join(remote_access_sizes)))
+
+        # Validate the guac IP address
+        if guac_ip_address:
+            if not validate_ip_address(guac_ip_address):
+                raise Cons3rtApiError('Invalid guac IP address provided [{g}]'.format(g=guac_ip_address))
+
+        # Validate the guac port
+        if remote_access_port:
+            try:
+                int(remote_access_port)
+            except ValueError:
+                raise Cons3rtApiError('Invalid remote access port [{p}], must be an Integer'.format(
+                    p=str(remote_access_port)))
+
+        # Check if the RA service was found
+        if not ra_vr_service:
+
+            # Set values
+            if instance_type:
+                actual_instance_type = instance_type
+            else:
+                actual_instance_type = default_instance_type
+            if guac_ip_address:
+                actual_guac_ip_address =  guac_ip_address
+            else:
+                actual_guac_ip_address = default_guac_ip_address
+            if remote_access_port:
+                actual_remote_access_port =  remote_access_port
+            else:
+                actual_remote_access_port = default_remote_access_port
+
+            log.info('Adding RA service for VR [{v}], with size [{s}], guac IP [{g}], port [{p}], and RDP proxy '
+                     '[{r}]'.format(v=str(vr_id), s=actual_instance_type, g=actual_guac_ip_address,
+                                    p=str(actual_remote_access_port), r=str(rdp_proxy_enabled)))
+            ra_vr_service = self.update_remote_access_virtualization_realm_service(
+                vr_id=vr_id,
+                instance_type=actual_instance_type,
+                guac_ip_address=actual_guac_ip_address,
+                remote_access_port=actual_remote_access_port,
+                rdp_proxy_enabled=rdp_proxy_enabled
+            )
+        else:
+            # Track whether to update the cloudspace or RA config before enabling RA
+            update_ra_config = False
+
+            # Check to see if settings need to be updated
+            if instance_type:
+                if 'instanceType' in ra_vr_service.keys():
+                    if instance_type != ra_vr_service['instanceType']:
+                        actual_instance_type = instance_type
+                        update_ra_config = True
+                    else:
+                        actual_instance_type = ra_vr_service['instanceType']
+                else:
+                    actual_instance_type = default_instance_type
+            else:
+                actual_instance_type = default_instance_type
+
+            if guac_ip_address:
+                if 'guacIpAddress' in ra_vr_service.keys():
+                    if guac_ip_address != ra_vr_service['guacIpAddress']:
+                        actual_guac_ip_address = guac_ip_address
+                        update_ra_config = True
+                    else:
+                        actual_guac_ip_address = ra_vr_service['guacIpAddress']
+                else:
+                    actual_guac_ip_address = default_guac_ip_address
+            else:
+                actual_guac_ip_address = default_guac_ip_address
+
+            if remote_access_port:
+                if 'remoteAccessPort' in ra_vr_service.keys():
+                    if remote_access_port != ra_vr_service['remoteAccessPort']:
+                        actual_remote_access_port = remote_access_port
+                        update_ra_config = True
+                    else:
+                        actual_remote_access_port = ra_vr_service['remoteAccessPort']
+                else:
+                    actual_remote_access_port = default_remote_access_port
+            else:
+                actual_remote_access_port = default_remote_access_port
+
+            if rdp_proxy_enabled:
+                if 'rdpProxyingEnabled' in ra_vr_service.keys():
+                    if rdp_proxy_enabled != ra_vr_service['rdpProxyingEnabled']:
+                        update_ra_config = True
+
+            if update_ra_config:
+                log.info('Updating RA service for VR [{v}], with size [{s}], guac IP [{g}], port [{p}], and RDP proxy '
+                         '[{r}]'.format(v=str(vr_id), s=actual_instance_type, g=actual_guac_ip_address,
+                                        p=str(actual_remote_access_port), r=str(rdp_proxy_enabled)))
+                ra_vr_service = self.update_remote_access_virtualization_realm_service(
+                    vr_id=vr_id,
+                    instance_type=actual_instance_type,
+                    guac_ip_address=actual_guac_ip_address,
+                    remote_access_port=actual_remote_access_port,
+                    rdp_proxy_enabled=rdp_proxy_enabled
+                )
+
+        # Attempt to enable remote access
+        log.info('Attempting to enable the remote access VR service ID [{v}] in VR ID [{i}]...'.format(
+            v=vr_id, i=str(ra_vr_service['serviceId'])))
+        try:
+            self.update_virtualization_realm_service_state(
+                vr_id=vr_id, service_id=ra_vr_service['serviceId'], state='enable')
+        except Cons3rtClientError as exc:
+            msg = 'Problem enabling remote access in virtualization realm ID: {i}'.format(i=vr_id)
+            raise Cons3rtApiError(msg) from exc
+        log.info('Successfully enabled remote access in virtualization realm: {i}'.format(i=vr_id))
 
     def disable_remote_access(self, vr_id):
         """Disables Remote Access for a specific virtualization realm
@@ -2481,43 +2999,46 @@ class Cons3rtApi(object):
             except ValueError as exc:
                 raise ValueError('vr_id arg must be an Integer') from exc
 
-        # Determine remote access status
-        try:
-            vr_details = self.get_virtualization_realm_details(vr_id=vr_id)
-        except Cons3rtApiError as exc:
-            msg = 'Cons3rtApiError: Unable to query VR details to determine the size'
-            raise Cons3rtApiError(msg) from exc
+        # Get the remote access service ID/info
+        ra_vr_service = self.get_remote_access_service(vr_id=vr_id)
 
-        if 'remoteAccessStatus' not in vr_details.keys():
-            log.warning('remoteAccessStatus data not found in VR details, will attempt to disable: {d}'.format(
-                d=str(vr_details)))
+        # Check if the RA service was found
+        if not ra_vr_service:
+            log.info('Remote access service not found for VR ID {i}, nothing to disable'.format(i=str(vr_id)))
+            return
+
+        if ra_vr_service['serviceStatus'] in already_disabled_statuses:
+            log.info('Remote access service in VR ID [{i}] service [{s}] is already disabled or disabling'.format(
+                i=str(vr_id), s=str(ra_vr_service['serviceId'])))
         else:
-            if vr_details['remoteAccessStatus'] in already_disabled_statuses:
-                log.info('Remote access for VR ID {i} is already disabled or disabling'.format(i=str(vr_id)))
-                return
+            # Attempt to disable remote access
+            log.info('Attempting to disable remote access in VR [{i}] service [{s}]...'.format(
+                i=str(vr_id), s=str(ra_vr_service['serviceId'])))
+            try:
+                self.update_virtualization_realm_service_state(
+                    vr_id=vr_id, service_id=ra_vr_service['serviceId'], state='disable')
+            except Cons3rtClientError as exc:
+                msg = 'Problem disabling remote access in VR [{i}] service [{s}]\n{e}'.format(
+                    i=str(vr_id), s=str(ra_vr_service['serviceId']), e=str(exc))
+                raise Cons3rtApiError(msg) from exc
+            log.info('Successfully disabled remote access in VR [{i}] service [{s}]'.format(
+                i=str(vr_id), s=str(ra_vr_service['serviceId'])))
 
-        # Attempt to disable remote access
-        log.info('Attempting to disable remote access in virtualization realm ID: {i}'.format(i=vr_id))
-        try:
-            self.cons3rt_client.disable_remote_access(vr_id=vr_id)
-        except Cons3rtClientError as exc:
-            msg = 'There was a problem disabling remote access in virtualization realm ID: {i}'.format(i=vr_id)
-            raise Cons3rtApiError(msg) from exc
-        log.info('Successfully disabled remote access in virtualization realm: {i}'.format(i=vr_id))
 
-    def toggle_remote_access(self, vr_id, size=None):
+    def toggle_remote_access(self, vr_id, rdp_proxy_enabled=True, instance_type=None, guac_ip_address=None,
+                             remote_access_port=None):
         """Enables Remote Access for a specific virtualization realm, and uses SMALL
         as the default size if none is provided.
 
-        :param vr_id: (int) ID of the virtualization
-        :param size: (str) small, medium, or large
+        :param vr_id: (int) Virtualization Realm ID
+        :param rdp_proxy_enabled: (bool) Set True to enable RDP proxy
+        :param instance_type: (str) SMALL/MEDIUM/LARGE
+        :param guac_ip_address: (str) IP address of the guacd server
+        :param remote_access_port: (int) TCP port for the guacd server
         :return: None
         :raises: Cons3rtApiError
         """
         log = logging.getLogger(self.cls_logger + '.toggle_remote_access')
-
-        # Re-try time for enable, disable, and checks
-        retry_time_sec = 10
 
         # Ensure the vr_id is an int
         if not isinstance(vr_id, int):
@@ -2526,103 +3047,57 @@ class Cons3rtApi(object):
             except ValueError as exc:
                 raise ValueError('vr_id arg must be an Integer') from exc
 
-        # Use small as the default size
-        if size is None:
-            try:
-                vr_details = self.get_virtualization_realm_details(vr_id=vr_id)
-            except Cons3rtApiError as exc:
-                msg = 'Cons3rtApiError: Unable to query VR details to determine the size'
-                raise Cons3rtApiError(msg) from exc
-            try:
-                size = vr_details['remoteAccessConfig']['instanceType']
-            except KeyError:
-                raise Cons3rtApiError('Remote Access config instance type not found in VR details: {d}'.format(
-                    d=str(vr_details)))
+        # Get the RA VR service
+        ra_vr_service = self.get_remote_access_service(vr_id=vr_id)
 
-        # Ensure size is a string
-        if not isinstance(size, str):
-            raise ValueError('The size arg must be a string')
+        # Disable remote access
+        log.info('Disabling remote access for VR ID: [{i}]'.format(i=str(vr_id)))
+        try:
+            self.disable_remote_access(vr_id=vr_id)
+        except Cons3rtApiError as exc:
+            msg = 'Problem disabling remote access for VR ID [{i}]\n{e}'.format(i=str(vr_id), e=str(exc))
+            raise Cons3rtApiError(msg) from exc
 
-        # Acceptable sizes
-        size_options = ['SMALL', 'MEDIUM', 'LARGE']
-        size = size.upper()
-        if size not in size_options:
-            raise ValueError('The size arg must be set to SMALL, MEDIUM, or LARGE')
+        # Wait for the RA service to reach the end state
+        self.wait_virtualization_realm_service_state(vr_id=vr_id, service_id=ra_vr_service['serviceId'],
+                                                     end_state='DISABLED', status_type='raStatus')
 
-        # Attempt to disable remote access
-        log.info('Attempting to disable remote access in virtualization realm ID {i}'.format(
-            i=vr_id))
-        max_disable_retries = 12
-        disable_try_num = 1
-        while True:
-            if disable_try_num > max_disable_retries:
-                raise Cons3rtApiError(
-                    'Unable to disable remote access in virtualization realm ID [{i}] after {m} attempts'.format(
-                        i=str(vr_id), m=str(max_disable_retries)))
-            try:
-                self.disable_remote_access(vr_id=vr_id)
-            except Cons3rtApiError as exc:
-                log.warning('Cons3rtApiError: There was a problem disabling remote access for VR ID: {i}\n{e}'.format(
-                    i=str(vr_id), e=str(exc)))
-                log.info('Retrying in {t} sec...'.format(t=str(retry_time_sec)))
-                disable_try_num += 1
-                time.sleep(retry_time_sec)
+        # Enable remote access
+        log.info('Enabling remote access for VR ID: [{i}]'.format(i=str(vr_id)))
+        try:
+            self.enable_remote_access(vr_id=vr_id, rdp_proxy_enabled=rdp_proxy_enabled, instance_type=instance_type,
+                                      guac_ip_address=guac_ip_address, remote_access_port=remote_access_port,
+                                      ra_vr_service=ra_vr_service)
+        except Cons3rtApiError as exc:
+            msg = 'Problem enabling remote access for VR ID [{i}]\n{e}'.format(i=str(vr_id), e=str(exc))
+            raise Cons3rtApiError(msg) from exc
+
+        log.info('Remote access toggle complete for VR ID [{i}]'.format(i=str(vr_id)))
+
+    def disable_vr_services(self, vr_id):
+        """Disabled VR services for the specified VR
+
+        :param vr_id: (int) Virtualization Realm ID
+        :return: None
+        :raises: Cons3rtApiError
+        """
+        log = logging.getLogger(self.cls_logger + '.disable_vr_services')
+
+        # Get VR details
+        vr_details = self.get_virtualization_realm_details(vr_id=vr_id)
+
+        # Check for services
+        if 'services' not in vr_details.keys():
+            log.info('VR ID [{{i}] has no services'.format(i=str(vr_id)))
+            return
+
+        # Loop through service to find the remote access service
+        for service in vr_details['services']:
+            if 'id' not in service.keys():
                 continue
-            break
-
-        # Wait for the virtualization realm remote access to report itself disabled
-        check_max_retries = 12
-        check_try_num = 1
-        while True:
-            # Raise exception if the VR RA did not become disabled
-            if check_try_num > check_max_retries:
-                raise Cons3rtApiError('VR ID [{i}] remote access did not become disabled after {n} seconds'.format(
-                    i=str(vr_id), n=str(check_max_retries * retry_time_sec)))
-
-            # Query the VR
-            try:
-                vr_details = self.get_virtualization_realm_details(vr_id=vr_id)
-            except Cons3rtApiError as exc:
-                log.warning('Cons3rtApiError: Unable to query VR details to determine remote access status\n{e}'.format(
-                    e=str(exc)))
-            else:
-                try:
-                    ra_status = vr_details['remoteAccessStatus']
-                except KeyError:
-                    log.warning('Remote access status not found in VR details: {d}'.format(d=str(vr_details)))
-                else:
-                    if ra_status == 'DISABLED':
-                        log.info('Remote access status is DISABLED for VR ID: {i}'.format(i=str(vr_id)))
-                        break
-                    else:
-                        log.info('Found remote access status for VR ID {i}: {s}'.format(
-                            i=str(vr_id), s=ra_status))
-            check_try_num += 1
-            time.sleep(retry_time_sec)
-
-        # Attempt to enable RA with the specified size
-        log.info('Attempting to enable remote access in cloudspace ID [{i}] with size: {s}'.format(
-            i=str(vr_id), s=size))
-        max_enable_retries = 12
-        enable_try_num = 1
-        while True:
-            if enable_try_num > max_enable_retries:
-                raise Cons3rtApiError(
-                    'Unable to enable remote access in virtualization realm ID [{i}] after {m} attempts'.format(
-                        i=str(vr_id), m=str(max_enable_retries)))
-            log.info('Attempting to enable remote access, attempt [{n}] of [{m}]'.format(
-                n=str(enable_try_num), m=str(max_enable_retries)))
-            try:
-                self.enable_remote_access(vr_id=vr_id, size=size)
-            except Cons3rtApi:
-                log.warning('Cons3rtApiError: There was a problem enabling remote access, could not complete the '
-                            'remote access enable for cloudspace id [{i}] with size: {s}'.format(i=str(vr_id), s=size))
-                log.info('Retrying in {t} sec...'.format(t=str(retry_time_sec)))
-                enable_try_num += 1
-                time.sleep(retry_time_sec)
-                continue
-            break
-        log.info('Remote access toggle complete for VR ID: {i}'.format(i=str(vr_id)))
+            log.info('Found VR [{v}] remote access service ID to disable: [{s}]'.format(
+                v=str(vr_id), s=str(service['id'])))
+            self.update_virtualization_realm_service_state(vr_id=vr_id, service_id=service['id'], state='disable')
 
     def retrieve_all_users(self):
         """Retrieve all users from the CONS3RT site
@@ -3774,10 +4249,11 @@ class Cons3rtApi(object):
         """
         return self.create_deployment(json_file=json_file)
 
-    def release_deployment_run(self, dr_id):
+    def release_deployment_run(self, dr_id, unlock=False):
         """Release a deployment run by ID
 
         :param: dr_id: (int) deployment run ID
+        :param: unlock: (bool) set true to unlock before releasing the run
         :return: None
         :raises: Cons3rtApiError
         """
@@ -3789,6 +4265,14 @@ class Cons3rtApi(object):
                 dr_id = int(dr_id)
             except ValueError as exc:
                 msg = 'dr_id arg must be an Integer, found: {t}'.format(t=dr_id.__class__.__name__)
+                raise Cons3rtApiError(msg) from exc
+
+        # Unlock the run if specified
+        if unlock:
+            try:
+                self.set_deployment_run_lock(dr_id=dr_id, lock=False)
+            except Cons3rtClientError as exc:
+                msg = 'Unable to unlock deployment run ID: {i}'.format(i=str(dr_id))
                 raise Cons3rtApiError(msg) from exc
 
         # Attempt to release the DR
@@ -4199,11 +4683,12 @@ class Cons3rtApi(object):
             time.sleep(interval_sec)
         log.info('Completed cleaning runs from VR ID: {i}'.format(i=str(vr_id)))
 
-    def set_virtualization_realm_state(self, vr_id, state):
+    def set_virtualization_realm_state(self, vr_id, state, force=False):
         """Sets the virtualization realm ID to the provided state
 
         :param vr_id: (int) virtualization realm ID
         :param state: (bool) Set True to activate, False to deactivate
+        :param force: (bool) Set True to force set the VR state
         :return: (bool) True if successful
         """
         log = logging.getLogger(self.cls_logger + '.set_virtualization_realm_state')
@@ -4222,7 +4707,7 @@ class Cons3rtApi(object):
             raise Cons3rtApiError(msg)
 
         try:
-            result = self.cons3rt_client.set_virtualization_realm_state(vr_id=vr_id, state=state)
+            result = self.cons3rt_client.set_virtualization_realm_state(vr_id=vr_id, state=state, force=force)
         except Cons3rtClientError as exc:
             msg = 'Problem setting state to {s} for VR ID: {i}'.format(s=str(state), i=str(vr_id))
             raise Cons3rtApiError(msg) from exc
@@ -4264,14 +4749,14 @@ class Cons3rtApi(object):
 
         # Clean out all DRs, remove all projects, deactivate
         log.info('Preparing VR ID {i} for de-allocation or unregistering...'.format(i=str(vr_id)))
-        self.disable_remote_access(vr_id=vr_id)
+        self.disable_vr_services(vr_id=vr_id)
         self.remove_all_projects_in_virtualization_realm(vr_id=vr_id)
         log.info('Waiting 10 seconds to proceed to removing runs...')
         time.sleep(10)
         self.clean_all_runs_in_virtualization_realm(vr_id=vr_id, unlock=True)
         log.info('Waiting 10 seconds to proceed to deactivation of the VR...')
         time.sleep(10)
-        state_result = self.set_virtualization_realm_state(vr_id=vr_id, state=False)
+        state_result = self.set_virtualization_realm_state(vr_id=vr_id, state=False, force=True)
         if not state_result:
             msg = 'Unable to deactivate VR ID {i} before attempting to unregister/de-allocate'.format(i=str(vr_id))
             raise Cons3rtApiError(msg)
@@ -5782,11 +6267,13 @@ class Cons3rtApi(object):
         else:
             return worst_case_delay_sec
 
-    def perform_host_action_for_run(self, dr_id, action, cpu=None, ram=None, inter_host_action_delay_sec=None):
+    def perform_host_action_for_run(self, dr_id, action, unlock=False, cpu=None, ram=None,
+                                    inter_host_action_delay_sec=None):
         """Performs the provided host action on the dr_id
 
         :param dr_id: (int) ID of the deployment run
         :param action: (str) host action to perform
+        :param unlock: (bool) set true to unlock the run before performing host action
         :param cpu: (int) number of CPUs if the action is resize
         :param ram: (int) amount of ram in megabytes if the action is resize
         :param inter_host_action_delay_sec: (int) number of seconds between hosts
@@ -5815,6 +6302,13 @@ class Cons3rtApi(object):
         inter_host_action_delay_sec = self.get_inter_host_action_delay_for_cloud_type(cloud_type=vr_type)
         log.info('Using inter host action delay: {s} sec'.format(s=str(inter_host_action_delay_sec)))
         results = []
+
+        # Unlock the run if specified
+        if unlock:
+            try:
+                self.set_deployment_run_lock(dr_id=dr_id, lock=False)
+            except Cons3rtApiError as exc:
+                raise Cons3rtApiError('Problem unlocking run: {i}'.format(i=str(dr_id))) from exc
 
         # Perform actions on each host ID
         for host in hosts:
@@ -5881,11 +6375,12 @@ class Cons3rtApi(object):
         log.info('Completed host action [{a}] on hosts in run ID: {i}'.format(a=action, i=str(dr_id)))
         return results
 
-    def perform_host_action_for_run_list_with_delay(self, drs, action, inter_run_action_delay_sec=5):
+    def perform_host_action_for_run_list_with_delay(self, drs, action, unlock=False, inter_run_action_delay_sec=5):
         """Attempts to perform the provided action for all hosts in the provided DR list
 
         :param drs: (list) deployment runs dicts of DR data
         :param action: (str) host action to perform
+        :param unlock: (bool) ser true to unlock the runs before performing host action
         :param inter_run_action_delay_sec: (int) Amount of time to wait in between run actions
         :return: (list) of dict data on request results
         :raises Cons3rtApiError
@@ -5901,7 +6396,7 @@ class Cons3rtApi(object):
                 a=action, i=str(dr['id'])))
             try:
                 self.set_project_token(project_name=dr['project']['name'])
-                results = self.perform_host_action_for_run(dr_id=dr['id'], action=action)
+                results = self.perform_host_action_for_run(dr_id=dr['id'], action=action, unlock=unlock)
             except Cons3rtApiError as exc:
                 raise Cons3rtApiError('Problem performing action {a} for run ID: {i}'.format(
                     a=action, i=str(dr['id']))) from exc
@@ -5945,30 +6440,33 @@ class Cons3rtApi(object):
         """
         return self.snapshot_project_runs(project_id=project_id, action='CREATE_SNAPSHOT', skip_run_ids=skip_run_ids)
 
-    def restore_run_snapshots(self, dr_id):
+    def restore_run_snapshots(self, dr_id, unlock=False):
         """Attempts to restore snapshots for all hosts in the provided DR ID
 
         :param dr_id: (int) ID of the deployment run
+        :param unlock: (bool) set true to unlock before restoring snapshots
         :return: (list) of dict data on request results
         :raises Cons3rtApiError
         """
         try:
             results = self.perform_host_action_for_run(
                 dr_id=dr_id,
-                action='RESTORE_SNAPSHOT'
+                action='RESTORE_SNAPSHOT',
+                unlock=unlock
             )
         except Cons3rtApiError as exc:
             raise Cons3rtApiError('Problem restoring snapshot for run ID: {i}'.format(i=str(dr_id))) from exc
         return results
 
-    def restore_snapshots_for_team(self, team_id, skip_run_ids):
+    def restore_snapshots_for_team(self, team_id, skip_run_ids, unlock=False):
         """Restores snapshots for a team
 
         :param team_id: (int) team ID
         :param skip_run_ids: (list) of deployment run IDs to skip
         :return: (list) of HostActionResults
         """
-        return self.snapshot_team_runs(team_id=team_id, action='RESTORE_SNAPSHOT', skip_run_ids=skip_run_ids)
+        return self.snapshot_team_runs(team_id=team_id, action='RESTORE_SNAPSHOT', skip_run_ids=skip_run_ids,
+                                       unlock=unlock)
 
     def restore_snapshots_for_project(self, project_id, skip_run_ids):
         """Restores snapshots for a project
@@ -5979,17 +6477,19 @@ class Cons3rtApi(object):
         """
         return self.snapshot_project_runs(project_id=project_id, action='RESTORE_SNAPSHOT', skip_run_ids=skip_run_ids)
 
-    def delete_run_snapshots(self, dr_id):
+    def delete_run_snapshots(self, dr_id, unlock=False):
         """Attempts to delete snapshots for all hosts in the provided DR ID
 
         :param dr_id: (int) ID of the deployment run
+        :param unlock: (bool) set true to unlock the run before deleting snapshots
         :return: (list) of dict data on request results
         :raises Cons3rtApiError
         """
         try:
             results = self.perform_host_action_for_run(
                 dr_id=dr_id,
-                action='REMOVE_ALL_SNAPSHOTS'
+                action='REMOVE_ALL_SNAPSHOTS',
+                unlock=unlock
             )
         except Cons3rtApiError as exc:
             raise Cons3rtApiError('Problem restoring snapshot for run ID: {i}'.format(i=str(dr_id))) from exc
@@ -6014,33 +6514,37 @@ class Cons3rtApi(object):
         return self.snapshot_project_runs(project_id=project_id, action='REMOVE_ALL_SNAPSHOTS',
                                           skip_run_ids=skip_run_ids)
 
-    def power_off_run(self, dr_id):
+    def power_off_run(self, dr_id, unlock=False):
         """Attempts to power off all hosts in the provided DR ID
 
         :param dr_id: (int) ID of the deployment run
+        :param unlock: (bool) set true to unlock the run before power off
         :return: (list) of dict data on request results
         :raises Cons3rtApiError
         """
         try:
             results = self.perform_host_action_for_run(
                 dr_id=dr_id,
-                action='POWER_OFF'
+                action='POWER_OFF',
+                unlock=unlock
             )
         except Cons3rtApiError as exc:
             raise Cons3rtApiError('Problem performing power off for run ID: {i}'.format(i=str(dr_id))) from exc
         return results
 
-    def power_on_run(self, dr_id):
+    def power_on_run(self, dr_id, unlock=False):
         """Attempts to power on all hosts in the provided DR ID
 
         :param dr_id: (int) ID of the deployment run
+        :param unlock: (bool) set true to unlock the run before power on
         :return: (list) of dict data on request results
         :raises Cons3rtApiError
         """
         try:
             results = self.perform_host_action_for_run(
                 dr_id=dr_id,
-                action='POWER_ON'
+                action='POWER_ON',
+                unlock=unlock
             )
         except Cons3rtApiError as exc:
             raise Cons3rtApiError('Problem performing power on for run ID: {i}'.format(i=str(dr_id))) from exc
@@ -6055,11 +6559,12 @@ class Cons3rtApi(object):
     def delete_run_snapshots_multiple(self, drs):
         return self.process_run_snapshots_multiple(drs=drs, action='REMOVE_ALL_SNAPSHOTS')
 
-    def process_run_snapshots_multiple(self, drs, action):
+    def process_run_snapshots_multiple(self, drs, action, unlock=False):
         """Attempts to create snapshots for all hosts in the provided DR list
 
         :param drs: (list) deployment runs dicts of DR data
         :param action: (str) CREATE_SNAPSHOT | RESTORE_SNAPSHOT | REMOVE_ALL_SNAPSHOTS
+        :param unlock: (bool) set true to unlock the runs before processing snapshots
         :return: (list) of dict data on request results
         :raises Cons3rtApiError
         """
@@ -6067,7 +6572,8 @@ class Cons3rtApi(object):
         try:
             all_results = self.perform_host_action_for_run_list(
                 drs=drs,
-                action=action
+                action=action,
+                unlock=unlock
             )
         except Cons3rtApiError as exc:
             raise Cons3rtApiError('Problem performing action [{a}] on DR list'.format(a=action)) from exc
@@ -6093,10 +6599,32 @@ class Cons3rtApi(object):
             a=action, n=str(snapshot_disk_count), g=str(snapshot_disk_capacity_gb)))
         return all_results
 
-    def power_off_multiple_runs(self, drs):
+    def restart_multiple_runs(self, drs, unlock=False):
+        """Attempts to restart all hosts in the provided DR list
+
+        :param drs: (list) deployment runs dicts of DR data
+        :param unlock: (bool) set true to unlock runs before restart
+        :return: (list) of dict data on request results
+        :raises Cons3rtApiError
+        """
+        log = logging.getLogger(self.cls_logger + '.restart_multiple_runs')
+        log.info('Restarting multiple runs...')
+        try:
+            all_results = self.perform_host_action_for_run_list(
+                drs=drs,
+                action='REBOOT',
+                unlock=unlock
+            )
+        except Cons3rtApiError as exc:
+            raise Cons3rtApiError('Problem restarting runs from list: {r}'.format(
+                r=str(drs))) from exc
+        return all_results
+
+    def power_off_multiple_runs(self, drs, unlock=False):
         """Attempts to power off all hosts in the provided DR list
 
         :param drs: (list) deployment runs dicts of DR data
+        :param unlock: (bool) set true to unlock runs before power off
         :return: (list) of dict data on request results
         :raises Cons3rtApiError
         """
@@ -6105,17 +6633,19 @@ class Cons3rtApi(object):
         try:
             all_results = self.perform_host_action_for_run_list(
                 drs=drs,
-                action='POWER_OFF'
+                action='POWER_OFF',
+                unlock=unlock
             )
         except Cons3rtApiError as exc:
             raise Cons3rtApiError('Problem powering off runs from list: {r}'.format(
                 r=str(drs))) from exc
         return all_results
 
-    def power_on_multiple_runs(self, drs):
+    def power_on_multiple_runs(self, drs, unlock=False):
         """Attempts to power on all hosts in the provided DR list
 
         :param drs: (list) deployment runs dicts of DR data
+        :param unlock: (bool) set true to unlock the runs before power on
         :return: (list) of dict data on request results
         :raises Cons3rtApiError
         """
@@ -6124,14 +6654,15 @@ class Cons3rtApi(object):
         try:
             all_results = self.perform_host_action_for_run_list(
                 drs=drs,
-                action='POWER_ON'
+                action='POWER_ON',
+                unlock=unlock
             )
         except Cons3rtApiError as exc:
             raise Cons3rtApiError('Problem powering on runs from list: {r}'.format(
                 r=str(drs))) from exc
         return all_results
 
-    def perform_host_action_for_run_list(self, drs, action):
+    def perform_host_action_for_run_list(self, drs, action, unlock=False):
         """Attempts to perform the provided action for all hosts in the provided DR list
 
         :param drs: (list) deployment runs dicts of DR data containing at least:
@@ -6142,6 +6673,7 @@ class Cons3rtApi(object):
                 'name'
             }
         :param action: (str) host action to perform
+        :param unlock: (bool) Set True to unlock the run before performing the host action
         :return: (list) of dict data on request results
         :raises Cons3rtApiError
         """
@@ -6232,7 +6764,8 @@ class Cons3rtApi(object):
                 all_results += self.perform_host_action_for_run_list_with_delay(
                     drs=action_drs,
                     action=action,
-                    inter_run_action_delay_sec=self.get_inter_host_action_delay_for_cloud_type(cloud_type='Amazon')
+                    inter_run_action_delay_sec=self.get_inter_host_action_delay_for_cloud_type(cloud_type='Amazon'),
+                    unlock=unlock
                 )
             except Cons3rtApiError as exc:
                 raise Cons3rtApiError('Problem performing host action [{a}] for Amazon runs'.format(a=action)) from exc
@@ -6243,7 +6776,8 @@ class Cons3rtApi(object):
                 all_results += self.perform_host_action_for_run_list_with_delay(
                     drs=action_drs,
                     action=action,
-                    inter_run_action_delay_sec=self.get_inter_host_action_delay_for_cloud_type(cloud_type='Azure')
+                    inter_run_action_delay_sec=self.get_inter_host_action_delay_for_cloud_type(cloud_type='Azure'),
+                    unlock=unlock
                 )
             except Cons3rtApiError as exc:
                 raise Cons3rtApiError('Problem performing host action [{a}] for Azure runs'.format(a=action)) from exc
@@ -6254,7 +6788,8 @@ class Cons3rtApi(object):
                 all_results += self.perform_host_action_for_run_list_with_delay(
                     drs=action_drs,
                     action=action,
-                    inter_run_action_delay_sec=self.get_inter_host_action_delay_for_cloud_type(cloud_type='Openstack')
+                    inter_run_action_delay_sec=self.get_inter_host_action_delay_for_cloud_type(cloud_type='Openstack'),
+                    unlock=unlock
                 )
             except Cons3rtApiError as exc:
                 raise Cons3rtApiError('Problem performing host action [{a}] for Openstack runs'.format(
@@ -6266,7 +6801,8 @@ class Cons3rtApi(object):
                 all_results += self.perform_host_action_for_run_list_with_delay(
                     drs=action_drs,
                     action=action,
-                    inter_run_action_delay_sec=self.get_inter_host_action_delay_for_cloud_type(cloud_type='VCloud')
+                    inter_run_action_delay_sec=self.get_inter_host_action_delay_for_cloud_type(cloud_type='VCloud'),
+                    unlock=unlock
                 )
             except Cons3rtApiError as exc:
                 raise Cons3rtApiError('Problem performing host action [{a}] for VCloud runs'.format(
@@ -6278,7 +6814,8 @@ class Cons3rtApi(object):
                 all_results += self.perform_host_action_for_run_list_with_delay(
                     drs=action_drs,
                     action=action,
-                    inter_run_action_delay_sec=self.get_inter_host_action_delay_for_cloud_type(cloud_type='other')
+                    inter_run_action_delay_sec=self.get_inter_host_action_delay_for_cloud_type(cloud_type='other'),
+                    unlock=unlock
                 )
             except Cons3rtApiError as exc:
                 raise Cons3rtApiError('Problem performing host action [{a}] for other runs'.format(
@@ -6355,11 +6892,12 @@ class Cons3rtApi(object):
         log.info('Returning a list of {n} snapshot results'.format(n=str(len(results))))
         return results
 
-    def snapshot_team_runs(self, team_id, action, skip_run_ids=None):
+    def snapshot_team_runs(self, team_id, action, unlock=False, skip_run_ids=None):
         """Creates a snapshot for each active deployment run in the provided team ID
 
         :param team_id: (int) team ID
         :param action: (str) CREATE_SNAPSHOT | RESTORE_SNAPSHOT | REMOVE_ALL_SNAPSHOTS
+        :param unlock: (bool) set true to unlock the runs before snapshot action
         :param skip_run_ids: (list) of int run IDs to skip snapshots
         :return: (list) of HostActionResults
         :raises: Cons3rtApiError
@@ -6394,7 +6932,7 @@ class Cons3rtApi(object):
         log.info('Processing snapshots for [{n}] out of [{t}] deployment runs in team ID {i}'.format(
             n=str(len(snapshot_drs)), t=str(len(team_drs)), i=str(team_id)))
         results, start_time, end_time, skip_run_ids = self.snapshots_for_team_or_project(
-            action=action, snapshot_drs=snapshot_drs, skip_run_ids=skip_run_ids)
+            action=action, snapshot_drs=snapshot_drs, skip_run_ids=skip_run_ids, unlock=unlock)
         elapsed_time = end_time - start_time
 
         log.info('Completed processing snapshots for team ID {i} at: {t}, total time elapsed: {e}'.format(
@@ -6402,12 +6940,13 @@ class Cons3rtApi(object):
         log.info('Returning a list of {n} snapshot results'.format(n=str(len(results))))
         return results
 
-    def snapshots_for_team_or_project(self, action, snapshot_drs, skip_run_ids):
+    def snapshots_for_team_or_project(self, action, snapshot_drs, skip_run_ids, unlock=False):
         """Takes a snapshot action for each active deployment run in the provided team ID
 
         :param action: (str) CREATE_SNAPSHOT | RESTORE_SNAPSHOT | REMOVE_ALL_SNAPSHOTS
         :param snapshot_drs: (list) list of int deployment run IDs to snapshot
         :param skip_run_ids: (list) of int run IDs to skip snapshots
+        :param unlock: (bool) set true to unlock the run before snapshot action
         :return: results, start_time, end_time, skip_run_ids
         :raises: Cons3rtApiError
         """
@@ -6440,7 +6979,7 @@ class Cons3rtApi(object):
         # Run the snapshots
         start_time = datetime.datetime.now()
         try:
-            results = self.process_run_snapshots_multiple(drs=non_skipped_snapshot_drs, action=action)
+            results = self.process_run_snapshots_multiple(drs=non_skipped_snapshot_drs, action=action, unlock=unlock)
         except Cons3rtApiError as exc:
             raise Cons3rtApiError('Problem creating snapshots for the team runs list') from exc
 
@@ -6848,6 +7387,36 @@ class Cons3rtApi(object):
             self.cons3rt_client.update_virtualization_realm_reachability(vr_id=vr_id)
         except Cons3rtClientError as exc:
             msg = 'Problem updating reachability for virtualization realm ID: {i}'.format(i=str(vr_id))
+            raise Cons3rtApiError(msg) from exc
+
+    def update_virtualization_realm_access_point(self, vr_id, access_point_ip):
+        """Sets the access point IP address of a VR
+
+        :param vr_id: (int) Virtualization Realm ID
+        :param access_point_ip: (str) IP address to set as the access point
+        :return: None
+        :raises: Cons3rtApiError
+        """
+        log = logging.getLogger(self.cls_logger + '.update_virtualization_realm_access_point')
+
+        # Ensure the vr_id is an int
+        if not isinstance(vr_id, int):
+            try:
+                vr_id = int(vr_id)
+            except ValueError as exc:
+                msg = 'vr_id arg must be an Integer, found: {t}'.format(t=vr_id.__class__.__name__)
+                raise Cons3rtApiError(msg) from exc
+
+        # Ensure the IP address is valid
+        if not validate_ip_address(access_point_ip):
+            msg = 'Invalid access point IP provided: [{i}]'.format(i=access_point_ip)
+            raise Cons3rtApiError(msg)
+
+        log.info('Setting the access point IP for VR [{v}] to: [{i}]'.format(v=str(vr_id), i=access_point_ip))
+        try:
+            self.cons3rt_client.update_virtualization_realm_access_point(vr_id=vr_id, access_point_ip=access_point_ip)
+        except Cons3rtClientError as exc:
+            msg = 'Problem updating access point to [{i}] for VR [{v}]'.format(i=access_point_ip, v=str(vr_id))
             raise Cons3rtApiError(msg) from exc
 
     def update_virtualization_realm_reachability_for_cloud(self, cloud_id):

@@ -230,10 +230,10 @@ The `--id=1` or `--ids=1,2,3` args can be used to indicate which cloudspace IDs.
 
 ```
 # Release active runs from multiple cloudspaces:
-cons3rt cloudspace --release_active_runs --ids=123,124
+cons3rt cloudspace release_active_runs --ids=123,124
 
 # Delete inactive runs from your cloudspace
-cons3rt cloudspace --delete_inactive_runs --id=123
+cons3rt cloudspace delete_inactive_runs --id=123
 
 # Deallocate a cloudspace
 cons3rt cloudspace deallocate --id 123
@@ -358,6 +358,18 @@ cons3rt team run snapshot delete --id=3
 
 # Skip run IDs for any of the snapshot commands with --skip
 cons3rt team run snapshot create --id=3 --skip=12345,12346,12347
+
+# Power off all runs in a team
+cons3rt team run power off --id=3
+
+# Power on all runs in a team
+cons3rt team run power on --id=3
+
+# Restart all runs in a team
+cons3rt team run power restart --id=3
+
+# Unlock and power off all runs in a team
+cons3rt team run power off --id=3 --unlock
 ```
 
 

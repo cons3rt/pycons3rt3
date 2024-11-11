@@ -1,8 +1,10 @@
 
-0.0.24a0
-========
+0.0.24
+======
 
-* TBD
+* Added methods and CLI commands to power on/off and restart
+* Updated api calls related to remote access to use the new virt realm service endpoints
+* Added the --unlock arg to all power and snapshot actions for run, project, and team CLI commands
 
 0.0.23
 ======

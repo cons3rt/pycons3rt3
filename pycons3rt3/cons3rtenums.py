@@ -39,6 +39,9 @@ interval_units = [
     'DECADES', 'CENTURIES', 'MILLENNIA', 'ERAS', 'FOREVER'
 ]
 
+k8s_types = ['GENERIC', 'RKE2']
+
+remote_access_sizes = ['SMALL', 'MEDIUM', 'LARGE']
 
 service_types = [
     'AtlassianBitbucket', 'AtlassianConfluence', 'AtlassianJira', 'AtlassianJiraAssetManagement',
@@ -47,4 +50,14 @@ service_types = [
 
 valid_search_type = [
     'SEARCH_ACTIVE', 'SEARCH_ALL', 'SEARCH_AVAILABLE', 'SEARCH_COMPOSING', 'SEARCH_DECOMPOSING', 'SEARCH_INACTIVE',
-    'SEARCH_PROCESSING', 'SEARCH_SCHEDULED', 'SEARCH_TESTING', 'SEARCH_SCHEDULED_AND_ACTIVE']
+    'SEARCH_PROCESSING', 'SEARCH_SCHEDULED', 'SEARCH_TESTING', 'SEARCH_SCHEDULED_AND_ACTIVE'
+]
+
+vr_service_status = [
+    'DISABLED', 'DISABLING', 'ENABLED', 'ENABLING', 'ERROR'
+]
+
+vr_service_types = [
+    'KubernetesPaasVirtualizationRealmServiceRequest',
+    'RemoteAccessVirtualizationRealmServiceRequest'
+]

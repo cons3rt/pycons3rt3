@@ -1097,13 +1097,6 @@ class Cons3rtClient:
         vrs = json.loads(content)
         return vrs
 
-    def add_virtualization_realm_admin(self, vr_id, username):
-        response = self.http_client.http_put(
-            rest_user=self.user,
-            target='virtualizationrealms/' + str(vr_id) + '/admins?username=' + username)
-        result = parse_response(response=response)
-        return result
-
     def add_project_to_virtualization_realm(self, vr_id, project_id):
         response = self.http_client.http_put(
             rest_user=self.user,
@@ -1111,12 +1104,14 @@ class Cons3rtClient:
         result = parse_response(response=response)
         return result
 
-    def set_virtualization_realm_state(self, vr_id, state):
+    def set_virtualization_realm_state(self, vr_id, state, force=False):
         if state:
             state_str = 'true'
         else:
             state_str = 'false'
         target = 'virtualizationrealms/{i}/activate?activate={s}'.format(i=str(vr_id), s=state_str)
+        if force:
+            target += '&force=true'
         response = self.http_client.http_put(rest_user=self.user, target=target)
         result = parse_response(response=response)
         return result
@@ -1810,48 +1805,87 @@ class Cons3rtClient:
             raise Cons3rtClientError(str(exc)) from exc
         return asset_id
 
-    def enable_remote_access(self, vr_id, size):
-        """Attempts to enable remote access in virtualization realm ID to the specified size
+    def add_virtualization_realm_service(self, vr_id, service_content):
+        """Add a virtualization realm service using the provided content
 
         :param vr_id: (int) Virtualization Realm ID
-        :param size: (str) Size: SMALL | MEDIUM | LARGE
+        :param service_content: (dict) Content for the new service
+        :return:
+        """
+        target = 'virtualizationrealms/{i}/service'.format(i=str(vr_id))
+        response = self.http_client.http_post(rest_user=self.user, target=target, content_data=service_content)
+        content = parse_response(response=response)
+        vr_service = json.loads(content)
+        return vr_service
+
+    def retrieve_virtualization_realm_service(self, vr_id, service_id):
+        """Retrieves the virtualization realm service
+
+        :param vr_id: (int) Virtualization Realm ID
+        :param service_id: (int) Service ID
         :return: None
         :raises: Cons3rtClientError
         """
-        target = 'virtualizationrealms/{i}/remoteaccess/?instanceType={s}'.format(
-            i=str(vr_id), s=size)
-        # Attempt to enable remote access
-        try:
-            response = self.http_client.http_post(rest_user=self.user, target=target)
-        except Cons3rtClientError as exc:
-            msg = 'Unable to enable remote access in virtualization realm: {i}'.format(
-                i=vr_id)
-            raise Cons3rtClientError(msg) from exc
-        try:
-            parse_response(response=response)
-        except Cons3rtClientError as exc:
-            raise Cons3rtClientError(str(exc)) from exc
+        target = 'virtualizationrealms/{i}/service/{s}'.format(i=str(vr_id), s=str(service_id))
+        response = self.http_client.http_get(rest_user=self.user, target=target)
+        content = parse_response(response=response)
+        vr_service = json.loads(content)
+        return vr_service
 
-    def disable_remote_access(self, vr_id):
-        """Attempts to enable remote access in virtualization realm ID to the specified size
+    def update_virtualization_realm_service(self, vr_id, service_id, service_content):
+        """Add a virtualization realm service using the provided content
 
         :param vr_id: (int) Virtualization Realm ID
+        :param service_id: (int) Service ID
+        :param service_content: (dict) Content for the updated service
+        :return:
+        """
+        target = 'virtualizationrealms/{i}/service/{s}'.format(i=str(vr_id), s=str(service_id))
+        response = self.http_client.http_put(rest_user=self.user, target=target, content_data=service_content)
+        content = parse_response(response=response)
+        vr_service = json.loads(content)
+        return vr_service
+
+    def update_virtualization_realm_service_state(self, vr_id, service_id, state):
+        """Updates the state of the virtualization realm service
+
+        :param vr_id: (int) Virtualization Realm ID
+        :param service_id: (int) Service ID
+        :param state: (str) enable/disable
         :return: None
         :raises: Cons3rtClientError
         """
-        target = 'virtualizationrealms/{i}/remoteaccess'.format(
-            i=str(vr_id))
-        # Attempt to enable remote access
-        try:
-            response = self.http_client.http_delete(rest_user=self.user, target=target)
-        except Cons3rtClientError as exc:
-            msg = 'Unable to disable remote access in virtualization realm: {i}'.format(
-                i=vr_id)
-            raise Cons3rtClientError(msg) from exc
-        try:
-            parse_response(response=response)
-        except Cons3rtClientError as exc:
-            raise Cons3rtClientError(str(exc)) from exc
+        target = 'virtualizationrealms/{i}/service/{s}/state?state={t}'.format(i=str(vr_id), s=str(service_id), t=state)
+        response = self.http_client.http_put(rest_user=self.user, target=target)
+        parse_response(response=response)
+
+    def remove_virtualization_realm_service(self, vr_id, service_id):
+        """Removes the service from the virtualization realm
+
+        :param vr_id: (int) Virtualization Realm ID
+        :param service_id: (int) Service ID
+        :return: None
+        :raises: Cons3rtClientError
+        """
+        target = 'virtualizationrealms/{i}/service/{s}'.format(i=str(vr_id), s=str(service_id))
+        response = self.http_client.http_delete(rest_user=self.user, target=target)
+        parse_response(response=response)
+
+    def update_virtualization_realm_access_point(self, vr_id, access_point_ip):
+        """Updates the access point for a virtualization realm
+
+        :param vr_id: (int) Virtualization Realm ID
+        :param access_point_ip: (str) Access point IP address
+        :return: None
+        :raises: Cons3rtClientError
+        """
+        target = 'virtualizationrealms/{i}'.format(i=str(vr_id))
+        content = {
+            'accessPoint': access_point_ip,
+
+        }
+        response = self.http_client.http_put(rest_user=self.user, target=target, content_data=content)
+        parse_response(response=response)
 
     def list_users(self, state=None, created_before=None, created_after=None, max_results=500):
         """Query CONS3RT to list site users

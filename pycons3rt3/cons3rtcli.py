@@ -1502,12 +1502,15 @@ class ProjectCli(Cons3rtCli):
         :return: None
         :raises: Cons3rtCliError
         """
+        unlock = False
+        if self.args.unlock:
+            unlock = True
         runs = self.list_active_runs_for_projects()
         project_id_list = [str(num) for num in self.ids]
         print('Attempting to power off {n} runs in projects: {p}'.format(
                 n=str(len(runs)), p=','.join(project_id_list)))
         try:
-            self.c5t.power_off_multiple_runs(drs=runs)
+            self.c5t.power_off_multiple_runs(drs=runs, unlock=unlock)
         except Cons3rtApiError as exc:
             msg = 'Problem powering off runs in projects: {p}'.format(p=project_id_list)
             raise Cons3rtCliError(msg) from exc
@@ -1518,12 +1521,14 @@ class ProjectCli(Cons3rtCli):
         :return: None
         :raises: Cons3rtCliError
         """
+        unlock = False
+        if self.args.unlock:
+            unlock = True
         runs = self.list_active_runs_for_projects()
         project_id_list = [str(num) for num in self.ids]
-        print('Attempting to power on {n} runs in projects: {p}'.format(
-            n=str(len(runs)), p=','.join(project_id_list)))
+        print('Attempting to power on {n} runs in projects: {p}'.format(n=str(len(runs)), p=','.join(project_id_list)))
         try:
-            self.c5t.power_on_multiple_runs(drs=runs)
+            self.c5t.power_on_multiple_runs(drs=runs, unlock=unlock)
         except Cons3rtApiError as exc:
             msg = 'Problem powering on runs in projects: {p}'.format(p=project_id_list)
             raise Cons3rtCliError(msg) from exc
@@ -1644,8 +1649,11 @@ class RunCli(Cons3rtCli):
         return True
 
     def cancel(self):
+        unlock = False
+        if self.args.unlock:
+            unlock = True
         for run_id in self.ids:
-            self.c5t.release_deployment_run(dr_id=run_id)
+            self.c5t.release_deployment_run(dr_id=run_id, unlock=unlock)
             print('Attempted to cancel deployment run: {r}'.format(r=str(run_id)))
 
     def delete(self):
@@ -1655,21 +1663,30 @@ class RunCli(Cons3rtCli):
         self.print_host_action_results(results=results)
 
     def power_off(self):
+        unlock = False
+        if self.args.unlock:
+            unlock = True
         results = []
         for run_id in self.ids:
-            results += self.c5t.power_off_run(dr_id=run_id)
+            results += self.c5t.power_off_run(dr_id=run_id, unlock=unlock)
         self.print_host_action_results(results=results)
 
     def power_on(self):
+        unlock = False
+        if self.args.unlock:
+            unlock = True
         results = []
         for run_id in self.ids:
-            results += self.c5t.power_on_run(dr_id=run_id)
+            results += self.c5t.power_on_run(dr_id=run_id, unlock=unlock)
         self.print_host_action_results(results=results)
 
     def restore(self):
+        unlock = False
+        if self.args.unlock:
+            unlock = True
         results = []
         for run_id in self.ids:
-            results += self.c5t.restore_run_snapshots(dr_id=run_id)
+            results += self.c5t.restore_run_snapshots(dr_id=run_id, unlock=unlock)
         self.print_host_action_results(results=results)
 
     def snapshot(self):
@@ -2000,6 +2017,8 @@ class TeamCli(Cons3rtCli):
             raise Cons3rtCliError(msg)
         if self.subcommands[1] == 'list':
             self.list_team_runs()
+        elif self.subcommands[1] == 'power':
+            self.power()
         elif self.subcommands[1] == 'snapshot':
             self.snapshot()
         else:
@@ -2346,6 +2365,84 @@ class TeamCli(Cons3rtCli):
             self.err(msg)
             raise Cons3rtCliError(msg)
 
+    def restart_runs(self):
+        """Restarts the team runs
+
+        :return: None
+        :raises: Cons3rtCliError
+        """
+        unlock = False
+        if self.args.unlock:
+            unlock = True
+        runs = self.list_team_runs()
+        team_id_list = [str(num) for num in self.ids]
+        print('Attempting to restart {n} runs in teams: {t}'.format(
+            n=str(len(runs)), t=','.join(team_id_list)))
+        try:
+            self.c5t.restart_multiple_runs(drs=runs, unlock=unlock)
+        except Cons3rtApiError as exc:
+            msg = 'Problem restarting runs in teams: {t}'.format(t=team_id_list)
+            raise Cons3rtCliError(msg) from exc
+
+    def power(self):
+        skip_run_id_strs = []
+        if self.args.skip:
+            skip_run_id_strs = self.args.skip.split(',')
+        for skip_run_id_str in skip_run_id_strs:
+            self.skip_run_ids.append(int(skip_run_id_str))
+        if len(self.subcommands) > 2:
+            team_snapshot_subcommand = self.subcommands[2]
+            if team_snapshot_subcommand == 'off':
+                self.power_off_runs()
+                return
+            elif team_snapshot_subcommand == 'on':
+                self.power_on_runs()
+                return
+            elif team_snapshot_subcommand == 'restart':
+                self.restart_runs()
+                return
+            else:
+                self.err('Unrecognized team run snapshot subcommand: {c}'.format(c=team_snapshot_subcommand))
+                return
+
+    def power_off_runs(self):
+        """Powers off the team runs
+
+        :return: None
+        :raises: Cons3rtCliError
+        """
+        unlock = False
+        if self.args.unlock:
+            unlock = True
+        runs = self.list_team_runs()
+        team_id_list = [str(num) for num in self.ids]
+        print('Attempting to power off {n} runs in teams: {t}'.format(
+            n=str(len(runs)), t=','.join(team_id_list)))
+        try:
+            self.c5t.power_off_multiple_runs(drs=runs, unlock=unlock)
+        except Cons3rtApiError as exc:
+            msg = 'Problem powering off runs in teams: {t}'.format(t=team_id_list)
+            raise Cons3rtCliError(msg) from exc
+
+    def power_on_runs(self):
+        """Powers on the team runs
+
+        :return: None
+        :raises: Cons3rtCliError
+        """
+        unlock = False
+        if self.args.unlock:
+            unlock = True
+        runs = self.list_team_runs()
+        project_id_list = [str(num) for num in self.ids]
+        print('Attempting to power on {n} runs in teams: {p}'.format(
+            n=str(len(runs)), p=','.join(project_id_list)))
+        try:
+            self.c5t.power_on_multiple_runs(drs=runs, unlock=unlock)
+        except Cons3rtApiError as exc:
+            msg = 'Problem powering on runs in teams: {p}'.format(p=project_id_list)
+            raise Cons3rtCliError(msg) from exc
+
     def project(self):
         if len(self.subcommands) < 2:
             msg = 'team project subcommand not provided'
@@ -2359,10 +2456,14 @@ class TeamCli(Cons3rtCli):
             raise Cons3rtCliError(msg)
 
     def restore_snapshots(self):
+        unlock = False
+        if self.args.unlock:
+            unlock = True
         results = []
         for team_id in self.ids:
             print('Restoring snapshots for runs in team: {i}'.format(i=str(team_id)))
-            results += self.c5t.restore_snapshots_for_team(team_id=team_id, skip_run_ids=self.skip_run_ids)
+            results += self.c5t.restore_snapshots_for_team(team_id=team_id, skip_run_ids=self.skip_run_ids,
+                                                           unlock=unlock)
         print('Completed restoring snapshots for runs in teams: {i}'.format(i=str(self.ids)))
         self.print_host_action_results(results=results)
 
