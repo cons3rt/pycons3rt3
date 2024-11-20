@@ -2,7 +2,9 @@
 0.0.25a0
 ========
 
-* TBD
+* Fixed asset CLI command to better handle importing from zip file with the `--zip` option
+* Removed a redundant function from cons3rtclient.py
+* Added instance types to the AWS dedicated host script
 
 0.0.24
 ======

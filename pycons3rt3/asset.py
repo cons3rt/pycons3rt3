@@ -772,6 +772,10 @@ def import_asset(cons3rt_api, asset_info):
     try:
         int(returned_asset_id)
     except ValueError:
+        if not all([asset_info.asset_type, asset_info.asset_subtype, asset_info.name]):
+            print('Not enough info known to query asset ID, probably due to importing the asset zip instead of the '
+                  'directory')
+            return asset_info, None, True
         print('Attempting to determine imported asset ID in 10 seconds...')
         time.sleep(10)
         print('Querying for latest asset with type [{t}], subtype [{s}], and name [{n}]'.format(
@@ -954,7 +958,10 @@ def import_update(dest_dir, asset_dir=None, asset_zip_file=None, visibility=None
             return asset_info, 1, msg
         print('Set visibility for asset ID {i} to: {v}'.format(i=str(asset_id), v=visibility))
 
-    print('Completed import/update for asset ID: {i}'.format(i=str(asset_id)))
+    if asset_id:
+        print('Completed import/update for asset ID: {i}'.format(i=str(asset_id)))
+    else:
+        print('Completed asset import/update, resulting asset ID is not known')
     return asset_info, 0, None
 
 
@@ -1076,6 +1083,10 @@ def query_assets(asset_type, asset_subtype=None, expanded=False, community=False
     :raises: AssetError
     """
     log = logging.getLogger(mod_logger + '.query_assets')
+    if not asset_type:
+        return []
+    if not isinstance(asset_type, str):
+        raise AssetError('Invalid asset_type found, expected string, found: [{t}]'.format(t=type(asset_type)))
     asset_type = asset_type.upper()
     if asset_type not in cons3rt_asset_types:
         raise AssetError('Invalid asset_type found, valid asset types: [{t}]'.format(t=','.join(cons3rt_asset_types)))

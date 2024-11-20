@@ -1128,35 +1128,6 @@ class Cons3rtClient:
         projects = json.loads(result)
         return projects
 
-    def list_all_projects_in_virtualization_realm(self, vr_id):
-        """Lists all projects in a virtualization realm
-
-        :param vr_id: (int) ID of the virtualization realm
-        :return:
-        """
-        projects = []
-        page_num = 0
-        max_results = 40
-        while True:
-            print('Retrieving projects: page {p}'.format(p=str(page_num)))
-            try:
-                page_of_projects = self.list_projects_in_virtualization_realm(
-                    vr_id=vr_id,
-                    max_results=max_results,
-                    page_num=page_num
-                )
-            except Cons3rtClientError as exc:
-                msg = 'Problem querying CONS3RT for a list of projects in virtualization realm ID: {i}, ' \
-                      'page: {p}, max results: {m}'.format(i=str(vr_id), p=str(page_num), m=str(max_results))
-                raise Cons3rtClientError(msg) from exc
-            projects += page_of_projects
-            if len(page_of_projects) < max_results:
-                break
-            else:
-                page_num += 1
-            print('Found {n} projects...'.format(n=str(len(projects))))
-        return projects
-
     def remove_project_from_virtualization_realm(self, vr_id, project_id):
         response = self.http_client.http_delete(
             rest_user=self.user,
