@@ -1280,9 +1280,9 @@ def main():
     if args.visibility:
         visibility = args.visibility
 
-    # Set the keep flag
+    # Set the keep flag, also keep when importing zip files
     keep = False
-    if args.keep:
+    if args.keep or args.zip:
         keep = True
 
     # Set the ID
