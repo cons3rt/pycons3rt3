@@ -4,6 +4,7 @@ Prints statistics on dedicated host usage in an AWS account/region
 
 """
 
+import argparse
 import datetime
 import json
 import logging
@@ -13,6 +14,7 @@ from pycons3rt3.cons3rtapi import Cons3rtApi
 from pycons3rt3.ec2util import EC2Util
 from pycons3rt3.exceptions import Cons3rtApiError, EC2UtilError
 from pycons3rt3.logify import Logify
+from pycons3rt3.slack import SlackAttachment, SlackMessage
 
 # Set up logger name for this module
 mod_logger = Logify.get_name() + '.aws_dedicated_hosts_report'
@@ -74,6 +76,26 @@ def write_report(report):
 
 def main():
     log = logging.getLogger(mod_logger + '.main')
+
+    parser = argparse.ArgumentParser(description='aws dedicated hosts')
+    parser.add_argument('--slackchannel', help='Slack Channel')
+    parser.add_argument('--slackicon', help='Slack Icon')
+    parser.add_argument('--slackurl', help='Slack Webhook URL')
+    args = parser.parse_args()
+
+    # Determine whether to slack results
+    slack_url = None
+    slack_channel = None
+    slack_icon = None
+    send_slack = False
+    if args.slackurl:
+        slack_url = args.slackurl
+    if args.slackchannel:
+        slack_channel = args.slackchannel
+    if args.slackicon:
+        slack_icon = args.slackicon
+    if all([slack_url, slack_channel]):
+        send_slack = True
 
     # Create a EC2Util object
     ec2 = EC2Util()
@@ -162,6 +184,9 @@ def main():
     instance_type_discrepancies = []
     missing_instance_type_info = []
 
+    # Instance types that we do not have data for
+    undefined_instance_types = []
+
     # Keep track of the list of non-RA, non-NAT instances that are NOT on a dedicated host
     non_ra_non_nat_non_dedicated_host_instance_names = []
 
@@ -245,8 +270,23 @@ def main():
         cons3rt_ram_gb = 0
 
         # Get the AWS CPU and RAM
-        aws_cpus = instance_type_cpu[instance['InstanceType']]
-        aws_ram_gb = instance_type_ram_gb[instance['InstanceType']]
+        try:
+            aws_cpus = instance_type_cpu[instance['InstanceType']]
+        except KeyError as exc:
+            log.warning('Number of CPUs not defined for instance type: [{t}]\n{e}'.format(
+                t=instance['InstanceType'], e=str(exc)))
+            if instance['InstanceType'] not in undefined_instance_types:
+                undefined_instance_types.append(instance['InstanceType'])
+            continue
+
+        try:
+            aws_ram_gb = instance_type_ram_gb[instance['InstanceType']]
+        except KeyError as exc:
+            log.warning('RAM not defined for instance type: [{t}]\n{e}'.format(
+                t=instance['InstanceType'], e=str(exc)))
+            if instance['InstanceType'] not in undefined_instance_types:
+                undefined_instance_types.append(instance['InstanceType'])
+            continue
 
         # Add to the totals
         total_cpu += aws_cpus
@@ -442,6 +482,14 @@ def main():
         log.warning('This instance is orphaned, not found in CONS3RT: {n}'.format(n=instance_name))
         report['orphan_drhs'].append(instance_name)
 
+    # Add/print a list of undefined instance types
+    if len(undefined_instance_types) > 0:
+        log.warning('INCOMPLETE DATA - Undefined instance types found:')
+    for undefined_instance_type in undefined_instance_types:
+        log.warning('Undefined instance type: {t}'.format(t=undefined_instance_type))
+        report['undefined_instance_types'].append(undefined_instance_type)
+
+
     # Print info
     log.info('Found {n} NAT boxes'.format(n=str(nat_count)))
     log.info('Found {n} remote access boxes'.format(n=str(remote_access_count)))
@@ -452,6 +500,7 @@ def main():
     log.info('Found {n} non-remote-access deployment run CONS3RT CPUs'.format(n=str(cons3rt_deployment_run_cpu)))
     log.info('Found {n} non-remote-access deployment run CONS3RT RAM in GB'.format(
         n=str(cons3rt_deployment_run_ram)))
+    log.info('Found {n} undefined instance types'.format(n=str(undefined_instance_types)))
     log.info('Found {n} total CPU'.format(n=str(total_cpu)))
     log.info('Found {n} total RAM GBs'.format(n=str(total_ram_gb)))
 
@@ -469,6 +518,27 @@ def main():
 
     # Output the JSON report
     write_report(report=report)
+
+    # Send Slack messages
+    if send_slack:
+        slack_msg = SlackMessage(
+            slack_url,
+            channel=slack_channel,
+            text='SZQ: Non-Dedicated Host DRs:',
+            icon_url=slack_icon
+        )
+
+        for instance_name in non_ra_non_nat_non_dedicated_host_instance_names:
+            msg = 'Non-dedicated host DR found: {n}'.format(n=instance_name)
+            attachment = SlackAttachment(fallback=msg, text=msg, color='danger')
+            slack_msg.add_attachment(attachment)
+
+        for undefined_instance_type in undefined_instance_types:
+            msg = 'Undefined instance type found: {t}'.format(t=undefined_instance_type)
+            attachment = SlackAttachment(fallback=msg, text=msg, color='danger')
+            slack_msg.add_attachment(attachment)
+        slack_msg.send()
+
     return 0
 
 
