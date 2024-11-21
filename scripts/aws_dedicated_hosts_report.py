@@ -32,6 +32,7 @@ instance_type_cpu = {
     'm5.2xlarge': 8,
     'm5a.xlarge': 4,
     'm5d.2xlarge': 8,
+    'r5ad.2xlarge': 8,
     't2.nano': 1,
     't3.micro': 2,
     't3.medium': 2
@@ -51,6 +52,7 @@ instance_type_ram_gb = {
     'm5.2xlarge': 32,
     'm5a.xlarge': 16,
     'm5d.2xlarge': 32,
+    'r5ad.2xlarge': 64,
     't2.nano': 1,
     't3.micro': 1,
     't3.medium': 4
