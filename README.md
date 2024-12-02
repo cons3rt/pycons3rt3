@@ -128,20 +128,36 @@ Specify the destination directory:
 
 * Creates an asset zip file `AssetName.zip` in the specified directory
 
-Import an asset into CONS3RT:
+Import an asset into CONS3RT using an asset directory:
 
 `asset import --asset_dir=/path/to/asset`
 
 * Creates an asset zip, and imports the zip file into CONS3RT
 * Adds an `asset.yml` file to the asset directory with the site info and asset ID
 
+Import an asset using a zip file, and keep the zip file:
+
+`asset import --zip=/path/to/asset.zip --keep`
+
 Import an asset and set the visibility to the project-level:
 
 `asset import --asset_dir=/path/to/asset --visibility=OWNING_PROJECT`
 
-Update an existing asset in CONS3RT:
+Update an existing asset from an asset directory using `asset_data.yml`:
 
-`asset update --asset_dir=/path/to/asset`
+`asset update --asset_dir=/path/to/asset --id=12345`
+
+Update an existing asset from an asset zip file, specify the asset ID, and keep the zip:
+
+`asset update --zip=/path/to/asset.zip --id=12345 --keep`
+
+Update an existing asset in CONS3RT by ID:
+
+`asset update --asset_dir=/path/to/asset --id=12345`
+
+Update an asset using asset data, set log level, but specify which site URL, project, and ID to update:
+
+`asset update --asset_dir=/path/to/asset --loglevel=DEBUG --url=app.qa.cons3rt.io --project=jackpine --id=35610`
 
 * Uses the asset ID in the asset.yml file
 * Creates an asset zip, and updates the asset ID

@@ -73,8 +73,10 @@ class Cons3rtApi(object):
         self.rest_user = rest_user
         self.config_file = config_file
         self.url_base = url
+        self.url_arg = url
         self.username = username
         self.project = project
+        self.project_arg = project
         self.api_token = api_token
         self.cert_path = cert_path
         if root_ca_bundle_path:
@@ -86,6 +88,8 @@ class Cons3rtApi(object):
         self.queries = ''
         self.virtrealm = ''
         self.rest_user_list = []
+        self.config_default_site_url = None
+        self.config_default_project = None
         self.load_config()
         self.cons3rt_client = Cons3rtClient(user=self.rest_user)
 
@@ -257,6 +261,18 @@ class Cons3rtApi(object):
                 log.warning('Found an invalid project token, skipping: {p}'.format(p=str(project)))
                 continue
 
+            # Check if an overall default was specified
+            if 'default' in project.keys():
+                if project['default']:
+                    self.config_default_site_url = url_base
+                    self.config_default_project = project_name
+
+            # Check if a site project default is set
+            site_default_project = False
+            if 'site_default_project' in project.keys():
+                if project['site_default_project']:
+                    site_default_project = True
+
             # Create a cert-based auth or username-based auth user depending on the config
             if cert_file_path:
                 self.rest_user_list.append(RestUser(
@@ -264,7 +280,8 @@ class Cons3rtApi(object):
                     token=token,
                     project=project_name,
                     cert_file_path=cert_file_path,
-                    cert_bundle=self.root_ca_bundle_path
+                    cert_bundle=self.root_ca_bundle_path,
+                    site_default_project=site_default_project
                 ))
             elif username:
                 self.rest_user_list.append(RestUser(
@@ -272,7 +289,8 @@ class Cons3rtApi(object):
                     token=token,
                     project=project_name,
                     username=username,
-                    cert_bundle=self.root_ca_bundle_path
+                    cert_bundle=self.root_ca_bundle_path,
+                    site_default_project=site_default_project
                 ))
 
     def load_config_file(self):
@@ -312,10 +330,31 @@ class Cons3rtApi(object):
 
         log.info('Found {n} project/token pairs'.format(n=str(len(self.rest_user_list))))
 
-        # Select the first user to use as the default
-        self.rest_user = self.rest_user_list[0]
-        if self.project:
-            self.set_project_token(project_name=self.project)
+        # Check for caller-specified url and project to select from multi-site data
+        if all([self.url_arg, self.project_arg]):
+            if not self.select_rest_user(site_url=self.url_arg, project_name=self.project_arg):
+                raise Cons3rtApiError('Selecting rest API user config from specified site [{u}] and project [{p}] '
+                                      'using config file: {f}'.format(
+                    u=self.url_arg, p=self.project_arg, f=self.config_file))
+
+        # Check for a specified default, otherwise pick the first one on the list
+        elif all([self.config_default_site_url, self.config_default_project]):
+            if not self.select_rest_user(
+                    site_url=self.config_default_site_url, project_name=self.config_default_project):
+                raise Cons3rtApiError('Selecting default rest API user config from file: {f}'.format(
+                    f=self.config_file))
+        else:
+            if not self.select_rest_user(
+                    site_url=self.rest_user_list[0].rest_api_url, project_name=self.rest_user_list[0].project_name):
+                raise Cons3rtApiError('Selecting the first rest API user config from file: {f}'.format(
+                    f=self.config_file))
+
+        # Check if a project arg was provided without a URL, if so, switch to it
+        if self.project_arg and not self.url_arg:
+            if not self.set_project_token(project_name=self.project_arg):
+                raise Cons3rtApiError('Selecting project [{p}] and default URL from config file: {f}'.format(
+                    p=self.project_arg, f=self.config_file))
+
         log.info('Using ReST API token for project: {p}'.format(p=self.rest_user.project_name))
         return True
 
@@ -351,36 +390,81 @@ class Cons3rtApi(object):
             else:
                 log.warning('WARNING: Config for root_ca_bundle_path set to False, will not verify SSL connections')
 
-    def set_project_token(self, project_name):
-        """Sets the project name and token to the specified project name.  This project name
-        must already exist in config data
+    def select_rest_user(self, site_url, project_name):
+        """Find and return the rest user matching the provided site URL and project name
 
-        :param project_name: (str) name of the project
-        :return: None
-        :raises: Cons3rtApiError
+        :param site_url: (str) rest api URL
+        :param project_name: (str) project name
+        :return: (bool) True if the rest user was found and selected, False otherwise
         """
-        log = logging.getLogger(self.cls_logger + '.set_project_token')
-
-        # Ensure the project_name is a string
-        if not type(project_name) is str:
-            raise Cons3rtApiError('The arg project_name must be a string, found: {t}'.format(
-                t=project_name.__class__.__name__))
+        log = logging.getLogger(self.cls_logger + '.get_rest_user')
 
         # Loop through the projects until the project matches
         found = False
-        log.info('Attempting to set the project token pair for project: {p}'.format(p=project_name))
+        log.debug('Checking for a rest API user for site [{u}] and project [{p}]...'.format(u=site_url, p=project_name))
         for rest_user in self.rest_user_list:
-            log.debug('Checking if rest user matches project [{p}]: {u}'.format(p=project_name, u=str(rest_user)))
-            if rest_user.project_name == project_name:
+            if site_url in rest_user.rest_api_url and rest_user.project_name == project_name:
                 log.info('Found matching rest user: {u}'.format(u=str(rest_user)))
                 self.rest_user = rest_user
                 self.cons3rt_client = Cons3rtClient(user=self.rest_user)
+                self.project = rest_user.project_name
                 found = True
                 break
         if found:
-            log.info('Set project and Rest API token to: [{p}]'.format(p=self.rest_user.project_name))
-        else:
-            log.warning('Matching ReST User not found for project: {p}'.format(p=project_name))
+            log.info('Selected site [{u}] and project [{p}]'.format(u=site_url, p=project_name))
+            return True
+        log.warning('Site URL [{u}] with project [{p}] not found in rest API config data'.format(
+            u=site_url, p=project_name))
+        return False
+
+    def select_site(self, site_url):
+        """Select a site, only works if there is a single site or the site default project set
+
+        :param site_url: (str) rest api URL
+        :return: (bool) True if the rest user was found and selected, False otherwise
+        """
+        log = logging.getLogger(self.cls_logger + '.select_site')
+
+        site_configs = []
+
+        # Loop through the rest configs and collect all the matching sites
+        log.debug('Checking for a rest API user for site [{u}]...'.format(u=site_url))
+        for rest_user in self.rest_user_list:
+            if site_url in rest_user.rest_api_url:
+                site_configs.append(rest_user)
+
+        # Return if no matching sites found
+        if len(site_configs) < 1:
+            log.warning('No rest API configs found for site: [{u}]'.format(u=site_url))
+            return False
+
+        # Check for a site default project
+        for site_config in site_configs:
+            if site_config.site_default_project:
+                log.info('Found default project [{p}] for site: [{u}]'.format(p=site_config.project_name, u=site_url))
+                self.select_rest_user(site_url=site_url, project_name=site_config.project_name)
+                return True
+
+        # If not default was specified, return the first one on the list
+        log.info('Selecting project [{p}] for site: [{u}]'.format(p=site_configs[0].project_name, u=site_url))
+        self.select_rest_user(site_url=site_url, project_name=site_configs[0].project_name)
+        return True
+
+    def set_project_token(self, project_name):
+        """Sets the project name and token to the specified project name.  This project name
+        must already exist in config data.  This only searches withing the currently configured site URL
+
+        :param project_name: (str) name of the project
+        :return: (bool) True if the project was selected, False otherwise
+        """
+        log = logging.getLogger(self.cls_logger + '.set_project_token')
+
+        if not self.select_rest_user(site_url=self.rest_user.rest_api_url, project_name=project_name):
+            log.warning('Unable to set rest API user project to: {p}'.format(p=project_name))
+            return False
+
+        log.info('Selected rest API user project: {p}'.format(p=project_name))
+        return True
 
     def save_cons3rt_data(self, cons3rt_data, data_name):
         """Save cons3rt data to a file name that includes the provided data_name

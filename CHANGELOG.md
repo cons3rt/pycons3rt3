@@ -6,6 +6,7 @@
 * Removed a redundant function from cons3rtclient.py
 * Added instance types to the AWS dedicated host script
 * By default keep asset zip files imported with `asset --zip`
+* Finally added multi-site config file support, and multi-site automated asset update using `asset_data.yml` 
 
 0.0.24
 ======
