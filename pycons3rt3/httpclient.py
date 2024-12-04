@@ -6,10 +6,9 @@ import sys
 import time
 import traceback
 
-from requests_toolbelt import MultipartEncoder
-
 import requests
 from requests.exceptions import RequestException, SSLError
+from requests_toolbelt import MultipartEncoder
 
 from .logify import Logify
 from .exceptions import Cons3rtClientError

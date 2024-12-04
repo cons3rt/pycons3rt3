@@ -730,6 +730,7 @@ def import_asset(cons3rt_api, asset_info):
     :param asset_info: (Asset)
     :return: (tuple) Asset, imported_asset_id (int), Success (bool)
     """
+    log = logging.getLogger(mod_logger + '.import_asset')
     try:
         returned_asset_id = cons3rt_api.import_asset(asset_zip_file=asset_info.asset_zip_path)
     except Cons3rtApiError as exc:
@@ -771,25 +772,28 @@ def import_asset(cons3rt_api, asset_info):
                 print('WARNING: Unable to determine the imported asset ID, will have to be manually added to asset.yml')
                 return asset_info, None, True
             else:
-                discovered_asset_id = int(filtered_assets[0]['id'])
-                print('Discovered the imported asset ID: {n}'.format(n=str(discovered_asset_id)))
-
-                # Update site asset data with the new asset ID
-                asset_info.update_site_asset_id(
-                    asset_id=discovered_asset_id,
-                    site_url=cons3rt_api.rest_user.rest_api_url,
-                    project=cons3rt_api.project
-                )
-                return asset_info, discovered_asset_id, True
+                returned_asset_id = int(filtered_assets[0]['id'])
+                print('Discovered the imported asset ID: {n}'.format(n=str(returned_asset_id)))
     else:
         # Update site asset data with the new asset ID
-        print('Imported new asset ID: {n}'.format(n=str(returned_asset_id)))
-        asset_info.update_site_asset_id(
-            asset_id=returned_asset_id,
-            site_url=cons3rt_api.rest_user.rest_api_url,
-            project=cons3rt_api.project
-        )
-        return asset_info, returned_asset_id, True
+        print('Import succeeded and returned new asset ID: {n}'.format(n=str(returned_asset_id)))
+
+    # Double-check that a real asset ID was returned and exit without the ID if not
+    try:
+        int(returned_asset_id)
+    except ValueError:
+        log.debug('Asset ID not found, not updating asset data')
+        return asset_info, None, True
+
+    # If an asset ID was found, and an asset directory exists, add it to the asset data
+    if asset_info.asset_dir_path:
+        if os.path.isdir(asset_info.asset_dir_path):
+            asset_info.update_site_asset_id(
+                asset_id=returned_asset_id,
+                site_url=cons3rt_api.rest_user.rest_api_url,
+                project=cons3rt_api.project
+            )
+    return asset_info, returned_asset_id, True
 
 
 def update_asset(cons3rt_api, asset_info, asset_id):
@@ -802,11 +806,15 @@ def update_asset(cons3rt_api, asset_info, asset_id):
     """
     print('Attempting to update asset ID [{i}] with asset zip file: {f}'.format(
         i=str(asset_id), f=asset_info.asset_zip_path))
-    asset_info.update_site_asset_id(
-        asset_id=asset_id,
-        site_url=cons3rt_api.rest_user.rest_api_url,
-        project=cons3rt_api.project
-    )
+
+    # If the asset directory exists, update asset data (not for zips)
+    if asset_info.asset_dir_path:
+        if os.path.isdir(asset_info.asset_dir_path):
+            asset_info.update_site_asset_id(
+                asset_id=asset_id,
+                site_url=cons3rt_api.rest_user.rest_api_url,
+                project=cons3rt_api.project
+            )
     try:
         cons3rt_api.update_asset_content(asset_id=asset_id, asset_zip_file=asset_info.asset_zip_path)
     except Cons3rtApiError as exc:
