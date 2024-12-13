@@ -2,7 +2,7 @@
 0.0.26a0
 ========
 
-* TBD
+* Skip updating asset_data.yml asset ID when running an update FROM the asset data
 
 0.0.25
 ======

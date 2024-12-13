@@ -796,12 +796,13 @@ def import_asset(cons3rt_api, asset_info):
     return asset_info, returned_asset_id, True
 
 
-def update_asset(cons3rt_api, asset_info, asset_id):
+def update_asset(cons3rt_api, asset_info, asset_id, new_asset_id=True):
     """Updates an asset ID with the provided Cons3rtApi object and asset zip
 
     :param cons3rt_api: Cons3rtApi object
     :param asset_info: (Asset)
     :param asset_id: (int) asset ID to update
+    :param new_asset_id: (bool) set False to skip updating asset data
     :return: (tuple) Asset, updated_asset_id (int), Success (bool)
     """
     print('Attempting to update asset ID [{i}] with asset zip file: {f}'.format(
@@ -810,11 +811,12 @@ def update_asset(cons3rt_api, asset_info, asset_id):
     # If the asset directory exists, update asset data (not for zips)
     if asset_info.asset_dir_path:
         if os.path.isdir(asset_info.asset_dir_path):
-            asset_info.update_site_asset_id(
-                asset_id=asset_id,
-                site_url=cons3rt_api.rest_user.rest_api_url,
-                project=cons3rt_api.project
-            )
+            if new_asset_id:
+                asset_info.update_site_asset_id(
+                    asset_id=asset_id,
+                    site_url=cons3rt_api.rest_user.rest_api_url,
+                    project=cons3rt_api.project
+                )
     try:
         cons3rt_api.update_asset_content(asset_id=asset_id, asset_zip_file=asset_info.asset_zip_path)
     except Cons3rtApiError as exc:
@@ -999,7 +1001,7 @@ def import_update(dest_dir, c5t, asset_dir=None, asset_zip_file=None, visibility
             print('Attempting to update site [{u}] asset ID [{i}]...'.format(
                 u=c5t.rest_user.rest_api_url, i=str(site_asset.asset_id)))
             asset_info, asset_id, result = update_asset(
-                cons3rt_api=c5t, asset_info=asset_info, asset_id=site_asset.asset_id)
+                cons3rt_api=c5t, asset_info=asset_info, asset_id=site_asset.asset_id, new_asset_id=False)
             if not result:
                 msg = 'ERROR: Problem updating site [{u}] asset ID [{i}]'.format(
                     u=site_asset.site_url, i=str(site_asset.asset_id))
