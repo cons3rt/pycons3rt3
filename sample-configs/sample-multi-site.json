@@ -1,59 +1,55 @@
 {
   "sites": [
     {
-      "api_url": "https://api.cons3rt.com/rest/api/",
-      "name": "yennaco",
+      "api_url": "https://app.arcus.mil/rest/api/",
+      "cert": "client.pem",
       "projects": [
         {
-          "name": "Homer",
-          "rest_key": "7474890c-b01e-4820-8185-96e563461383"
+          "name": "REPLACE_PROJECT1",
+          "rest_key": "REPLACE_API_KEY_PROJECT1"
         },
         {
-          "name": "CONS3RT Development",
-          "rest_key": "104ffbdb-5674-443f-8bb8-01ca7888aaaa"
+          "name": "REPLACE_PROJECT2",
+          "rest_key": "REPLACE_API_KEY_PROJECT2"
         },
         {
-          "name": "Homer Development",
-          "rest_key": "8125de0b-eee4-47be-ae45-fc43475aab8f"
-        },
-        {
-          "name": "Homer Prod",
-          "rest_key": "74c819d7-004b-4f5c-bece-559ceb94a4ff"
+          "name": "REPLACE_PROJECT3",
+          "rest_key": "REPLACE_API_KEY_PROJECT3"
         }
       ]
     },
     {
       "api_url": "https://app.arcus-cloud.io/rest/api/",
-      "cert": "yennaco2021.pem",
+      "cert": "client.pem",
       "projects": [
         {
-          "name": "Homer",
-          "rest_key": "6660e1ad-7263-4b90-9368-9b2a03a89865"
+          "name": "REPLACE_PROJECT1",
+          "rest_key": "REPLACE_API_KEY_PROJECT1"
         },
         {
-          "name": "Arcus Asset Development",
-          "rest_key": "593c5c7a-f18a-4e86-82d8-a1e634c5c949"
+          "name": "REPLACE_PROJECT2",
+          "rest_key": "REPLACE_API_KEY_PROJECT2"
         }
       ]
     },
     {
       "api_url": "https://app.qa.cons3rt.io/rest/api/",
-      "cert": "/Users/yennaco/.cons3rt/conf/yennaco2021.pem",
-      "root_ca_bundle": "/Users/yennaco/.cons3rt/conf/ci_bundle.pem",
+      "cert": "client.pem",
+      "root_ca_bundle": "/path/to/ci_bundle.pem",
       "projects": [
         {
-          "name": "jackpine",
-          "rest_key": "da8cac8f-2fdd-41c8-95d3-61799f799806"
+          "name": "REPLACE_PROJECT1",
+          "rest_key": "REPLACE_API_KEY_PROJECT1"
         }
       ]
     }
   ],
-  "api_url": "https://api.cons3rt.com/rest/api/",
-  "name": "yennaco",
+  "api_url": "https://app.dev.cons3rt.io/rest/api/",
+  "name": "REPLACE_USERNAME_FOR_USER_PASS_AUTH",
   "projects": [
     {
-      "name": "Homer",
-      "rest_key": "7474890c-b01e-4820-8185-96e563461383"
+      "name": "REPLACE_PROJECT1",
+      "rest_key": "REPLACE_API_KEY_PROJECT1"
     }
   ]
 }
