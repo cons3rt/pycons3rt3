@@ -1,6 +1,6 @@
 
-0.0.25a0
-========
+0.0.25
+======
 
 * Fixed asset CLI command to better handle importing from zip file with the `--zip` option
 * Removed a redundant function from cons3rtclient.py
