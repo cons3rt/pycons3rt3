@@ -6,7 +6,8 @@
       "projects": [
         {
           "name": "REPLACE_PROJECT1",
-          "rest_key": "REPLACE_API_KEY_PROJECT1"
+          "rest_key": "REPLACE_API_KEY_PROJECT1",
+          "default": true
         },
         {
           "name": "REPLACE_PROJECT2",
