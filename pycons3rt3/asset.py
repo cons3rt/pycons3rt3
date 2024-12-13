@@ -195,7 +195,7 @@ class Asset(object):
             except ValueError:
                 print('WARNING: Invalid asset ID found: {i}, skipping...'.format(i=str(site_asset_data['asset_id'])))
                 continue
-            msg = 'Found asset ID [{i}] for site [{s}]'.format(
+            msg = 'In the asset data file, found asset ID [{i}] for site [{s}]'.format(
                 i=str(site_asset_data['asset_id']), s=site_asset_data['site_url'])
             if 'project' in site_asset_data.keys():
                 msg += ' in project [{p}]'.format(p=site_asset_data['project'])
