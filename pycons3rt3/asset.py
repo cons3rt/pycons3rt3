@@ -731,6 +731,8 @@ def import_asset(cons3rt_api, asset_info):
     :return: (tuple) Asset, imported_asset_id (int), Success (bool)
     """
     log = logging.getLogger(mod_logger + '.import_asset')
+    print('Attempting to import asset into site [{u}], project [{p}] from zip file: [{f}]'.format(
+        u=cons3rt_api.rest_user.rest_api_url, p=cons3rt_api.rest_user.project_name, f=asset_info.asset_zip_path))
     try:
         returned_asset_id = cons3rt_api.import_asset(asset_zip_file=asset_info.asset_zip_path)
     except Cons3rtApiError as exc:
@@ -738,8 +740,10 @@ def import_asset(cons3rt_api, asset_info):
             z=asset_info.asset_zip_path, u=cons3rt_api.rest_user.rest_api_url, e=str(exc)))
         traceback.print_exc()
         return asset_info, None, False
+    print('Imported the asset into site [{u}] in project [{p}], from file: [{z}]'.format(
+        u=cons3rt_api.rest_user.rest_api_url, p=cons3rt_api.rest_user.project_name, z=asset_info.asset_zip_path))
 
-    print('Imported asset from zip: {z}'.format(z=asset_info.asset_zip_path))
+    # Check if the returned asset ID was an integer
     try:
         int(returned_asset_id)
     except ValueError:
@@ -773,10 +777,10 @@ def import_asset(cons3rt_api, asset_info):
                 return asset_info, None, True
             else:
                 returned_asset_id = int(filtered_assets[0]['id'])
-                print('Discovered the imported asset ID: {n}'.format(n=str(returned_asset_id)))
+                print('Discovered the newly imported asset ID: [{n}]'.format(n=str(returned_asset_id)))
     else:
         # Update site asset data with the new asset ID
-        print('Import succeeded and returned new asset ID: {n}'.format(n=str(returned_asset_id)))
+        print('Import succeeded and returned new asset ID: [{n}]'.format(n=str(returned_asset_id)))
 
     # Double-check that a real asset ID was returned and exit without the ID if not
     try:
@@ -877,11 +881,11 @@ def import_update(dest_dir, c5t, asset_dir=None, asset_zip_file=None, visibility
 
     # Determine whether to import or update / update a specific ID or using asset data
     if update_only and (update_asset_id is None and len(asset_info.site_asset_list) < 1):
-        msg = 'updateonly command was specified, and no site asset data was found to update'
+        msg = 'updateonly command was specified, and no site asset data was found, nothing to update'
         print(msg)
         return asset_info, 1, msg
     elif import_only:
-        log.debug('Import only specified, the asset will be imported...')
+        log.debug('Import only specified, importing asset...')
         do_import = True
     elif update_asset_id is None and len(asset_info.site_asset_list) < 1:
         do_import = True
@@ -892,19 +896,19 @@ def import_update(dest_dir, c5t, asset_dir=None, asset_zip_file=None, visibility
         log.debug('Asset ID to update not specified, and no asset data found, importing...')
         do_import = True
     elif asset_dir and len(asset_info.site_asset_list) > 0:
-        log.debug('Asset ID to update not specified, asset data found, updating from asset data...')
+        log.debug('Asset ID to update was not specified, asset data was found, updating using asset data...')
         do_update_asset_data = True
     elif asset_zip_file:
         log.debug('Using asset zip file [{f}] and no asset ID was provided, importing...')
         do_import = True
     else:
-        raise AssetError('Unhandled case for import/update encountered')
+        raise AssetError('Unhandled case for asset import/update encountered')
 
 
     # Import a new asset
     if do_import:
-        print('Attempting to import asset into site [{u}] from zip file: {f}'.format(
-            u=c5t.rest_user.rest_api_url, f=asset_info.asset_zip_path))
+        print('Attempting to import asset into site [{u}], project [{p}] from zip file: [{f}]'.format(
+            u=c5t.rest_user.rest_api_url, p=c5t.rest_user.project_name, f=asset_info.asset_zip_path))
         asset_info, asset_id, result = import_asset(cons3rt_api=c5t, asset_info=asset_info)
         if result:
             print('Imported asset successfully')
@@ -915,7 +919,7 @@ def import_update(dest_dir, c5t, asset_dir=None, asset_zip_file=None, visibility
 
         # Attempt to set visibility if an asset ID was returned
         if asset_id and visibility:
-            print('Attempting to set visibility for site [{u}] asset ID [{n}] to: {v}'.format(
+            print('Attempting to set visibility asset ID [{n}] in site [{u}] to: {v}'.format(
                 u=c5t.rest_user.rest_api_url, n=str(asset_id), v=visibility))
             try:
                 c5t.update_asset_visibility(
@@ -924,19 +928,19 @@ def import_update(dest_dir, c5t, asset_dir=None, asset_zip_file=None, visibility
                     trusted_projects=None
                 )
             except Cons3rtApiError as exc:
-                msg = 'ERROR: Problem setting visibility for site [{u}] asset ID [{n}] to: {v}\n{e}'.format(
+                msg = 'ERROR: Problem setting visibility for asset ID [{n}] in site [{u}] to: {v}\n{e}'.format(
                     u=c5t.rest_user.rest_api_url, n=str(asset_id), v=visibility, e=str(exc))
                 print(msg)
                 traceback.print_exc()
                 return asset_info, 1, msg
-            print('Set visibility for site [{u}] asset ID {i} to: {v}'.format(
+            print('Set visibility for asset ID [{i}] in site [{u}] to: {v}'.format(
                 u=c5t.rest_user.rest_api_url, i=str(asset_id), v=visibility))
 
         if asset_id:
-            print('Completed import to site [{u}] with new asset ID: {i}'.format(
+            print('Completed asset import to site [{u}] and received new asset ID: [{i}]'.format(
                 u=c5t.rest_user.rest_api_url, i=str(asset_id)))
         else:
-            print('Completed asset import to site [{u}], resulting asset ID is not known'.format(
+            print('Completed asset import to site [{u}], and resulting asset ID is unknown'.format(
                 u=c5t.rest_user.rest_api_url))
 
     elif do_update_asset_id:
@@ -944,16 +948,16 @@ def import_update(dest_dir, c5t, asset_dir=None, asset_zip_file=None, visibility
         try:
             int(update_asset_id)
         except ValueError:
-            raise AssetError('Existing asset ID provided was not an integer: {i}'.format(i=str(update_asset_id)))
+            raise AssetError('Existing asset ID provided was not an integer: [{i}]'.format(i=str(update_asset_id)))
 
         # If there is a single existing asset ID specified, update it, assuming this is for the default site config
-        print('Attempting to update site [{u}] asset ID [{i}]...'.format(
-            u=c5t.rest_user.rest_api_url, i=str(update_asset_id)))
-
+        print('Attempting to update asset ID [{i}] in project [{p}] in site [{u}]...'.format(
+            u=c5t.rest_user.rest_api_url, i=str(update_asset_id), p=c5t.rest_user.project_name))
         asset_info, asset_id, result = update_asset(
             cons3rt_api=c5t, asset_info=asset_info, asset_id=update_asset_id)
         if not result:
-            msg = 'ERROR: Problem updating asset ID: {i}'.format(i=str(asset_id))
+            msg = 'ERROR: Problem updating asset ID [{i}] in project [{p}] in site [{u}]'.format(
+                u=c5t.rest_user.rest_api_url, i=str(update_asset_id), p=c5t.rest_user.project_name)
             print(msg)
             return asset_info, 1, msg
 
@@ -968,15 +972,15 @@ def import_update(dest_dir, c5t, asset_dir=None, asset_zip_file=None, visibility
                     trusted_projects=None
                 )
             except Cons3rtApiError as exc:
-                msg = 'ERROR: Problem setting visibility for site [{u}] asset ID {n} to: {v}\n{e}'.format(
+                msg = 'ERROR: Problem setting visibility asset ID [{n}] in site [{u}] to: [{v}]\n{e}'.format(
                     u=c5t.rest_user.rest_api_url, n=str(update_asset_id), v=visibility, e=str(exc))
                 print(msg)
                 traceback.print_exc()
                 return asset_info, 1, msg
-            print('Set visibility for site [{u}] asset ID {i} to: {v}'.format(
+            print('Set visibility for asset ID [{i}] in site [{u}] to: [{v}]'.format(
                 u=c5t.rest_user.rest_api_url, i=str(update_asset_id), v=visibility))
 
-        print('Completed update for site [{u}] asset ID [{i}]'.format(
+        print('Completed updating asset ID [{i}] in site [{u}]'.format(
             u=c5t.rest_user.rest_api_url, i=str(update_asset_id)))
 
     # No specific asset ID was specified to update, and at least 1 site config exists, update each asset
@@ -998,13 +1002,13 @@ def import_update(dest_dir, c5t, asset_dir=None, asset_zip_file=None, visibility
                     continue
 
             # Update the asset
-            print('Attempting to update site [{u}] asset ID [{i}]...'.format(
-                u=c5t.rest_user.rest_api_url, i=str(site_asset.asset_id)))
+            print('Attempting to update asset ID [{i}] in project [{p}] in site [{u}]...'.format(
+                u=c5t.rest_user.rest_api_url, i=str(site_asset.asset_id), p=c5t.rest_user.project_name))
             asset_info, asset_id, result = update_asset(
                 cons3rt_api=c5t, asset_info=asset_info, asset_id=site_asset.asset_id, new_asset_id=False)
             if not result:
-                msg = 'ERROR: Problem updating site [{u}] asset ID [{i}]'.format(
-                    u=site_asset.site_url, i=str(site_asset.asset_id))
+                msg = 'ERROR: Problem updating asset ID [{i}] in project [{p}] in site [{u}]'.format(
+                    u=site_asset.site_url, i=str(site_asset.asset_id), p=c5t.rest_user.project_name)
                 print(msg)
                 return asset_info, 1, msg
 
@@ -1019,14 +1023,14 @@ def import_update(dest_dir, c5t, asset_dir=None, asset_zip_file=None, visibility
                         trusted_projects=None
                     )
                 except Cons3rtApiError as exc:
-                    msg = 'ERROR: Problem setting visibility for asset ID [{i}] in site [{u}] to: {v}\n{e}'.format(
+                    msg = 'ERROR: Problem setting visibility for asset ID [{i}] in site [{u}] to: [{v}]\n{e}'.format(
                         i=str(site_asset.asset_id), u=site_asset.site_url, v=visibility, e=str(exc))
                     print(msg)
                     traceback.print_exc()
                     return asset_info, 1, msg
-                print('Set visibility for for asset ID [{i}] in site [{u}] to: {v}'.format(
+                print('Set visibility for for asset ID [{i}] in site [{u}] to: [{v}]'.format(
                     i=str(site_asset.asset_id), u=site_asset.site_url, v=visibility))
-            print('Completed update for site [{u}] asset ID [{i}]'.format(
+            print('Completed updating asset ID [{i}] in site [{u}]'.format(
                 u=site_asset.site_url, i=str(site_asset.asset_id)))
 
     # Remove the asset zip file
