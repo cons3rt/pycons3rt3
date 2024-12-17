@@ -8019,8 +8019,8 @@ class Cons3rtApi(object):
             self.clean_all_runs_in_virtualization_realm(vr_id=cloud_vr_id, unlock=unlock)
 
     def share_templates_to_vrs_in_cloud(self, cloud_id, provider_vr_id=None, templates_registration_data=None,
-                                        template_names=None, subscribe=True, online=True, max_cpus=32,
-                                        max_ram_mb=131072):
+                                        template_names=None, subscribe=True, online=True, max_cpus=64,
+                                        max_ram_mb=256000):
         """Shares a list of templates from a provider VR to all VRs in the provided cloud ID
 
         :param cloud_id: (int) ID of the cloud to share with

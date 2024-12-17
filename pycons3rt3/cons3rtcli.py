@@ -5,7 +5,7 @@ import json
 import traceback
 
 from .cons3rtapi import Cons3rtApi
-from .cons3rtdefaults import default_template_subscription_max_cpus
+from .cons3rtdefaults import default_template_subscription_max_cpus, default_template_subscription_max_ram_mb
 from .exceptions import Cons3rtApiError, Cons3rtReportsError
 from .pycons3rtlibs import HostActionResult
 from .reports import generate_team_report, generate_team_asset_report
@@ -64,6 +64,19 @@ class Cons3rtCli(object):
                 return max_cpus
         else:
             return default_template_subscription_max_cpus
+
+    def get_max_ram(self):
+        if self.args.cpu:
+            try:
+                max_ram_mb = int(self.args.ram)
+            except ValueError as exc:
+                msg = 'Invalid --ram arg provided, must be an int: {c}\n{e}'.format(c=str(self.args.ram), e=str(exc))
+                self.err(msg)
+                raise Cons3rtCliError(msg) from exc
+            else:
+                return max_ram_mb
+        else:
+            return default_template_subscription_max_ram_mb
 
     def process_args(self):
         if not self.validate_args():
@@ -601,10 +614,12 @@ class CloudCli(Cons3rtCli):
             self.err(msg)
             raise Cons3rtCliError(msg)
         max_cpus = self.get_max_cpu()
+        max_ram_mb = self.get_max_ram()
         if self.args.all:
             for cloud_id in self.ids:
                 try:
-                    self.c5t.share_templates_to_vrs_in_cloud(cloud_id=cloud_id, max_cpus=max_cpus)
+                    self.c5t.share_templates_to_vrs_in_cloud(
+                        cloud_id=cloud_id, max_cpus=max_cpus, max_ram_mb=max_ram_mb)
                 except Cons3rtApiError as exc:
                     msg = 'Problem sharing templates in cloud ID: {c}\n{e}'.format(c=str(cloud_id), e=str(exc))
                     self.err(msg)
@@ -613,7 +628,7 @@ class CloudCli(Cons3rtCli):
             for cloud_id in self.ids:
                 try:
                     self.c5t.share_templates_to_vrs_in_cloud(cloud_id=cloud_id, template_names=self.names,
-                                                             max_cpus=max_cpus)
+                                                             max_cpus=max_cpus, max_ram_mb=max_ram_mb)
                 except Cons3rtApiError as exc:
                     msg = 'Problem sharing templates in cloud ID: {c}\n{e}'.format(c=str(cloud_id), e=str(exc))
                     self.err(msg)

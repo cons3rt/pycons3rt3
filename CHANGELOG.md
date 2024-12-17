@@ -3,6 +3,7 @@
 ========
 
 * Skip updating asset_data.yml asset ID when running an update FROM the asset data
+* Updated defaults for CPU and RAM for template subscriptions, added a --ram arg to speficy the ram in a template subscription
 
 0.0.25
 ======

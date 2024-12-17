@@ -141,6 +141,7 @@ def main():
     parser.add_argument('--owning_team_id', help='ID of the owning team', required=False)
     parser.add_argument('--password', help='password relative to the CLI call', required=False)
     parser.add_argument('--provider_id', help='Resource provider ID', required=False)
+    parser.add_argument('--ram', help='RAM in MB relevant to the CLI call', required=False)
     parser.add_argument('--release_active_runs', help='Release active runs from a cloudspace', action='store_true')
     parser.add_argument('--role', help='Project role')
     parser.add_argument('--run', help='Run ID relative to the command provided', required=False)
