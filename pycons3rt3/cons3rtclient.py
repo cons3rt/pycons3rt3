@@ -1594,10 +1594,16 @@ class Cons3rtClient:
             raise Cons3rtClientError(str(exc)) from exc
         return result
 
-    def release_deployment_run(self, dr_id):
+    def release_deployment_run(self, dr_id, force=True):
+
+        # Determine the force option
+        force_str = 'false'
+        if force:
+            force_str = 'true'
+
         response = self.http_client.http_put(
             rest_user=self.user,
-            target='drs/' + str(dr_id) + '/release?force=true')
+            target='drs/' + str(dr_id) + '/release?force={f}'.format(f=force_str))
         try:
             result = parse_response(response=response)
         except Cons3rtClientError as exc:

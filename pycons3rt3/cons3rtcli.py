@@ -23,6 +23,12 @@ class Cons3rtCli(object):
         self.config = None
         if args.config:
             self.config = args.config
+        self.url = None
+        if args.url:
+            self.url = args.url
+        self.project = None
+        if args.project:
+            self.project = args.project
         self.ids = None
         self.names = None
         self.runs = None
@@ -34,6 +40,9 @@ class Cons3rtCli(object):
         except Cons3rtApiError as exc:
             self.err('Missing or incomplete authentication information, run [cons3rt config] to fix\n{e}'.format(
                 e=str(exc)))
+        # Select the API user by URL/Project if provided
+        if all([self.url, self.project]):
+            self.c5t.select_rest_user(site_url=self.url, project_name=self.project)
 
     def dump_json_file(self, data):
         # Export the data to a JSON file

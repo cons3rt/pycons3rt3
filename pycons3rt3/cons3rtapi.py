@@ -4333,11 +4333,12 @@ class Cons3rtApi(object):
         """
         return self.create_deployment(json_file=json_file)
 
-    def release_deployment_run(self, dr_id, unlock=False):
+    def release_deployment_run(self, dr_id, unlock=False, force=True):
         """Release a deployment run by ID
 
         :param: dr_id: (int) deployment run ID
         :param: unlock: (bool) set true to unlock before releasing the run
+        :param: force: (bool) set true to force release/cancel the run
         :return: None
         :raises: Cons3rtApiError
         """
@@ -4360,16 +4361,19 @@ class Cons3rtApi(object):
                 raise Cons3rtApiError(msg) from exc
 
         # Attempt to release the DR
-        log.debug('Attempting to release deployment run ID: {i}'.format(i=str(dr_id)))
+        log.debug('Attempting to release deployment run ID [{i}] with force set to [{f}]'.format(
+            i=str(dr_id), f=str(force)))
         try:
-            result = self.cons3rt_client.release_deployment_run(dr_id=dr_id)
+            result = self.cons3rt_client.release_deployment_run(dr_id=dr_id, force=force)
         except Cons3rtClientError as exc:
-            msg = 'Unable to release deployment run ID: {i}'.format(i=str(dr_id))
+            msg = 'Unable to release deployment run ID [{i}] with force set to [{f}]'.format(
+                i=str(dr_id), f=str(force))
             raise Cons3rtApiError(msg) from exc
         if result:
             log.info('Successfully released deployment run ID: {i}'.format(i=str(dr_id)))
         else:
-            raise Cons3rtApiError('Unable to release deployment run ID: {i}'.format(i=str(dr_id)))
+            raise Cons3rtApiError('Unable to release deployment run ID [{i}] with force set to [{f}]'.format(
+                i=str(dr_id), f=str(force)))
 
     def launch_deployment_run_from_json(self, deployment_id, json_file):
         """Launches a deployment run using options provided in a JSON file
