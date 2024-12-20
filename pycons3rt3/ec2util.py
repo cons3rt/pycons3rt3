@@ -42,6 +42,13 @@ nat_vm_ami = {
 # Default size of a NAT instance
 nat_default_size = 't3.micro'
 
+# Amazon service names when querying IPs
+amazon_service_names = ['AMAZON', 'CHIME_VOICECONNECTOR', 'ROUTE53_HEALTHCHECKS', 'S3', 'IVS_REALTIME',
+                        'WORKSPACES_GATEWAYS', 'EC2', 'ROUTE53', 'CLOUDFRONT', 'GLOBALACCELERATOR', 'AMAZON_CONNECT',
+                        'ROUTE53_HEALTHCHECKS_PUBLISHING', 'CHIME_MEETINGS', 'CLOUDFRONT_ORIGIN_FACING', 'CLOUD9',
+                        'CODEBUILD', 'API_GATEWAY', 'ROUTE53_RESOLVER', 'EBS', 'EC2_INSTANCE_CONNECT',
+                        'KINESIS_VIDEO_STREAMS', 'AMAZON_APPFLOW', 'MEDIA_PACKAGE_V2', 'DYNAMODB']
+
 
 class EC2Util(object):
     """Utility for interacting with the AWS API
@@ -5877,29 +5884,51 @@ def parse_transit_gateway_routes(route_table_id, transit_gateway_routes):
 ############################################################################
 
 
-def get_aws_service_ips(regions=None, include_elastic_ips=False, ipv6=False):
+def get_aws_service_ips(regions=None, ipv6=False, include_amazon_service=True, include_elastic_ips=False,
+                        service_list=None):
     """Returns a list of AWS service IP addresses
 
     Ref: https://docs.aws.amazon.com/general/latest/gr/aws-ip-ranges.html#aws-ip-egress-control
 
     :param regions: (list) region IDs to include in the results (e.g. [us-gov-west-1, us-gov-east-1])
                            use the region 'GLOBAL' to include global non-region-specific ranges
-    :param include_elastic_ips: (bool) Set True to include attachable EC2 elastic IPs in the results
     :param ipv6: (bool) Set True to return only IPv6 results, False for IPv4 only
+    :param include_amazon_service: (bool) Set True to include the AMAZON IPs, used to connect to APIs
+    :param include_elastic_ips: (bool) Set True to include attachable EC2 elastic IPs in the results
+    :param service_list: (list) of String service names: ['AMAZON', 'CHIME_VOICECONNECTOR', 'ROUTE53_HEALTHCHECKS',
+            'S3', 'IVS_REALTIME', 'WORKSPACES_GATEWAYS', 'EC2', 'ROUTE53', 'CLOUDFRONT', 'GLOBALACCELERATOR',
+            'AMAZON_CONNECT', 'ROUTE53_HEALTHCHECKS_PUBLISHING', 'CHIME_MEETINGS', 'CLOUDFRONT_ORIGIN_FACING',
+            'CLOUD9', 'CODEBUILD', 'API_GATEWAY', 'ROUTE53_RESOLVER', 'EBS', 'EC2_INSTANCE_CONNECT',
+            'KINESIS_VIDEO_STREAMS', 'AMAZON_APPFLOW', 'MEDIA_PACKAGE_V2', 'DYNAMODB']
     :return: (list) of IP addresses
     """
     log = logging.getLogger(mod_logger + '.get_aws_service_ips')
-    matching_ip_ranges = []
+
+    # Gets the list of CIDR ranges matching the desired service list and "include" settings
+    filtered_unique_amazon_cidr_ranges = []
+    amazon_cidr_ranges = []
+
+    # Validate the service list if provided
+    if service_list:
+        for service in service_list:
+            if service not in amazon_service_names:
+                log.error('Invalid service name provided: [{n}]'.format(n=service))
+                return filtered_unique_amazon_cidr_ranges
+
+    # Determine the prefix ID
     if ipv6:
         prefix_id = 'ipv6_prefixes'
     else:
         prefix_id = 'prefixes'
+
+    # Get the full list from Amazon
     try:
         ip_ranges = requests.get('https://ip-ranges.amazonaws.com/ip-ranges.json').json()[prefix_id]
     except Exception as exc:
         log.error('Problem retrieving the list of IP ranges from AWS{e}\n'.format(e=str(exc)))
-        return matching_ip_ranges
+        return filtered_unique_amazon_cidr_ranges
 
+    # Set the prfix key based on IPv4 or IPv6
     if ipv6:
         prefix_key = 'ipv6_prefix'
         log.info('Returning IPv6 results only')
@@ -5907,47 +5936,51 @@ def get_aws_service_ips(regions=None, include_elastic_ips=False, ipv6=False):
         prefix_key = 'ip_prefix'
         log.info('Returning IPv4 results only')
 
-    # Gets the list of 'AMAZON' prefixes, these are used for AWS services
-    candidate_ip_ranges = []
-    amazon_ips = []
+    # Resolve include_elastic_ips if service list includes "EC2"
+    if service_list:
+        if 'EC2' in service_list:
+            include_elastic_ips = True
+
+    # Collect IPs based on whether to include the AMAZON IPs or use the service list
     for ip_range in ip_ranges:
         if prefix_key not in ip_range.keys():
             continue
-        if ip_range['service'] == 'AMAZON':
-            amazon_ips.append(ip_range[prefix_key])
-    log.info('Found {n} AMAZON IP prefixes'.format(n=str(len(amazon_ips))))
+        if regions:
+            if ip_range['region'] not in regions:
+                continue
+        if ip_range['service'] == 'EC2':
+            if include_elastic_ips:
+                amazon_cidr_ranges.append(ip_range[prefix_key])
+                continue
+        elif ip_range['service'] == 'AMAZON':
+            if include_amazon_service:
+                amazon_cidr_ranges.append(ip_range[prefix_key])
+                continue
+        elif service_list:
+            for service in service_list:
+                if ip_range['service'] == service:
+                    amazon_cidr_ranges.append(ip_range[prefix_key])
+
+    # Ensure the list in unique
+    unique_amazon_cidr_ranges = list(set(amazon_cidr_ranges))
+
+    log.info('Found [{n}] unique CIDR blocks'.format(n=str(len(unique_amazon_cidr_ranges))))
 
     # Exclude EC2 elastic IPs if specified
     if not include_elastic_ips:
-        ec2_ips = [item[prefix_key] for item in ip_ranges if item['service'] == 'EC2']
-        log.info('Excluding {n} EC2 elastic IP prefixes'.format(n=str(len(ec2_ips))))
-        for ip in amazon_ips:
-            if ip not in ec2_ips:
-                candidate_ip_ranges.append(ip)
+        ec2_cidr_ranges = [item[prefix_key] for item in ip_ranges if item['service'] == 'EC2']
+        log.info('Excluding [{n}] EC2 elastic IP CIDR blocks'.format(n=str(len(ec2_cidr_ranges))))
+        for amazon_cidr in unique_amazon_cidr_ranges:
+            if amazon_cidr not in ec2_cidr_ranges:
+                log.debug('Including non-EC2 CIDR: [{c}]'.format(c=amazon_cidr))
+                filtered_unique_amazon_cidr_ranges.append(amazon_cidr)
+            else:
+                log.debug('Excluding EC2 CIDR: [{c}]'.format(c=amazon_cidr))
     else:
-        log.info('Not excluding EC2 elastic IP addresses')
-        candidate_ip_ranges = list(amazon_ips)
-    log.info('Found {n} candidate IP address prefixes'.format(n=str(len(candidate_ip_ranges))))
-
-    # If regions are not specified, return the candidate list
-    if not regions:
-        return candidate_ip_ranges
-
-    # Filter results by region
-    region_filtered_ip_ranges = []
-    log.info('Filtering results by regions: {r}'.format(r=','.join(regions)))
-    region_ips = []
-    for region in regions:
-        this_region_ips = [item[prefix_key] for item in ip_ranges if item['region'] == region]
-        log.info('Found {n} IP ranges in region: {r}'.format(n=str(len(this_region_ips)), r=region))
-        region_ips += this_region_ips
-    log.info('Found {n} total IP ranges in regions: {r}'.format(n=str(len(region_ips)), r=','.join(regions)))
-    for candidate_ip_range in candidate_ip_ranges:
-        if candidate_ip_range in region_ips:
-            region_filtered_ip_ranges.append(candidate_ip_range)
-    log.info('Found {n} matching IP ranges in regions: {r}'.format(
-        n=str(len(region_filtered_ip_ranges)), r=','.join(regions)))
-    return region_filtered_ip_ranges
+        log.info('Not excluding EC2 elastic IP CIDR blocks')
+        filtered_unique_amazon_cidr_ranges = list(unique_amazon_cidr_ranges)
+    log.info('Found [{n}] filtered unique CIDR blocks'.format(n=str(len(filtered_unique_amazon_cidr_ranges))))
+    return filtered_unique_amazon_cidr_ranges
 
 
 ############################################################################
