@@ -1,9 +1,9 @@
 
-0.0.26a0
-========
+0.0.26
+======
 
 * Skip updating asset_data.yml asset ID when running an update FROM the asset data
-* Updated defaults for CPU and RAM for template subscriptions, added a --ram arg to speficy the ram in a template subscription
+* Updated defaults for CPU and RAM for template subscriptions, added a --ram arg to specify the ram in a template subscription
 * Added the --url and --project args to the cons3rt CLI to allow selection of the URL/project API key when specified
 * Added settings to the get_aws_service_ips method to include filtering by service type
 
