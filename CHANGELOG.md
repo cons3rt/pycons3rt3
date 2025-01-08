@@ -4,7 +4,7 @@
 
 * TBD
 
-0.0.28a0
+0.0.27
 ======
 
 * Added connect_timeout and read_timeout and defaults in the httpclient module to better handle timeouts
