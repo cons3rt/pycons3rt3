@@ -7,8 +7,11 @@ import time
 import traceback
 
 import requests
+from requests.adapters import HTTPAdapter
 from requests.exceptions import RequestException, SSLError
 from requests_toolbelt import MultipartEncoder
+from urllib3.util import Retry
+from urllib3.exceptions import MaxRetryError
 
 from .logify import Logify
 from .exceptions import Cons3rtClientError
@@ -131,13 +134,15 @@ class Client:
             raise
         return response
 
-    def http_delete(self, rest_user, target, content=None, keep_alive=False):
+    def http_delete(self, rest_user, target, content=None, keep_alive=False, connect_timeout=27.05, read_timeout=99):
         """Runs an HTTP DELETE request to the CONS3RT ReST API
 
         :param rest_user: (RestUser) user info
         :param target: (str) URL
         :param content: (dict) content for the request
         :param keep_alive: (bool) set True to send a keep alive with the request
+        :param connect_timeout: (float) seconds to wait for the connection to succeed, should be > multiple of 3
+        :param read_timeout: (int) seconds to wait in between bytes received, 99.9% it's the 1st byte
         :return: http response
         """
         log = logging.getLogger(self.cls_logger + '.http_delete')
@@ -161,7 +166,12 @@ class Client:
             try:
                 if content is None:
                     response = requests.delete(
-                        url, headers=headers, cert=rest_user.cert_file_path, verify=rest_user.cert_bundle)
+                        url,
+                        headers=headers,
+                        cert=rest_user.cert_file_path,
+                        verify=rest_user.cert_bundle,
+                        timeout=(connect_timeout, read_timeout)
+                    )
                 else:
                     response = requests.delete(
                         url, headers=headers, data=content, cert=rest_user.cert_file_path, verify=rest_user.cert_bundle)
@@ -176,7 +186,8 @@ class Client:
             attempt_num += 1
             time.sleep(self.retry_time_sec)
 
-    def http_post(self, rest_user, target, content_data=None, content_file=None, content_type='application/json'):
+    def http_post(self, rest_user, target, content_data=None, content_file=None, content_type='application/json',
+                  connect_timeout=27.05, read_timeout=99):
         """Makes an HTTP Post to the requested URL
 
         :param rest_user: (RestUser) user info
@@ -184,6 +195,8 @@ class Client:
         :param content_file: (str) path to the content file
         :param content_data: (str or dict) body data
         :param content_type: (str) Content-Type, default is application/json
+        :param connect_timeout: (float) seconds to wait for the connection to succeed, should be > multiple of 3
+        :param read_timeout: (int) seconds to wait in between bytes received, 99.9% it's the 1st byte
         :return: (str) HTTP Response or None
         :raises: Cons3rtClientError
         """
@@ -214,8 +227,14 @@ class Client:
                 raise Cons3rtClientError(msg)
             err_msg = ''
             try:
-                response = requests.post(url, headers=headers, data=content, cert=rest_user.cert_file_path,
-                                         verify=rest_user.cert_bundle)
+                response = requests.post(
+                    url,
+                    headers=headers,
+                    data=content,
+                    cert=rest_user.cert_file_path,
+                    verify=rest_user.cert_bundle,
+                    timeout=(connect_timeout, read_timeout)
+                )
             except SSLError as exc:
                 err_msg += 'SSLError on POST to URL: {u}\n{e}'.format(u=url, e=str(exc))
             except requests.ConnectionError as exc:
@@ -224,6 +243,9 @@ class Client:
                 err_msg += 'Timeout on POST to URL: {u}\n{e}'.format(u=url, e=str(exc))
             except RequestException as exc:
                 err_msg += 'RequestException on POST to URL: {u}\n{e}'.format(u=url, e=str(exc))
+            except MaxRetryError as exc:
+                err_msg += 'MaxRetryError on GET to URL [{u}] with reason [{r}]\n{e}'.format(
+                    u=exc.url, r=exc.reason, e=str(exc))
             except Exception as exc:
                 err_msg += 'Generic exception on POST to URL: {u}\n{e}'.format(u=url, e=str(exc))
             else:
@@ -233,7 +255,8 @@ class Client:
             attempt_num += 1
             time.sleep(self.retry_time_sec)
 
-    def http_put(self, rest_user, target, content_data=None, content_file=None, content_type='application/json'):
+    def http_put(self, rest_user, target, content_data=None, content_file=None, content_type='application/json',
+                 connect_timeout=27.05, read_timeout=99):
         """Makes an HTTP Post to the requested URL
 
         :param rest_user: (RestUser) user info
@@ -241,6 +264,8 @@ class Client:
         :param content_data: (str or dict) body data
         :param content_file: (str) path to the content file containing body data
         :param content_type: (str) Content-Type, default is application/json
+        :param connect_timeout: (float) seconds to wait for the connection to succeed, should be > multiple of 3
+        :param read_timeout: (int) seconds to wait in between bytes received, 99.9% it's the 1st byte
         :return: (str) HTTP Response or None
         :raises: Cons3rtClientError
         """
@@ -266,8 +291,14 @@ class Client:
                 raise Cons3rtClientError(msg)
             err_msg = ''
             try:
-                response = requests.put(url, headers=headers, data=content, cert=rest_user.cert_file_path,
-                                        verify=rest_user.cert_bundle)
+                response = requests.put(
+                    url,
+                    headers=headers,
+                    data=content,
+                    cert=rest_user.cert_file_path,
+                    verify=rest_user.cert_bundle,
+                    timeout=(connect_timeout, read_timeout)
+                )
             except SSLError as exc:
                 err_msg += 'SSLError on PUT to URL: {u}\n{e}'.format(u=url, e=str(exc))
             except requests.ConnectionError as exc:
@@ -276,6 +307,9 @@ class Client:
                 err_msg += 'Timeout on PUT to URL: {u}\n{e}'.format(u=url, e=str(exc))
             except RequestException as exc:
                 err_msg += 'RequestException on PUT to URL: {u}\n{e}'.format(u=url, e=str(exc))
+            except MaxRetryError as exc:
+                err_msg += 'MaxRetryError on GET to URL [{u}] with reason [{r}]\n{e}'.format(
+                    u=exc.url, r=exc.reason, e=str(exc))
             except Exception as exc:
                 err_msg += 'Generic exception on PUT to URL: {u}\n{e}'.format(u=url, e=str(exc))
             else:
@@ -285,13 +319,15 @@ class Client:
             attempt_num += 1
             time.sleep(self.retry_time_sec)
 
-    def http_multipart(self, method, rest_user, target, content_file):
+    def http_multipart(self, method, rest_user, target, content_file, connect_timeout=27.05, read_timeout=99):
         """Makes an HTTP Multipart request to upload a file
 
         :param method: (str) PUT or POST
         :param rest_user: (RestUser) user info
         :param target: (str) ReST API target URL
         :param content_file: (str) path to the content file
+        :param connect_timeout: (float) seconds to wait for the connection to succeed, should be > multiple of 3
+        :param read_timeout: (int) seconds to wait in between bytes received, 99.9% it's the 1st byte
         :return: (str) HTTP Response or None
         :raises: Cons3rtClientError
         """
@@ -339,6 +375,15 @@ class Client:
             # Create the request
             s = requests.Session()
 
+            # Add the retries
+            retries = Retry(
+                total=5,
+                backoff_factor=0.5,
+                status_forcelist=[413, 429, 500, 502, 503, 504],
+                allowed_methods={'GET'},
+            )
+            s.mount('https://', HTTPAdapter(max_retries=retries))
+
             # Handle the cert auth
             if rest_user.cert_file_path:
                 s.cert = rest_user.cert_file_path
@@ -353,14 +398,21 @@ class Client:
                 s.verify = rest_user.cert_bundle
             log.info('Using SSL verify setting for the MultiPart upload: {v}'.format(v=str(s.verify)))
 
+            # Create the request
             req = requests.Request(method, url, data=form, headers=headers)
-            prepped = req.prepare()
+
+            # TODO ensure this works by prepping with the session to allow cookies and saved data to work
+            #prepped = req.prepare()
+            prepped = s.prepare_request(request=req)
+
+            # Print the request info
             log.info('Request URL: {u}'.format(u=url))
             redacted_headers = dict(prepped.headers)
             redacted_headers['token'] = 'REDACTED'
             log.info('Prepped headers: {h}'.format(h=redacted_headers))
             log.info('Making request with method: [{m}]'.format(m=method))
 
+            # Attempt to send the request
             attempt_num = 1
             err_msg_tally = ''
             while True:
@@ -374,7 +426,7 @@ class Client:
 
                 # Send the request
                 try:
-                    response = s.send(prepped)
+                    response = s.send(prepped, timeout=(connect_timeout, read_timeout))
                 except SSLError as exc:
                     err_msg += 'SSLError on {m} to URL: {u}\n{e}'.format(u=url, m=method, e=str(exc))
                 except requests.ConnectionError as exc:
@@ -383,6 +435,9 @@ class Client:
                     err_msg += 'Timeout on {m} to URL: {u}\n{e}'.format(u=url, m=method, e=str(exc))
                 except RequestException as exc:
                     err_msg += 'RequestException on {m} to URL: {u}\n{e}'.format(u=url, m=method, e=str(exc))
+                except MaxRetryError as exc:
+                    err_msg += 'MaxRetryError on GET to URL [{u}] with reason [{r}]\n{e}'.format(
+                        u=exc.url, r=exc.reason, e=str(exc))
                 else:
                     complete_time = time.time()
                     log.info('Request completed in {t} seconds'.format(t=str(round(complete_time - start_time, 2))))
@@ -540,7 +595,8 @@ def get_content(content_file=None, content_data=None):
 
 
 def http_download(url, download_file, headers=None, basic_auth=None, client_cert_path=None, cert_bundle_path=None,
-                  max_retry_attempts=10, retry_time_sec=3, timeout_sec=3600, suppress_status=False):
+                  max_retry_attempts=10, retry_time_sec=3, connect_timeout=27.05, read_timeout=99,
+                  suppress_status=False):
     """Download the file and stream content to the download file location
 
     :param url: (str) URL to query
@@ -551,7 +607,8 @@ def http_download(url, download_file, headers=None, basic_auth=None, client_cert
     :param cert_bundle_path: (str) path to the certificate root CA bundle
     :param max_retry_attempts: (int) maximum number of attempts
     :param retry_time_sec: (int) seconds between attempts
-    :param timeout_sec: (int) timeout on the http download
+    :param connect_timeout: (float) seconds to wait for the connection to succeed, should be > multiple of 3
+    :param read_timeout: (int) seconds to wait in between bytes received, 99.9% it's the 1st byte
     :param suppress_status: (bool) Set true to suppress status output
     :return: (str) file download location
     :raises: Cons3rtClientError
@@ -559,6 +616,9 @@ def http_download(url, download_file, headers=None, basic_auth=None, client_cert
     log = logging.getLogger(mod_logger + '.http_download')
     attempt_num = 1
     err_msg_tally = ''
+
+
+
     while True:
         if attempt_num >= max_retry_attempts:
             msg = 'Max attempts exceeded: {n}\n{e}'.format(n=str(max_retry_attempts), e=err_msg_tally)
@@ -566,7 +626,7 @@ def http_download(url, download_file, headers=None, basic_auth=None, client_cert
         err_msg = ''
         try:
             with requests.get(url, headers=headers, cert=client_cert_path, verify=cert_bundle_path, auth=basic_auth,
-                              stream=True, timeout=timeout_sec) as response:
+                              stream=True, timeout=(connect_timeout, read_timeout)) as response:
                 # Attempt to get the content-length
                 if 'Content-Length' in response.headers.keys():
                     file_size = int(response.headers['Content-Length'])
@@ -583,6 +643,9 @@ def http_download(url, download_file, headers=None, basic_auth=None, client_cert
             err_msg += 'Timeout on GET to URL: {u}\n{e}'.format(u=url, e=str(exc))
         except RequestException as exc:
             err_msg += 'RequestException on GET to URL: {u}\n{e}'.format(u=url, e=str(exc))
+        except MaxRetryError as exc:
+            err_msg += 'MaxRetryError on GET to URL [{u}] with reason [{r}]\n{e}'.format(
+                u=exc.url, r=exc.reason, e=str(exc))
         except Exception as exc:
             err_msg += '[{n}] encountered on GET to URL: {u}\n{e}'.format(n=type(exc).__name__, u=url, e=str(exc))
         else:
@@ -595,7 +658,7 @@ def http_download(url, download_file, headers=None, basic_auth=None, client_cert
 
 
 def http_get_with_retries(url, headers=None, basic_auth=None, client_cert_path=None, cert_bundle_path=None,
-                          max_retry_attempts=10, retry_time_sec=3):
+                          max_retry_attempts=10, retry_time_sec=3, connect_timeout=27.05, read_timeout=99):
     """Run http get request with retries
 
     :param url: (str) URL to query
@@ -605,33 +668,75 @@ def http_get_with_retries(url, headers=None, basic_auth=None, client_cert_path=N
     :param cert_bundle_path: (str) path to the certificate root CA bundle
     :param max_retry_attempts: (int) maximum number of attempts
     :param retry_time_sec: (int) seconds between attempts
+    :param connect_timeout: (float) seconds to wait for the connection to succeed, should be > multiple of 3
+    :param read_timeout: (int) seconds to wait in between bytes received, 99.9% it's the 1st byte
     :return: requests.Response object
     :raises: Cons3rtClientError
     """
     log = logging.getLogger(mod_logger + '.http_get_with_retries')
     attempt_num = 1
     err_msg_tally = ''
+
+    # Build the request
+    s = requests.Session()
+
+    # Add the retries
+    retries = Retry(
+        total=5,
+        backoff_factor=0.5,
+        status_forcelist=[413, 429, 500, 502, 503, 504],
+        allowed_methods={'GET'},
+    )
+    s.mount('https://', HTTPAdapter(max_retries=retries))
+
+    # Handle the cert auth
+    if client_cert_path:
+        log.debug('Adding client certificate to the http GET request: {c}'.format(c=s.cert))
+        s.cert = client_cert_path
+        s.auth = None
+    else:
+        log.debug('Using basic auth for the http GET request')
+        s.auth = basic_auth
+
+    # Handle the cert bundle
+    if not cert_bundle_path:
+        log.debug('Cert bundle is none, setting http GET SSL verification to True...')
+        s.verify = True
+    else:
+        log.debug('Specifying http GET with cert bundle: [{b}]'.format(b=cert_bundle_path))
+        s.verify = cert_bundle_path
+    log.debug('Using SSL verify setting for http GET: {v}'.format(v=str(s.verify)))
+
+    # Create the request
+    req = requests.Request('GET', url, headers=headers)
+
+    # Prepare the request
+    prepped = s.prepare_request(request=req)
+
+    # Print the request info
+    log.debug('Request URL for http GET: {u}'.format(u=url))
+    redacted_headers = dict(prepped.headers)
+    redacted_headers['token'] = 'REDACTED'
+    log.debug('Prepped headers for http GET: {h}'.format(h=redacted_headers))
+
     while True:
         if attempt_num >= max_retry_attempts:
             msg = 'Max attempts exceeded: {n}\n{e}'.format(n=str(max_retry_attempts), e=err_msg_tally)
             raise Cons3rtClientError(msg)
         err_msg = ''
         try:
-            response = requests.get(
-                url,
-                headers=headers,
-                cert=client_cert_path,
-                verify=cert_bundle_path,
-                auth=basic_auth
-            )
+            response = s.send(prepped, timeout=(connect_timeout, read_timeout))
         except SSLError as exc:
-            err_msg += 'SSlError on GET to URL: {u}\n{e}'.format(u=url, e=str(exc))
+            err_msg += 'SSlError on GET to URL [{u}]\n{e}'.format(u=url, e=str(exc))
         except requests.ConnectionError as exc:
-            err_msg += 'ConnectionError on GET to URL: {u}\n{e}'.format(u=url, e=str(exc))
+            err_msg += 'ConnectionError on GET to URL [{u}]\n{e}'.format(u=url, e=str(exc))
         except requests.Timeout as exc:
-            err_msg += 'Timeout on GET to URL: {u}\n{e}'.format(u=url, e=str(exc))
+            err_msg += 'Timeout on GET to URL [{u}]\n{e}'.format(u=url, e=str(exc))
         except RequestException as exc:
             err_msg += 'RequestException on GET to URL: {u}\n{e}'.format(u=url, e=str(exc))
+        except MaxRetryError as exc:
+            err_msg += 'MaxRetryError on GET to URL [{u}] with reason [{r}]\n{e}'.format(
+                u=exc.url, r=exc.reason, e=str(exc))
         except Exception as exc:
             err_msg += '[{n}] encountered on GET to URL: {u}\n{e}'.format(n=type(exc).__name__, u=url, e=str(exc))
         else:

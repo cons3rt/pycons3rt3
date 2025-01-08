@@ -26,7 +26,8 @@ dependencies = [
     "requests[security]>=2.31.0",
     "requests-toolbelt",
     "s3transfer",
-    "scp"
+    "scp",
+    "urllib3"
 ]
 keywords = ["cons3rt", "pycons3rt", "pycons3rt3", "assets", "arcus"]
 classifiers = [

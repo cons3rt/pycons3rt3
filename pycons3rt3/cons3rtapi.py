@@ -6262,16 +6262,18 @@ class Cons3rtApi(object):
         host_details_list = []
         for run_host in dr_details['deploymentRunHosts']:
             if 'id' not in run_host:
-                log.warning('id not found in run host details: {d}'.format(d=run_host))
+                log.warning('id not found in run host details: [{d}]'.format(d=run_host))
                 continue
             try:
                 host_details = self.retrieve_deployment_run_host_details(dr_id=dr_id, drh_id=run_host['id'])
             except Cons3rtApiError as exc:
-                msg = 'Problem retrieving details on host ID {h} in deployment run: {r}'.format(
-                    h=str(run_host['id']), r=str(dr_id))
-                raise Cons3rtApiError(msg) from exc
-
-            host_details_list.append(host_details)
+                msg = 'Problem retrieving details on host ID [{h}] in deployment run: [{r}]\n{e}'.format(
+                    h=str(run_host['id']), r=str(dr_id), e=str(exc))
+                log.warning(msg)
+            else:
+                log.info('Retrieved details for host ID [{h}] in deployment run: [{r}]'.format(
+                    h=str(run_host['id']), r=str(dr_id)))
+                host_details_list.append(host_details)
         log.info('Retrieved details for {n} hosts in DR ID: {i}'.format(n=str(len(host_details_list)), i=str(dr_id)))
         return host_details_list, dr_details
 
@@ -6400,6 +6402,8 @@ class Cons3rtApi(object):
 
         # Perform actions on each host ID
         for host in hosts:
+
+            # Check the required data
             required_fields = ['id', 'systemRole', 'disks']
             requirements = True
             for required_field in required_fields:
@@ -6407,8 +6411,11 @@ class Cons3rtApi(object):
                     log.warning('Required data {f} not found in host data: {d}'.format(f=required_field, d=str(host)))
                     requirements = False
                     break
+
+            # Skip the host if required data is missing
             if not requirements:
                 continue
+
             # Skip if the host has an action in progress
             if 'hostActionInProcess' in host:
                 log.info('Found [hostActionInProcess] for host [{h}]: {d}'.format(
@@ -6422,6 +6429,8 @@ class Cons3rtApi(object):
                         d=str(dr_id), h=str(host['id'])))
             else:
                 log.info('No data returned for [hostActionInProcess] for host [{h}]'.format(h=str(host['id'])))
+
+            # Compute the total disk capacity
             total_disk_capacity_mb = 0
             for disk in host['disks']:
                 if 'capacityInMegabytes' not in disk:
@@ -6431,6 +6440,8 @@ class Cons3rtApi(object):
             total_disk_capacity_gb = total_disk_capacity_mb / 1024
             log.info('Found {n} disks with capacity {g} GBs for host: {h}'.format(
                 h=str(host['id']), n=str(len(host['disks'])), g=str(total_disk_capacity_gb)))
+
+            # Create a HostActinoResult object with info
             host_action_result = HostActionResult(
                 dr_id=dr_id,
                 dr_name=dr_info['name'],
@@ -6441,6 +6452,8 @@ class Cons3rtApi(object):
                 num_disks=len(host['disks']),
                 storage_gb=total_disk_capacity_gb
             )
+
+            # Attempt to perform the host action
             try:
                 self.perform_host_action(
                     dr_id=dr_id,
@@ -6456,7 +6469,11 @@ class Cons3rtApi(object):
                 host_action_result.set_fail()
             else:
                 host_action_result.set_success()
+
+            # Append the host action result results to the result set
             results.append(host_action_result)
+
+            # Wait to perform the next host action
             log.info('Waiting {s} sec to perform the next host action for run ID {i}...'.format(
                 s=str(inter_host_action_delay_sec), i=str(dr_id)))
             time.sleep(inter_host_action_delay_sec)

@@ -10,3 +10,4 @@ requests[security]>=2.31.0
 requests-toolbelt
 s3transfer
 scp
+urllib3

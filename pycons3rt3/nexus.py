@@ -357,7 +357,7 @@ def get_artifact_nexus(base_url, repository, group_id, artifact_id, packaging, d
     try:
         http_download(url=download_url, download_file=download_file, basic_auth=basic_auth,
                       suppress_status=suppress_status, max_retry_attempts=max_retries, retry_time_sec=retry_sec,
-                      timeout_sec=timeout_sec)
+                      read_timeout=timeout_sec)
     except Cons3rtClientError as exc:
         msg = 'Problem downloading artifact from URL [{u}] to [{d}]\n{e}'.format(
             u=download_url, d=download_file, e=str(exc))

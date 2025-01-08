@@ -2,7 +2,8 @@
 0.0.27a0
 ========
 
-* TBD
+* Added connect_timeout and read_timeout and defaults in the httpclient module to better handle timeouts
+* Added additional retry logic using urllib3 for http multipart uploads in http GET requests
 
 0.0.26
 ======
