@@ -47,7 +47,7 @@ class Route53Util(object):
             if len(octets) != 4:
                 msg = 'Invalid subnet CIDR provided, expected format x.x.x.x/y: {s}'.format(s=subnet_cidr)
                 raise Route53UtilError(msg)
-            self.domain = octets[2] + '.' + octets[1] + '.' + octets[0] + '.' + 'in-addr.arpa'
+            self.domain = octets[2] + '.' + octets[1] + '.' + octets[0] + '.' + 'in-addr.arpa.'
         else:
             # Otherwise ensure domain was provided for forward lookup zone
             if not domain:
@@ -87,6 +87,9 @@ class Route53Util(object):
             name = self.domain
         elif not self.reverse_zone:
             if self.domain not in name:
+                name = name + '.' + self.domain
+        elif self.reverse_zone:
+            if not value.endswith(self.domain):
                 name = name + '.' + self.domain
         log.info('Adding record: [ {t} | {n} | {v} | {x} ]'.format(t=record_type, n=name, v=value, x=str(time_to_live)))
         self.dns_records.append(
@@ -165,6 +168,13 @@ class Route53Util(object):
         if not all([self.vpc_id, self.region]):
             msg = 'Cannot create private reverse lookup zone without both VPC ID and region'
             raise Route53UtilError(msg)
+
+        # Check for existing hosted zones
+        hosted_zone = self.get_existing_private_zone()
+        if hosted_zone:
+            self.hosted_zone_id = hosted_zone['Id']
+            log.info('Found existing hosted zone ID: {i}'.format(i=self.hosted_zone_id))
+            return hosted_zone
 
         # Create the reverse lookup zone
         log.info('Creating private reverse lookup zone: {z}'.format(z=self.domain))
