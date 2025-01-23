@@ -34,6 +34,30 @@ widgets = [
 ]
 
 
+def get_answer():
+    """Asked the user for confirmation and returns a boolean result
+
+    :return: (Tuple)
+                 (bool) Return True to continue, False otherwise
+                 (int) Number of items to print
+    """
+    ans = input('\nType a number, all, c to continue, or n to exit: ').lower()
+    if not ans:
+        return False, 3
+    if ans == 'n':
+        return False, -1
+    if ans == 'c':
+        return True, 0
+    if ans == 'all':
+        return False, 0
+    try:
+        print_num = int(ans)
+    except ValueError:
+        return False, 3
+    else:
+        return False, print_num
+
+
 def show_deletes(command_str, deletes):
     """Displays objects before deletion
 
@@ -41,6 +65,11 @@ def show_deletes(command_str, deletes):
     :param deletes: (list) of S3 objects to be deleted
     :return: bool
     """
+    # Configure the verbs for the user prompts
+    verb_action = 'Deleting'
+    if command_str == 'sync':
+        verb_action = 'Copying'
+
     print('\n###############################################################################')
     print('-- Number of objects for [{c}]:\t\t{n}'.format(c=command_str, n=str(len(deletes))))
     print_num = 3
@@ -48,28 +77,15 @@ def show_deletes(command_str, deletes):
         if print_num == 0 or len(deletes) < 10:
             print('-- Showing all {n} items for [{c}]:\n'.format(c=command_str, n=str(len(deletes))))
             for delete in deletes:
-                print('-- Deleting: ' + delete)
+                print('-- {v}: '.format(v=verb_action) + delete)
         else:
             print('-- Showing {n} randomly selected objects of {t} for [{c}]:\n'.format(
                 c=command_str, n=str(print_num), t=str(len(deletes))))
             for _ in range(print_num):
                 print('-- {c}: '.format(c=command_str) + random.choice(deletes))
-        ans = input('\nType a number, all, c to continue, or n to exit: ').lower()
-        if not ans:
-            print_num = 3
-            continue
-        if ans == 'n':
-            return False
-        if ans == 'c':
+        ans, print_num = get_answer()
+        if ans:
             return True
-        if ans == 'all':
-            print_num = 0
-            continue
-        try:
-            print_num = int(ans)
-        except ValueError:
-            print_num = 3
-            continue
 
 
 def show_non_deletes(command_str, non_deletes, excludes):
@@ -95,25 +111,12 @@ def show_non_deletes(command_str, non_deletes, excludes):
                 c=command_str, n=str(print_num), t=str(len(total_not_deletes))))
             for _ in range(print_num):
                 print('-- Not processing: ' + random.choice(total_not_deletes))
-        ans = input('\nType a number, all, c to continue, or n to exit: ').lower()
-        if not ans:
-            print_num = 3
-            continue
-        if ans == 'n':
-            return False
-        if ans == 'c':
+        ans, print_num = get_answer()
+        if ans:
             return True
-        if ans == 'all':
-            print_num = 0
-            continue
-        try:
-            print_num = int(ans)
-        except ValueError:
-            print_num = 3
-            continue
 
 
-def prompt_for_confirmation(bucket, num_deletes, num_keeps, prefix, exclude_list, organize):
+def prompt_for_confirmation(bucket, num_deletes, num_keeps, prefix, exclude_list, organize, command):
     """Prompts for confirmation to delete objects from the S3 bucket
 
     :param bucket: (str) bucket name
@@ -121,21 +124,32 @@ def prompt_for_confirmation(bucket, num_deletes, num_keeps, prefix, exclude_list
     :param num_keeps: (int) number of objects to keep
     :param prefix: (str) prefix
     :param exclude_list: (list) of string excluded from deletion
-    :param organize: (str) New prefix to copy deletes to
+    :param organize: (str) New prefix to copy objects under, set blank to use the same key
+    :param command: (str) sync, delete, all
     :return: bool
     """
+    # Configure the verbs for the user prompts
+    verb_past = 'deleted'
+    verb_action = 'deletion'
+    if command == 'sync':
+        verb_past = 'copied'
+        verb_action = 'copying'
+
     print('\n###############################################################################')
-    print('-- Processing S3 objects from bucket:\t\t{b}'.format(b=bucket))
-    print('-- Number of objects to be deleted:\t\t{n}'.format(n=str(num_deletes)))
-    print('-- Number of objects to keep:\t\t\t{n}'.format(n=str(num_keeps)))
-    print('-- Prefix of objects to be deleted:\t\t{p}'.format(p=prefix))
+    print('-- Processing S3 objects from bucket:\t\t[{b}]'.format(b=bucket))
+    print('-- Number of objects to be {v}:\t\t[{n}]'.format(n=str(num_deletes), v=verb_past))
+    print('-- Number of objects to skip:\t\t\t[{n}]'.format(n=str(num_keeps)))
+    print('-- Prefix of objects to be {v}:\t\t[{p}]'.format(p=prefix, v=verb_past))
     if exclude_list:
-        print('-- Excluded from deletion:\t\t\t{e}'.format(e=','.join(exclude_list)))
+        print('-- Excluded from {v}:\t\t\t[{e}]'.format(e=','.join(exclude_list), v=verb_action))
     if organize:
-        print('-- Organizing objects under folder:\t\t{f}'.format(f=organize))
+        if organize == '':
+            print('-- Organizing objects with the same key as the source bucket')
+        else:
+            print('-- Organizing objects under folder:\t\t[{f}]'.format(f=organize))
     print('###############################################################################\n')
     while True:
-        ans = input('Please confirm for delete of {n} objects (y/n): '.format(n=str(num_deletes))).lower()
+        ans = input('Please confirm for {v} of {n} objects (y/n): '.format(n=str(num_deletes), v=verb_action)).lower()
         if not ans:
             print('please enter y or n')
             continue
@@ -143,7 +157,7 @@ def prompt_for_confirmation(bucket, num_deletes, num_keeps, prefix, exclude_list
             print('please enter y or n')
             continue
         if ans == 'y':
-            print('Deletion confirmed, proceeding...\n')
+            print('The {v} is confirmed, proceeding...\n'.format(v=verb_action))
             return True
         if ans == 'n':
             print('Not doing anything!\n')
@@ -152,7 +166,7 @@ def prompt_for_confirmation(bucket, num_deletes, num_keeps, prefix, exclude_list
 
 def organize_s3_keys(command, bucket, target_bucket=None, prefix=None, exclude_list=None, length=0, exclude_length=0,
                      organize=None):
-    """Deletes S3 keys from the provided bucket using prefix and exclude list as filters
+    """Copies or deletes S3 keys from the provided bucket using prefix and exclude list as filters
 
     :param command: (str) command
     :param bucket: (str) name of the S3 bucket
@@ -161,8 +175,8 @@ def organize_s3_keys(command, bucket, target_bucket=None, prefix=None, exclude_l
     :param exclude_list: (list) of strings to exclude
     :param length: (int) specific length of chars for the file name to include
     :param exclude_length: (int) specific length of chars for the file name to exclude
-    :param organize: (str) New prefix to copy the key to before delete the S3 keys
-    :return: (tuple) list of deleted S3 keys or None, list of failed deleted S3 keys
+    :param organize: (str) New prefix to copy objects under, set blank to use the same key
+    :return: (tuple) list of deleted/copied S3 keys or None, list of failed deleted S3 keys
     :raises: S3OrganizationError
     """
     deleted_s3_keys = []
@@ -186,7 +200,7 @@ def organize_s3_keys(command, bucket, target_bucket=None, prefix=None, exclude_l
         if not isinstance(organize, str):
             raise S3OrganizationError('organize arg must be a string')
         if organize == '':
-            raise S3OrganizationError('organize arg must not be an empty string')
+            print('organize is a blank string, target bucket will have the same key as source')
 
     # Create a pycons3rt3.s3util
     s3util = S3Util(bucket)
@@ -228,6 +242,8 @@ def organize_s3_keys(command, bucket, target_bucket=None, prefix=None, exclude_l
     s3_keys_to_delete = []
     s3_keys_to_exclude = []
     s3_keys_failed_to_delete = []
+    s3_keys_failed_to_sync = []
+    s3_keys_synced = []
     if not exclude_list:
         exclude_list = []
     print('Filtering list based on exclude list: {e}'.format(e=','.join(exclude_list)))
@@ -266,21 +282,27 @@ def organize_s3_keys(command, bucket, target_bucket=None, prefix=None, exclude_l
 
     num_keeps = len(s3_keys_with_unmatched_prefix) + len(s3_keys_to_exclude)
     if not prompt_for_confirmation(bucket=bucket, num_deletes=len(s3_keys_to_delete), num_keeps=num_keeps,
-                                   prefix=prefix_str, exclude_list=exclude_list, organize=organize):
+                                   prefix=prefix_str, exclude_list=exclude_list, organize=organize, command=command):
         return deleted_s3_keys, s3_keys_failed_to_delete
 
     # Delete or organize S3 keys
     bar = progressbar.ProgressBar(max_value=len(s3_keys_to_delete), widgets=widgets)
     for index, s3_key_to_delete in enumerate(s3_keys_to_delete):
         if command in ['sync', 'all']:
-            new_key = organize + '/' + s3_key_to_delete
+            if organize == '':
+                new_key = str(s3_key_to_delete)
+            else:
+                new_key = organize + '/' + s3_key_to_delete
             if not s3util.copy_object_to_another_bucket(
                     current_key=s3_key_to_delete,
                     target_bucket=target_bucket,
                     new_key=new_key
             ):
                 print('Failed to sync object: {k}'.format(k=s3_key_to_delete))
+                s3_keys_failed_to_sync.append(s3_key_to_delete)
                 continue
+            else:
+                s3_keys_synced.append(s3_key_to_delete)
         if command in ['delete', 'all']:
             if s3util.delete_key(key_to_delete=s3_key_to_delete):
                 deleted_s3_keys.append(s3_key_to_delete)
@@ -291,7 +313,9 @@ def organize_s3_keys(command, bucket, target_bucket=None, prefix=None, exclude_l
 
     print('\nComplete!')
     print('###############################################################################')
+    print('Successful synced objects:\t{n}'.format(n=len(s3_keys_synced)))
     print('Successful deletions:\t\t{n}'.format(n=len(deleted_s3_keys)))
+    print('Failed synced objects:\t\t{n}'.format(n=len(s3_keys_failed_to_sync)))
     print('Failed deletions:\t\t{n}'.format(n=len(s3_keys_failed_to_delete)))
     print('###############################################################################\n')
     return deleted_s3_keys, s3_keys_failed_to_delete
@@ -306,10 +330,14 @@ def main():
     parser = argparse.ArgumentParser(description='Deletes S3 keys')
     parser.add_argument('command', help='Command for the helpful S3 utility')
     parser.add_argument('-b', '--bucket', help='Name of the S3 bucket', required=True)
-    parser.add_argument('-t', '--targetbucket', help='Name of the target S3 bucket to sync to', required=False)
+    parser.add_argument('-t', '--targetbucket', help='Name of the target S3 bucket to sync to',
+                        required=False)
     parser.add_argument('-p', '--prefix', help='Prefix to filter S3 keys on', required=False)
-    parser.add_argument('-e', '--exclude', help='List of regex to exclude deletion of matching keys', required=False)
-    parser.add_argument('-o', '--organize', help='Prefix for synced files to the new bucket', required=False)
+    parser.add_argument('-e', '--exclude', help='List of regex to exclude deletion of matching keys',
+                        required=False)
+    parser.add_argument('-o', '--organize',
+                        help='Prefix for synced files to the new bucket (default: same key)',
+                        required=False)
     parser.add_argument('-l', '--length', help='Length of file names to sync/delete', required=False)
     parser.add_argument('-x', '--excludelength', help='Length of file names to exclude from sync/delete',
                         required=False)
@@ -343,7 +371,7 @@ def main():
     if args.organize:
         organize = args.organize
     else:
-        organize = bucket
+        organize = ''
     length = 0
     if args.length:
         try:

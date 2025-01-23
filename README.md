@@ -619,6 +619,28 @@ nexus get --group 'com.cons3rt' --artifactId 'cons3rt-package' --repo snapshots 
 nexus get --group 'com.cons3rt' --artifactId 'cons3rt-pyotto' --repo releases --packaging zip --netrc --url 'https://nexus.jackpinetech.com' --version 24.7.0
 ```
 
+### s3organizer cli
+
+```
+# Sync all objects from one bucket to another
+s3organizer sync --bucket 'source-bucket-name' --targetbucket 'target-bucket-name'
+
+# Sync all objects from one bucket to another, organized under a prefix
+s3organizer sync --bucket 'source-bucket-name' --targetbucket 'target-bucket-name' --organize 'path/to/objects'
+
+# Re-encrypt all objects in a bucket, use the same bucket name for source and destination
+s3organizer sync --bucket 'encrypted-bucket-name' --targetbucket 'encrypted-bucket-name'
+
+# Use --prefix to filter objects in the source bucket matching a prefix
+s3organizer sync --bucket 'source-bucket-name' --targetbucket 'target-bucket-name' --prefix 'sync/under/here'
+
+# Use --length to only include files with a file name length of this many chars
+s3organizer sync --bucket 'source-bucket-name' --targetbucket 'target-bucket-name' --length 10
+
+# Use --excludelength to exclude files with a file name length of this many chars
+s3organizer sync --bucket 'source-bucket-name' --targetbucket 'target-bucket-name' --excludelength 10
+```
+
 ## Bash (Linux only)
 
 Executes commands on a Linux system.  See the source code for specific available
