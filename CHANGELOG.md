@@ -4,6 +4,7 @@
 
 * Fixed a couple issues creating a reverse lookup DNS zone in route 53
 * Updated the s3organizer command to better support re-encryption in the same bucket, and clarified prompts
+* For supporting python 3.13+ changed from using threading to multiprocessing in order to call the same block of code from multiple threads
 
 0.0.27
 ======

@@ -3,6 +3,7 @@
 import datetime
 import json
 import logging
+import multiprocessing
 import os
 import time
 import traceback
@@ -2934,11 +2935,6 @@ class Cons3rtApi(object):
         default_guac_ip_address = '172.16.10.253'
         default_remote_access_port = 9443
 
-        # Actual values to be determined
-        actual_instance_type = None
-        actual_guac_ip_address = None
-        actual_remote_access_port = None
-
         # Ensure the vr_id is an int
         if not isinstance(vr_id, int):
             try:
@@ -4578,7 +4574,7 @@ class Cons3rtApi(object):
         # Store the released and not released runs
         released_runs = []
         not_released_runs = []
-        released_runs_threads = []
+        run_release_waiters = []
 
         # List active runs in the virtualization realm
         try:
@@ -4646,6 +4642,7 @@ class Cons3rtApi(object):
 
             # Attempt to release the deployment run
             if do_release:
+                log.debug('Attempting to release deployment run ID: [{i}]'.format(i=dr['id']))
                 try:
                     self.release_deployment_run(dr_id=dr['id'])
                 except Cons3rtApiError as exc:
@@ -4655,39 +4652,54 @@ class Cons3rtApi(object):
                 else:
                     log.info('Released run [{d}] from virtualization realm [{v}]'.format(d=str(dr['id']), v=str(vr_id)))
                     released_runs.append(dr)
-                    run_waiter = RunWaiter(
+                    run_release_waiters.append(RunWaiter(
                         cons3rt_api=self,
                         dr_id=dr['id'],
                         desired_status_list=desired_status_list,
                         max_wait_time_sec=43200,
                         check_interval_sec=60
-                    )
-                    log.info('Starting a thread to wait for DR to release: {d}'.format(d=str(dr['id'])))
-                    run_waiter.start()
-                    released_runs_threads.append(run_waiter)
-        log.info('Completed releasing or cancelling active DRs in VR ID: {i}'.format(i=str(vr_id)))
+                    ))
 
         # Wait until all deployment threads are completed
-        log.info('Waiting until all {n} released DRs have completed releasing'.format(
-            n=str(len(released_runs_threads))))
-        time.sleep(1)
-        for t in released_runs_threads:
-            t.join()
-        log.info('All {n} runs have completed releasing, checking for failures...'.format(
-            n=str(len(released_runs_threads))))
+        if len(run_release_waiters) > 0:
+            log.info('Waiting until all [{n}] DRs have completed releasing'.format(
+                n=str(len(run_release_waiters))))
+
+            # List of processes
+            processes = []
+
+            # Start each process
+            for run_release_waiter in run_release_waiters:
+                p = multiprocessing.Process(target=run_release_waiter.run, args=())
+                log.info('Starting a thread to wait for DR to release: {d}'.format(d=str(run_release_waiter.dr_id)))
+                p.start()
+                log.debug('Started a thread to wait for DR to release: {d}'.format(d=str(run_release_waiter.dr_id)))
+                processes.append(p)
+
+            #
+            log.info('Checking for completed processes starting in 10 seconds...')
+            time.sleep(10)
+            for p in processes:
+                p.join()
+            log.info('All [{n}] runs release processes have completed releasing, checking for failures...'.format(
+                n=str(len(processes))))
+        else:
+            log.info('No DR to wait for releasing')
+        log.info('Completed releasing or cancelling active DRs in VR ID: {i}'.format(i=str(vr_id)))
 
         # Check the threads for failures, and build a list of error messages
         error_messages = []
-        for t in released_runs_threads:
-            if t.error:
+        for run_release_waiter in run_release_waiters:
+            if run_release_waiter.error:
                 error_messages.append(
-                    'Releasing DR [{d}] failed with message: {m}'.format(d=str(t.dr_id), m=t.error_msg)
+                    'Releasing DR [{d}] failed with message: {m}'.format(
+                        d=str(run_release_waiter.dr_id), m=run_release_waiter.error_msg)
                 )
         if len(error_messages) > 0:
             msg = '{n} DRs failed to release with messages: {m}'.format(
                 n=str(len(error_messages)), m='\n'.join(error_messages))
             raise Cons3rtApiError(msg)
-        log.info('No failures detected releasing {n} DRs'.format(n=str(len(released_runs_threads))))
+        log.info('No failures detected releasing {n} DRs'.format(n=str(len(run_release_waiters))))
 
         # Print the final status
         processed_runs = len(released_runs) + len(not_released_runs)
@@ -6441,7 +6453,7 @@ class Cons3rtApi(object):
             log.info('Found {n} disks with capacity {g} GBs for host: {h}'.format(
                 h=str(host['id']), n=str(len(host['disks'])), g=str(total_disk_capacity_gb)))
 
-            # Create a HostActinoResult object with info
+            # Create a HostActionResult object with info
             host_action_result = HostActionResult(
                 dr_id=dr_id,
                 dr_name=dr_info['name'],
@@ -6568,6 +6580,7 @@ class Cons3rtApi(object):
 
         :param team_id: (int) team ID
         :param skip_run_ids: (list) of deployment run IDs to skip
+        :param unlock: (bool) Set true to unlock a DR before restoring from snapshot
         :return: (list) of HostActionResults
         """
         return self.snapshot_team_runs(team_id=team_id, action='RESTORE_SNAPSHOT', skip_run_ids=skip_run_ids,

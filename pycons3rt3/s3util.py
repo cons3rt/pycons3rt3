@@ -19,7 +19,6 @@ import logging
 import re
 import os
 import socket
-import threading
 import time
 import traceback
 
@@ -92,10 +91,9 @@ bucket_delete_all_noncurrent_version_rules = {
 }
 
 
-class S3MultiUtil(threading.Thread):
+class S3MultiUtil(object):
 
     def __init__(self, client, bucket, s3_keys, bar=None):
-        threading.Thread.__init__(self)
         self.cls_logger = mod_logger + '.S3MultiUtil'
         self.client = client
         self.bucket_resource = bucket

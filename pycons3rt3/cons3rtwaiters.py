@@ -4,7 +4,6 @@ Handles tasks that require multithreading
 
 """
 import logging
-import threading
 import time
 
 from .cons3rtenums import cons3rt_deployment_run_status
@@ -18,14 +17,14 @@ __author__ = 'Joe Yennaco'
 mod_logger = Logify.get_name() + '.cons3rtwaiters'
 
 
-class CloudspaceReleaser(threading.Thread):
+
+class CloudspaceReleaser(object):
     """Performs an execution of tasks for this script ETT via the passed function
 
     TODO: Implement this class
     """
 
     def __init__(self, cons3rt_api, cloudspace_id, action, unlock=False):
-        threading.Thread.__init__(self)
         self.cls_logger = mod_logger + '.CloudspaceReleaser'
         if not isinstance(action, int):
             msg = 'Invalid arg cloudspace_id, expected int, found: {t}'.format(t=cloudspace_id.__class__.__name__)
@@ -51,7 +50,7 @@ class CloudspaceReleaser(threading.Thread):
             return None, None
 
 
-class RunWaiter(threading.Thread):
+class RunWaiter(object):
     """
     Waits for a deployment run to reach a desired state.  Provide:
 
@@ -67,7 +66,6 @@ class RunWaiter(threading.Thread):
     """
 
     def __init__(self, cons3rt_api, dr_id, desired_status_list, check_interval_sec=30, max_wait_time_sec=28800):
-        threading.Thread.__init__(self)
         self.cls_logger = mod_logger + '.RunWaiter'
         self.cons3rt_api = cons3rt_api
         self.dr_id = dr_id
