@@ -18,11 +18,11 @@ mod_logger = Logify.get_name() + '.cons3rtconfig'
 
 # List of site URLs
 site_urls = {
-    'arcusgov': 'https://app.arcus-cloud.io/rest/api/',
-    'arcusmil': 'https://app.arcus.mil/rest/api/',
-    'ci': 'https://app.ci.cons3rt.io/rest/api/',
-    'dev': 'https://app.dev.cons3rt.io/rest/api/',
-    'qa': 'https://app.qa.cons3rt.io/rest/api/',
+    'arcusgov': 'https://api.arcus-cloud.io/rest/api/',
+    'arcusmil': 'https://api.arcus.mil/rest/api/',
+    'ci': 'https://api.ci.cons3rt.io/rest/api/',
+    'dev': 'https://api.dev.cons3rt.io/rest/api/',
+    'qa': 'https://api.qa.cons3rt.io/rest/api/',
 }
 
 # The default site selection
