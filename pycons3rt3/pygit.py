@@ -130,13 +130,10 @@ def git_clone(url, clone_dir, branch='master', username=None, password=None, max
 
     # Build a git clone or git pull command based on the existence of the clone directory and if it had a good
     # previous clone
-    do_empty = False
     pull = False
     if os.path.isdir(clone_dir):
         if git_status(git_repo_dir=clone_dir):
             pull = True
-        else:
-            do_empty = True
     else:
         # Create a subdirectory to clone into
         log.debug('Creating the repo directory: {d}'.format(d=clone_dir))
@@ -149,6 +146,7 @@ def git_clone(url, clone_dir, branch='master', username=None, password=None, max
     # Create the git clone command
     if pull:
         os.chdir(clone_dir)
+        checkout_branch(git_repo_dir=clone_dir, branch=branch)
         command = [git_cmd, 'pull']
     else:
         if git_lfs:
@@ -161,13 +159,15 @@ def git_clone(url, clone_dir, branch='master', username=None, password=None, max
     log.info('Running git command: {c}'.format(c=command))
     for i in range(max_retries):
         attempt_num = i + 1
-        log.info('Attempt #{n} of {m} to git clone the repository...'.format(n=str(attempt_num), m=str(max_retries)))
+        log.info('Attempt #{n} of {m} to clone or pull the git repository...'.format(
+            n=str(attempt_num), m=str(max_retries)))
 
         # Empty the directory if it has contents but not a good clone
         if not pull and os.path.isdir(clone_dir):
             log.info('Removing existing directory: {d}'.format(d=clone_dir))
             shutil.rmtree(clone_dir)
 
+        # Run the clone/pull command
         try:
             result = run_command(command)
         except CommandError as exc:
