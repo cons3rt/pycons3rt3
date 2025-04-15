@@ -1,6 +1,11 @@
 
+0.0.29a
+=======
+
+* TBD
+
 0.0.28
-========
+======
 
 * Fixed a couple issues creating a reverse lookup DNS zone in route 53
 * Updated the s3organizer command to better support re-encryption in the same bucket, and clarified prompts
