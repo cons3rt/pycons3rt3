@@ -1,5 +1,5 @@
 
-0.0.28a0
+0.0.28
 ========
 
 * Fixed a couple issues creating a reverse lookup DNS zone in route 53
