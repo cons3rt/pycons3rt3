@@ -494,7 +494,7 @@ class Cons3rtApi(object):
         save_file_path = os.path.join(get_data_dir(), file_name)
         if not os.path.isfile(save_file_path):
             log.debug('Saved file does not exist for data name: {d}'.format(d=data_name))
-            return
+            return None
         log.info('Reading cons3rt data from file: {f}'.format(f=save_file_path))
         with open(save_file_path, 'r') as f:
             return yaml.load(f, Loader=yaml.FullLoader)
@@ -1593,6 +1593,8 @@ class Cons3rtApi(object):
             return 'GITLAB_ULTIMATE'
         elif project_name.endswith(mattermost_project):
             return 'MATTERMOST'
+        else:
+            return ''
 
     def get_system_details(self, system_id):
         """Query CONS3RT to retrieve system details
@@ -1846,7 +1848,7 @@ class Cons3rtApi(object):
                     log.info('Found a DR with an active status: {i}'.format(i=str(dr['id'])))
                     return dr['id']
         log.info('No active DR found for deployment ID: {i}'.format(i=str(deployment_id)))
-        return
+        return None
 
     def list_inactive_run_ids_for_deployment(self, deployment_id):
         """Given a deployment ID, return a list of inactive deployment run IDs
@@ -5788,11 +5790,11 @@ class Cons3rtApi(object):
                                  max_results=None):
         """Get a list of software assets
 
-        :param software_asset_type: (str) the software asset type, defaults to null
-        :param community: (bool) the boolean to include community assets
-        :param expanded: (bool) the boolean to include project assets
-        :param category_ids: (list) the list of categories to filter by
-        :param max_results: (int) maximum number of software assets to return
+        :param software_asset_type: (str) the software asset type, defaults to null.
+        :param community: (bool) the boolean to include community assets.
+        :param expanded: (bool) the boolean to include project assets.
+        :param category_ids: (list) the list of categories to filter by.
+        :param max_results: (int) maximum number of software assets to return.
         :return: List of software asset IDs
         :raises: Cons3rtApiError
         """
@@ -8305,3 +8307,58 @@ class Cons3rtApi(object):
         with open(aws_config_file, 'w') as f:
             f.write(aws_config_content)
         return identity
+
+    def download_rdp_file(self, dr_id, host_id, dest_dir=None, overwrite=True, suppress_status=True, background=False):
+        """Creates an identity on the provided DR host to the provided service
+
+        :param dr_id: (str) ID of the deployment run
+        :param host_id: (str) ID of the deployment run host
+        :param dest_dir: (str) path to the destination directory
+        :param overwrite (bool) set True to overwrite the existing file
+        :param suppress_status: (bool) Set to True to suppress printing download status
+        :param background: (bool) set True to download in the background and receive an email when ready
+        :return: (bool) True if success, False otherwise
+        :raises: Cons3rtApiError
+        """
+        log = logging.getLogger(self.cls_logger + '.download_rdp_file')
+
+        # Ensure the dr_id is an int
+        if not isinstance(dr_id, int):
+            try:
+                dr_id = int(dr_id)
+            except ValueError as exc:
+                msg = 'dr_id arg must be an Integer, found: {t}'.format(t=type(dr_id))
+                raise Cons3rtApiError(msg) from exc
+
+        # Ensure the host_id is an int
+        if not isinstance(host_id, int):
+            try:
+                host_id = int(host_id)
+            except ValueError as exc:
+                msg = 'host_id arg must be an Integer, found: {t}'.format(t=type(host_id))
+                raise Cons3rtApiError(msg) from exc
+
+        # Use the home directory if a destination directory is not provided
+        if not dest_dir:
+            dest_dir = os.path.expanduser('~')
+
+        # Determine the RDP download file name
+        download_file = os.path.join(dest_dir, 'rdp-remote-access-{d}-{h}.rdp'.format(d=str(dr_id), h=str(host_id)))
+
+        # Download the RDP file
+        log.info('Downloading RDP client file from deployment run [{d}] host [{h}]...'.format(
+            d=str(dr_id), h=str(host_id)))
+        try:
+            self.cons3rt_client.download_rdp_file(
+                dr_id=dr_id,
+                host_id=host_id,
+                download_file=download_file,
+                overwrite=overwrite,
+                suppress_status=suppress_status,
+                background=background
+            )
+        except Cons3rtApiError as exc:
+            msg = 'Problem downloading RDP client file from deployment run [{d}] host [{h}]'.format(
+                d=str(dr_id), h=str(host_id))
+            raise Cons3rtApiError(msg) from exc
+        log.info('Downloaded RDP client file to: {d}'.format(d=download_file))

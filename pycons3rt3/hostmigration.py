@@ -8,13 +8,14 @@ Notes:
 
 Usage:
     # Migrate a deployment run host on to a dedicated host
-    migrate on --cloudtype aws --host 'h-12345' --id 'i-12345' --size 'm5.large'
+    migrate on --cloudtype aws --host 'h-12345' --id 'i-12345' --size 'm5.large' --ostype 'linux|windows'
 
     # Migrate a deployment run host off of a dedicated host
-    migrate off --cloudtype aws --id 'i-12345' --size 'm5.large'
+    migrate off --cloudtype aws --id 'i-12345' --size 'm5.large' --ostype 'linux|windows'
 
     # Migrate a deployment run host on to a dedicated host from a specific ami ID
-    migrate on --cloudtype aws --host 'h-12345' --id 'i-12345' --size 'm5.large' --ami 'ami-12345'
+    migrate on --cloudtype aws --host 'h-12345' --id 'i-12345' --size 'm5.large' --ami 'ami-12345' \
+        --ostype 'linux|windows'
 
 """
 

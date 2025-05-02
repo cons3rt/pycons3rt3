@@ -22,6 +22,7 @@ from .cons3rtapi import Cons3rtApi
 from .cons3rtcli import validate_ids
 from .cons3rtenums import cons3rt_asset_types
 from .exceptions import AssetError, AssetZipCreationError, Cons3rtApiError, Cons3rtAssetStructureError, Cons3rtCliError
+from .osutil import get_dest_dir
 
 __author__ = 'Joe Yennaco'
 
@@ -1248,6 +1249,7 @@ def main():
     parser.add_argument('--category_ids', help='List of category IDs to filter on')
     parser.add_argument('--community', help='Include to retrieve community assets', action='store_true')
     parser.add_argument('--config', help='Path to a config file to load', required=False)
+    parser.add_argument('--dest', help='Destination directory for the asset zip (default is Downloads)')
     parser.add_argument('--dest_dir', help='Destination directory for the asset zip (default is Downloads)')
     parser.add_argument('--expanded', help='Include to retrieve expanded info on assets',
                         action='store_true')
@@ -1342,23 +1344,8 @@ def main():
 
     # Determine the destination directory
     if args.dest_dir:
-        dest_dir_provided = args.dest_dir.strip()
-
-        # Handle ~ as the leading char
-        if dest_dir_provided.startswith('~'):
-            dest_dir = str(dest_dir_provided.replace('~', os.path.expanduser('~')))
-        else:
-            dest_dir = str(dest_dir_provided)
-
-        if not os.path.isdir(dest_dir):
-            print('ERROR: Destination directory not found: {d}'.format(d=dest_dir))
-            return 3
-    else:
-        dest_dir = os.path.join(os.path.expanduser('~'), 'Downloads')
-        if not os.path.isdir(dest_dir):
-            dest_dir = os.path.join(os.path.expanduser('~'), 'Download')
-        if not os.path.isdir(dest_dir):
-            dest_dir = os.path.expanduser('~')
+        args.dest = args.dest_dir
+    dest_dir = get_dest_dir(args.dest)
 
     # Error if the destination directory is not found
     if not os.path.isdir(dest_dir):

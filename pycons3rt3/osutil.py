@@ -69,6 +69,34 @@ def get_os():
     return platform.system()
 
 
+def get_dest_dir(dest_dir=None):
+    """Determine the full path to the destination directory on the OS
+
+    :param dest_dir: (str) [OPTIONAL] Destination directory, can start with `~` as the home directory
+    :return: (str) Full path to the destination directory
+    """
+    if dest_dir:
+        dest_dir_provided = dest_dir.strip()
+
+        # Handle ~ as the leading char if provided
+        if dest_dir_provided.startswith('~'):
+            dest_dir = str(dest_dir_provided.replace('~', os.path.expanduser('~')))
+        else:
+            dest_dir = str(dest_dir_provided)
+    else:
+        dest_dir = os.path.join(os.path.expanduser('~'), 'Downloads')
+        if not os.path.isdir(dest_dir):
+            dest_dir = os.path.join(os.path.expanduser('~'), 'Download')
+        if not os.path.isdir(dest_dir):
+            dest_dir = os.path.expanduser('~')
+
+    # Ensure the destination directory is found
+    if not os.path.isdir(dest_dir):
+        print('ERROR: Destination directory not found: {d}'.format(d=dest_dir))
+        return None
+    return dest_dir
+
+
 def get_pycons3rt_home_dir():
     """Checks for PYCONS3RT_HOME first, and if not set or it does not exist
     returns the default pycons3rt home directory based on OS

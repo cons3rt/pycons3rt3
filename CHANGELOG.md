@@ -2,7 +2,7 @@
 0.0.29a
 =======
 
-* TBD
+* Added a CLI command to download RDP client files, e.g.  [cons3rt run rdp --id 12345 --host 6789]
 
 0.0.28
 ======

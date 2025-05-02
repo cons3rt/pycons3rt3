@@ -7,6 +7,7 @@ import traceback
 from .cons3rtapi import Cons3rtApi
 from .cons3rtdefaults import default_template_subscription_max_cpus, default_template_subscription_max_ram_mb
 from .exceptions import Cons3rtApiError, Cons3rtReportsError
+from .osutil import get_dest_dir
 from .pycons3rtlibs import HostActionResult
 from .reports import generate_team_report, generate_team_asset_report
 
@@ -1627,6 +1628,7 @@ class RunCli(Cons3rtCli):
             'cancel',
             'off',
             'on',
+            'rdp',
             'release',
             'restore',
             'snapshot'
@@ -1660,6 +1662,11 @@ class RunCli(Cons3rtCli):
                 self.cancel()
             except Cons3rtCliError:
                 return False
+        if self.subcommands[0] == 'rdp':
+            try:
+                self.download_rdp()
+            except Cons3rtCliError:
+                return False
         if self.subcommands[0] == 'restore':
             try:
                 self.restore()
@@ -1685,6 +1692,23 @@ class RunCli(Cons3rtCli):
         for run_id in self.ids:
             results += self.c5t.delete_run_snapshots(dr_id=run_id)
         self.print_host_action_results(results=results)
+
+    def download_rdp(self):
+        if not self.args.host:
+            raise Cons3rtCliError('The --host <ID> arg specifying the host ID is required')
+        try:
+            host_id = int(self.args.host)
+        except ValueError:
+            raise Cons3rtCliError('The --host <ID> arg specifying the host ID must be a valid integer')
+        dest_dir = get_dest_dir(self.args.dest)
+        self.c5t.download_rdp_file(
+            dr_id=self.ids[0],
+            host_id=host_id,
+            dest_dir=dest_dir,
+            overwrite=True,
+            suppress_status=False,
+            background=False
+        )
 
     def power_off(self):
         unlock = False

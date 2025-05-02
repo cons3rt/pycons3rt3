@@ -2365,6 +2365,30 @@ class Cons3rtClient:
         identity = json.loads(content)
         return identity
 
+    def download_rdp_file(self, dr_id, host_id, download_file, background=False, overwrite=True,
+                               suppress_status=True):
+        """Creates an identity on the provided DR host to the provided service
+
+        :param dr_id: (str) ID of the deployment run
+        :param host_id: (str) ID of the deployment run host
+        :param download_file: (str) path to the destination file
+        :param background: (bool) set True to download in the background and receive an email when ready
+        :param overwrite (bool) set True to overwrite the existing file
+        :param suppress_status: (bool) Set to True to suppress printing download status
+        :return: (str) Downloaded file path
+        :raises: Cons3rtClientError
+        """
+        target = 'drs/{d}/host/{h}/rdp'.format(d=str(dr_id), h=str(host_id))
+        try:
+            rdp_file_path = self.http_client.http_download(rest_user=self.user, target=target,
+                                                           download_file=download_file, overwrite=overwrite,
+                                                           suppress_status=suppress_status)
+        except Cons3rtClientError as exc:
+            msg = 'Problem downloading an RDP file for deployment run [{d}] host [{h}]: {e}'.format(
+                d=str(dr_id), h=str(host_id), e=str(exc))
+            raise Cons3rtClientError(msg) from exc
+        return rdp_file_path
+
 
 def get_asset_target(target, page_num, asset_type=None, software_asset_type=None, test_asset_type=None, community=None,
                      category_ids=None, max_results=100):
