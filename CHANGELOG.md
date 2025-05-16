@@ -3,6 +3,7 @@
 =======
 
 * Added a CLI command to download RDP client files, e.g.  [cons3rt run rdp --id 12345 --host 6789]
+* Fixed the API call for updating a template subscription
 
 0.0.28
 ======

@@ -5418,15 +5418,15 @@ class Cons3rtApi(object):
         return is_success
 
     def update_template_subscription(self, vr_id, template_subscription_id, offline, state='IN_DEVELOPMENT',
-                                     max_cpus=20, max_ram_mb=131072):
+                                     max_cpus=20, max_ram_mb=131072, allow_gpu_usage=True):
         """Updates template subscription data in the provided virtualization realm ID
 
         :param vr_id: (int) ID of the virtualization realm
         :param template_subscription_id: (int) ID of the template subscription
         :param offline: (bool) Set True to set the template to offline, False for online
-        :param state: (str) Subscription state
         :param max_cpus: (int) Set to the maximum number of CPUs allowed
         :param max_ram_mb: (int) Set to the maximum RAM in megabytes allowed
+        :param allow_gpu_usage: (bool) Set True to allow GPU usage, False to disallow
         :return: (dict) of template subscription data
         :raises: Cons3rtApiError
         """
@@ -5454,11 +5454,6 @@ class Cons3rtApi(object):
             msg = 'offline arg must be an bool, found: {t}'.format(t=offline.__class__.__name__)
             raise Cons3rtApiError(msg)
 
-        # Ensure state is a string
-        if not isinstance(state, str):
-            msg = 'state arg must be a str, found: {t}'.format(t=state.__class__.__name__)
-            raise Cons3rtApiError(msg)
-
         # Ensure the max_cpus is an int
         if not isinstance(max_cpus, int):
             try:
@@ -5477,15 +5472,8 @@ class Cons3rtApi(object):
                     t=max_ram_mb.__class__.__name__)
                 raise Cons3rtApiError(msg) from exc
 
-        # Validate the state
-        valid_states = ['IN_DEVELOPMENT', 'CERTIFIED', 'DEPRECATED', 'RETIRED']
-        if state not in valid_states:
-            msg = 'Invalid state [{s}], expected: {e}'.format(s=state, e=','.join(valid_states))
-            raise Cons3rtApiError(msg)
-
         # Validate the subscription data
         subscription_data = {
-            'state': state,
             'maxNumCpus': max_cpus,
             'maxRamInMegabytes': max_ram_mb
         }
@@ -7913,6 +7901,7 @@ class Cons3rtApi(object):
             except Cons3rtApiError as exc:
                 msg = 'Problem setting template [{n}] online in VR ID: {i}'.format(n=template_name, i=str(vr_id))
                 raise Cons3rtApiError(msg) from exc
+
         log.info('Completed sharing and subscribing template [{n}] from VR ID: {i}'.format(
             n=template_name, i=str(provider_vr_id)))
 
