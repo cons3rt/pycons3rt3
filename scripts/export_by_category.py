@@ -15,11 +15,15 @@ or
 
 git clone https://github.com/cons3rt/pycons3rt3
 cd pycons3rt3
+python3 -m venv venv
+source venv/bin/activate
 python3 -m pip install -r cfg/requirements.txt
-python3 setup.py install
+python3 -m pip install .
 
-3. Run:
+# Run to configure your CONS3RT project and API token
+cons3rt config
 
+# Run to export by category
 python3 export_by_category.py --category CATEGORY_NAME --destination DOWNLOAD_DIR --max MAX_NUM_ASSETS
 
 Where:
@@ -30,7 +34,7 @@ Where:
 
 Example:
 
-python3 export_by_category.py --category "JDAM-S" --destination "/Users/yennaco/Downloads/JDAMS" --max 10
+python3 export_by_category.py --category "Arcus-S" --destination "/Users/yennaco/Downloads/assets" --max 100
 
 """
 
@@ -147,7 +151,7 @@ def set_downloaded_assets(download_dir, asset_id_list):
 def verify_disk_space(file_size, file_path):
     """Ensures the destination disk has enough space
 
-    :return: True is enough disk space is determines, False otherwise
+    :return: True is enough disk space is available, False otherwise
     """
     log = logging.getLogger(mod_logger + '.verify_disk_space')
     free_disk_space = shutil.disk_usage(file_path).free
@@ -199,8 +203,10 @@ def main():
 
     # Ensure the download directory exists
     if not os.path.isdir(download_dir):
-        log.error('Download directory does not exist: {d}'.format(d=download_dir))
-        return 1
+        log.info('Creating download directory: [{d}]'.format(d=download_dir))
+        os.makedirs(download_dir, exist_ok=True)
+    else:
+        log.info('Download directory already exists: [{d}]'.format(d=download_dir))
 
     # Get the max
     maximum_asset_downloads = default_maximum_asset_downloads
