@@ -317,397 +317,243 @@ linux_nat_config_user_data_script_contents = '''#!/bin/bash
 #
 # = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = =
 
-
-# Get the current timestamp and append to logfile name
-TIMESTAMP=$(date "+%Y-%m-%d-%H%M")
-
-######################### GLOBAL VARIABLES #########################
-# DO NOT EDIT UNLESS YOU ALSO UPDATE THE CLOUDSPACE CREATE CODE
-
-# Set to the IP address and port of the GUAC box from code
+TIMESTAMP=$(date "+%Y-%m-%d-%H%M%s")
+##### GLOBAL VARIABLES #####
 guacBoxIpAddress=CODE_REPLACE_ME_GUAC_SERVER_IP
 guacBoxPort=CODE_REPLACE_ME_GUAC_SERVER_PORT
+hostname=CODE_REPLACE_ME_HOSTNAME
+subnetCidr=CODE_REPLACE_ME_SUBNET_CIDR_BLOCK
 virtRealmType=CODE_REPLACE_ME_VIRT_TECH
-
+fleetAgentVersion=CODE_REPLACE_ME_FLEET_AGENT_VERSION
+fleetServerFqdn=CODE_REPLACE_ME_FLEET_SERVER_FQDN
+fleetManagerPort=CODE_REPLACE_ME_FLEET_MANAGER_PORT
+fleetToken=CODE_REPLACE_ME_FLEET_TOKEN
+cons3rtRootCaUrl=CODE_REPLACE_ME_CONS3RT_ROOT_CA_DOWNLOAD_URL
 # Array to maintain exit codes
 resultSet=();
-
-####################### END GLOBAL VARIABLES #######################
-
+##### END GLOBAL VARIABLES #####
+SYS_CTL="/bin/systemctl"
+##### LOGGING CONFIG #####
+logTag="nat-guest-customization"
+logDir="/var/log"
+if [ ! -d ${logDir} ]
+then
+ mkdir -p ${logDir}
+ chmod 700 ${logDir}
+fi
+logFile="${logDir}/${logTag}-$(date "+%Y%m%d-%H%M%S").log"
+touch ${logFile}
+chmod 644 ${logFile}
+echo $SHELL > ${logFile}
+function timestamp() { date "+%F %T"; }
+function logInfo() { echo -e "$(timestamp) ${logTag} [INFO]: ${1}" 2>&1 | tee -a ${logFile}; }
+function logWarn() { echo -e "$(timestamp) ${logTag} [WARN]: ${1}" 2>&1 | tee -a ${logFile}; }
+function logErr() { echo -e "$(timestamp) ${logTag} [ERROR]: ${1}" 2>&1 | tee -a ${logFile}; }
+##### END LOGGING CONFIG #####
 # Parameters:
 # 1 - Command to execute
 # Returns:
 # Exit code of the command that was executed
 function run_and_check_status() {
-    "$@"
-    local status=$?
-    if [ ${status} -ne 0 ]
-    then
-        echo "Error executing: $@, exited with code: ${status}"
-    else
-        echo "$@ executed successfully and exited with code: ${status}"
-    fi
-    resultSet+=("${status}")
-    return ${status}
+ "$@"
+ local status=$?
+ if [ ${status} -ne 0 ]
+ then
+  logErr "Error executing: $@, exited with code: ${status}"
+ else
+  logInfo "$@ executed successfully and exited with code: ${status}"
+ fi
+ resultSet+=("${status}")
+ return ${status}
 }
-
-#################################
-
-# Test an IP address for validity
-# Parameters:
-# 1 - IP address to check
-# Returns
-# 0 - IP address is valid
-# non-zero - IP address is invalid
-function validateIpaddress() {
-    local ip="$1"
-    local stat=1
-    if [[ $ip =~ ^[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}$ ]]
-    then
-        OIFS=$IFS
-        IFS='.'
-        ip=($ip)
-        IFS=$OIFS
-        [[ ${ip[0]} -le 255 && ${ip[1]} -le 255 \
-        && ${ip[2]} -le 255 && ${ip[3]} -le 255 ]]
-        stat=$?
-    fi
-    return $stat
-}
-
-#################################
-
+#####
 function update_os() {
-    echo "Updating os via yum"
-    yum update -y
-    echo "Yum update complete"
+ logInfo "Updating os via yum..."
+ yum update -y
+ logInfo "...yum update complete"
 }
-
-#################################
-
-function config_ssh() {
-    local cf="/etc/ssh/sshd_config"
-    local hn=$(hostname -s | cut -d. -f1)
-
-    set_string() {
-        local setting="$1"
-        local value="$2"
-
-        cat $cf | grep "^$setting" &> /dev/null
-        if [ $? -eq 0 ]; then
-            sed -i "/^$setting/d" $cf
-        fi
-
-        cat $cf | grep "^$#setting" &> /dev/null
-        if [ $? -eq 0 ]; then
-            sed -i "/^#$setting/d" $cf
-        fi
-
-        echo "$setting $value" >> $cf
-    }
-
-    set_string PermitRootLogin no
-    set_string PasswordAuthentication yes
-    set_string LogLevel VERBOSE
-    set_string GatewayPorts no
-    set_string PermitTunnel no
-    set_string IgnoreRhosts yes
-    set_string PermitEmptyPasswords no
-    set_string RhostsRSAAuthentication no
-    set_string HostbasedAuthentication no
-    set_string Ciphers "aes128-ctr,aes192-ctr,aes256-ctr"
-    set_string MACs "hmac-sha2-256,hmac-sha2-512"
-    set_string KexAlgorithms "ecdh-sha2-nistp256,ecdh-sha2-nistp384,ecdh-sha2-nistp521,diffie-hellman-group-exchange-sha256"
-
-    touch /etc/banner
-    echo "================================================================================" >> /etc/banner
-    echo "Use of this U.S. Government (USG)-interest computer system constitutes consent for authorized monitoring at all times." >> /etc/banner
-    echo "" >> /etc/banner
-    echo "This is a USG-interest computer system. This system and related equipment are intended for the communication, transmission, processing, and storage of official USG or other authorized information only. This USG-interest computer system is subject to monitoring at all times to ensure proper functioning of equipment and systems including security systems and devices, and to prevent, detect, and deter violations of statutes and security regulations and other unauthorized use of the system." >> /etc/banner
-    echo "" >> /etc/banner
-    echo "Communications using, or data stored on, this system are not private, are subject to routine monitoring, interception, and search, and may be disclosed or used for any authorized purpose." >> /etc/banner
-    echo "" >> /etc/banner
-    echo "If monitoring of this USG-interest computer system reveals possible evidence of violation of criminal statutes, this evidence and any other related information, including identification information about the user, may be provided to law enforcement officials. If monitoring of this USG-interest computer systems reveals violations of security regulations or other unauthorized use that information and other related information, including identification information about the user, may be used appropriate administrative or disciplinary action." >> /etc/banner
-    echo "" >> /etc/banner
-    echo "Use of this USG interest computer system constitutes consent to authorized monitoring at all times." >> /etc/banner
-    echo "================================================================================" >> /etc/banner
-
-
-    cat /etc/ssh/sshd_config | grep "^Banner" &> /dev/null
-    if [ $? -eq 0 ]; then
-        line=$(cat /etc/ssh/sshd_config | grep "^Banner")
-        sed -i "s|$line|Banner /etc/banner|" /etc/ssh/sshd_config
-    else
-        echo "Banner /etc/banner" >> /etc/ssh/sshd_config
-    fi
-
-    echo "Restarting sshd"
-    if [ ${amazon} -eq 1 ]; then
-        /sbin/service sshd restart
-    else
-        case $os_ver in
-            6 ) /sbin/service sshd restart ;;
-            7 ) /sbin/systemctl restart sshd ;;
-        esac
-    fi
+#####
+function update_os_cron() {
+ cron_file=/etc/cron.weekly/yumupdate.cron
+ echo "#!/bin/bash" > ${cron_file}
+ echo "/usr/bin/yum update -y" >> ${cron_file}
+ echo "needs-restarting -r" >> ${cron_file}
+ echo "if [ $? -gt 0 ]; then /usr/sbin/init 6; fi" >> ${cron_file}
 }
-
-#################################
-
-function openstack_resolve_external_ipaddress() {
-    GUAC_A=`echo "${guacBoxIpAddress}" | awk -F. '{print $1}'`
-    GUAC_B=`echo "${guacBoxIpAddress}" | awk -F. '{print $2}'`
-    GUAC_C=`echo "${guacBoxIpAddress}" | awk -F. '{print $3}'`
-
-    for candidate_ip in `hostname -I`
-    do
-        ipAddress=${candidate_ip}
-
-        if [ "${GUAC_A}" == `echo ${ipAddress} | awk -F. '{print $1}'` ]
-        then
-            if [ "${GUAC_B}" == `echo ${ipAddress} | awk -F. '{print $2}'` ]
-            then
-                if [ "${GUAC_C}" == `echo ${ipAddress} | awk -F. '{print $3}'` ]
-                then
-                    echo "IP ${ipAddress} is in the same class C address space as GUAC IP ${guacBoxIpAddress}"
-                    ipAddress=
-                else
-                    echo "Based on the third octet, IP ${ipAddress} is not in the same class C address space as GUAC IP ${guacBoxIpAddress}"
-                fi
-            else
-                echo "Based on the second octet, IP ${ipAddress} is not in the same class C address space as GUAC IP ${guacBoxIpAddress}"
-            fi
-        else
-            echo "Based on the first octet, IP ${ipAddress} is not in the same class C address space as GUAC IP ${guacBoxIpAddress}"
-        fi
-
-        if [ ! -z ${ipAddress} ]
-        then
-            break
-        fi
-
-    done
-
-    if [ -z ${ipAddress} ]
-    then
-        echo "could not resolve a valid external IP for this NAT instance, exiting"
-        return 4
-    else
-        echo "resolved a valid external IP for this NAT instance: ${ipAddress}"
-    fi
-}
-
-#################################
-
+#####
 function set_ip_forward() {
-    echo 1 > /proc/sys/net/ipv4/ip_forward
-    run_and_check_status sysctl -w net.ipv4.ip_forward=1
-    run_and_check_status sed -i "s|net.ipv4.ip_forward = 0|net.ipv4.ip_forward = 1|g" /etc/sysctl.conf
-    run_and_check_status sysctl -p
-    run_and_check_status sysctl --system
-    echo "enabled ip_forwarding"
+  echo 1 > /proc/sys/net/ipv4/ip_forward
+  run_and_check_status sysctl -w net.ipv4.ip_forward=1
+  run_and_check_status sed -i "s|net.ipv4.ip_forward = 0|net.ipv4.ip_forward = 1|g" /etc/sysctl.conf
+  run_and_check_status sysctl -p
+  run_and_check_status sysctl --system
+  logInfo "enabled ip_forwarding"
 }
-
-#################################
-
-function set_iptables_rules() {
-    echo "Configuring nat rules (iptables) for remote access..."
-
-    validateIpaddress ${guacBoxIpAddress}
-    if [ $? -ne 0 ] ; then
-        echo "ERROR: ${guacBoxIpAddress} must be a valid IP address"
-        return 2
-    else
-        echo "Valid IP address: ${guacBoxIpAddress}"
-    fi
-
-    # Delete existing NAT rules
-
-    echo "Deleting existing PREROUTING NAT rules..."
-    rules=`iptables -L PREROUTING -t nat --line-numbers | grep DNAT`
-    echo -e "Current PREROUTING rules:\n${rules}"
-    while :
-    do
-        if [ -z "${rules}" ] ; then
-            break
-        fi
-        run_and_check_status iptables -D PREROUTING 1 -t nat
-        rules=`iptables -L PREROUTING -t nat --line-numbers | grep DNAT`
-    done
-
-    echo "Deleting existing POSTROUTING NAT rules..."
-    rules=`iptables -L POSTROUTING -t nat --line-numbers | grep MASQUERADE`
-    echo -e "Current POSTROUTING rules:\n${rules}"
-    while :
-    do
-        if [ -z "${rules}" ] ; then
-            break
-        fi
-        run_and_check_status iptables -D POSTROUTING 1 -t nat
-        rules=`iptables -L POSTROUTING -t nat --line-numbers | grep MASQUERADE`
-    done
-
-    echo "Configuring nat rules..."
-    CODE_ADD_IPTABLES_DNAT_RULES_HERE
-    CODE_ADD_IPTABLES_SNAT_RULES_HERE
-
-    # Default action
-    run_and_check_status iptables -I FORWARD -i eth0 -j ACCEPT
-    run_and_check_status iptables -I FORWARD -o eth0 -j ACCEPT
-
-    echo "Saving iptables ..."
-    run_and_check_status service iptables save
-
-    # List NAT rules
-    echo "Listing PREROUTING NAT rules ..."
-    iptables -L PREROUTING -t nat --line-numbers
-
-    echo "Listing POSTROUTING NAT rules ..."
-    iptables -L POSTROUTING -t nat --line-numbers
-
-    # Check the results of commands from this script, return error if an error is found
-    for resultCheck in "${resultSet[@]}" ; do
-        if [ ${resultCheck} -ne 0 ] ; then
-            echo "ERROR: failed due to previous errors"
-            return 3
-        fi
-    done
-
-    if [ ${amazon} -eq 1 ]; then
-      /sbin/service iptables start
-      /sbin/chkconfig iptables on
-    else
-      case $os_ver in
-        6 ) /sbin/service iptables start
-            /sbin/chkconfig iptables on
-            ;;
-        7 ) systemctl stop iptables
-            systemctl disable iptables
-            ;;
-      esac
-    fi
-
-    echo "Successfully configured NAT rules"
-    return 0
+#####
+function config_ssh() {
+ local cf="/etc/ssh/sshd_config"
+ local hn=$(hostname -s | cut -d. -f1)
+ set_string() {
+  local setting="$1"
+  local value="$2"
+  cat $cf | grep "^$setting" &> /dev/null
+  if [ $? -eq 0 ]; then
+   sed -i "/^$setting/d" $cf
+  fi
+  cat $cf | grep "^$#setting" &> /dev/null
+  if [ $? -eq 0 ]; then
+   sed -i "/^#$setting/d" $cf
+  fi
+  echo "$setting $value" >> $cf
+ }
+ set_string PermitRootLogin no
+ set_string PasswordAuthentication yes
+ set_string LogLevel VERBOSE
+ set_string GatewayPorts no
+ set_string PermitTunnel no
+ set_string IgnoreRhosts yes
+ set_string PermitEmptyPasswords no
+ set_string RhostsRSAAuthentication no
+ set_string HostbasedAuthentication no
+ set_string Ciphers "aes128-ctr,aes192-ctr,aes256-ctr"
+ set_string MACs "hmac-sha2-256,hmac-sha2-512"
+ set_string KexAlgorithms "ecdh-sha2-nistp256,ecdh-sha2-nistp384,ecdh-sha2-nistp521,diffie-hellman-group-exchange-sha256"
+ touch /etc/banner
+ echo "================================================================================" >> /etc/banner
+ echo "Use of this U.S. Government (USG)-interest computer system, Standard conditions apply including consent for authorized monitoring at all times." >> /etc/banner
+ echo "================================================================================" >> /etc/banner
+ cat /etc/ssh/sshd_config | grep "^Banner" &> /dev/null
+ if [ $? -eq 0 ]; then
+  line=$(cat /etc/ssh/sshd_config | grep "^Banner")
+  sed -i "s|$line|Banner /etc/banner|" /etc/ssh/sshd_config
+ else
+  echo "Banner /etc/banner" >> /etc/ssh/sshd_config
+ fi
+ echo "Restarting sshd"
+ ${SYS_CTL} restart sshd
 }
+#####
+function set_firewalld_rules() {
+ logInfo "Using firewalld to configure the firewall..."
+ # this is in place to work around an selinux bug
+ setenforce permissive
 
-#################################
+ firewall-cmd --set-default-zone public
+ logInfo "  default zone set to public"
+ firewall-cmd --permanent --set-target=ACCEPT
 
+ CODE_ADD_FIREWALLD_DNAT_RULES_HERE
+ logInfo "  firewall rules added"
+
+ firewall-cmd --permanent --add-masquerade
+ logInfo "  call to set up masquerading returned $?"
+ 
+ # create the internal zone which we'll use for traffic originating from the inside of the virt realm
+ internalName="internal_subnet"
+ firewall-cmd --new-zone=${internalName} --permanent
+ firewall-cmd --reload
+ firewall-cmd --zone=${internalName} --permanent --add-source=${subnetCidr}
+ firewall-cmd --zone=${internalName} --permanent --set-target=ACCEPT
+ logInfo "  internal zone set to ${internalName}"
+
+ sed -i "s|^AllowZoneDrifting.*$|AllowZoneDrifting=no|" /etc/firewalld/firewalld.conf
+ firewall-cmd --reload
+ setenforce enforcing
+ systemctl restart NetworkManager
+ logInfo "...successfully configured NAT rules"
+ return 0
+}
+#####
 function disable_services() {
-    echo "Disabling unnecessary services"
-
-    for svc in autofs cups netfs nfslock postfix rdma rpcbind rpcgssd sendmail x11vnc
-    do
-      if [ ${amazon} -eq 1 ]; then
-        /sbin/service ${svc} stop
-        /sbin/chkconfig ${svc} off
-      else
-        case $os_ver in
-          6 ) /sbin/service ${svc} stop
-              /sbin/chkconfig ${svc} off
-              ;;
-          7 ) systemctl start ${svc}
-              systemctl enable ${svc}
-              ;;
-        esac
-      fi
-    done
-
-    echo "Unnecessary services disabled"
+ logInfo "Disabling unnecessary services..."
+ for svc in autofs cups netfs nfslock postfix rdma rpcbind rpcgssd sendmail x11vnc
+ do
+  logInfo "  Disabling ${svc}"
+  ${SYS_CTL} disable ${svc}
+ done
+ logInfo "Unnecessary services disabled"
 }
+#####
+function install_elastic_agent() {
+ EA="elastic-agent-${fleetAgentVersion}-linux-x86_64"
+ logInfo "installing ${EA}..."
+ owd=$(pwd)
+ yum -y install wget
+ cd /opt
+ wget https://artifacts.elastic.co/downloads/beats/elastic-agent/${EA}.tar.gz
+ dl=$(echo ${?})
+ if [ ${dl} -eq 0 ]
+ then 
+   logInfo "agent download successful"
+ else 
+   logInfo "wget command returned ${dl}, agent download failed"
+   exit 6
+ fi
+ tar xzf ${EA}.tar.gz
+ cd ${EA}
+ fs1=${fleetServerFqdn}:${fleetManagerPort}
+ fleetCaCert="/root/fleet_server.pem"
+ openssl s_client -connect ${fs1} 2>/dev/null </dev/null | sed -ne '/-BEGIN CERTIFICATE-/,/-END CERTIFICATE-/p' > ${fleetCaCert}
+ r1=$(echo ${?})
+ if [ ${r1} -eq 0 ]
+ then 
+  logInfo "Fleet Manager ${fs1} is reachable"
+  rootCaCert="/etc/pki/ca-trust/source/anchors/cons3rtRoot.pem"
+  wget ${cons3rtRootCaUrl} -O ${rootCaCert}
+  update-ca-trust
+  ./elastic-agent install --url=https://${fs1} --certificate-authorities=/etc/pki/ca-trust/extracted/pem/tls-ca-bundle.pem --enrollment-token=${fleetToken} --force
+  logInfo "...${EA} installation complete"
+ else 
+  logInfo "Fleet Manager ${fs1} is NOT reachable"
+  exit 6
+ fi
 
-#################################
-
-function openstack_ensure_eth1_working() {
-    eth1_config="/etc/sysconfig/network-scripts/ifcfg-eth1"
-    if [ ! -e ${eth1_config} ]
-    then
-        echo "${eth1_config} is missing - attempting to repair"
-        cp /etc/sysconfig/network-scripts/ifcfg-eth0 ${eth1_config}
-        sed -i -e s/eth0/eth1/g ${eth1_config}
-        ifup eth1
-    fi
+ cd ${owd}
 }
-
-#################################
-
+#####
 function main() {
-    echo ${TIMESTAMP} " - Running NAT User Data script"
-
-    # perform any system checks we need to run before continuing
-    case "${virtRealmType}" in
-      amazon)
-        # AWS only has one interface on the NAT box, so we can safely grab the first IP
-        # This value is used in the Firewall and NAT rules which are inserted (by code)
-        ipAddress=`hostname -I | awk '{print $1}'`
-        ;;
-      azure)
-        ;;
-      openstack)
-        # OpenStack has had issues in the past where eth1 doesn't get set up, make sure it is
-        run_and_check_status openstack_ensure_eth1_working
-
-        # OpenStack has TWO interfaces on the NAT box, so we can't just grab the first one (like we can in AWS)
-        # We need to get the IP which isn't on the same subnet as the guac server
-        # This value is used in the Firewall and NAT rules which are inserted (by code)
-        run_and_check_status openstack_resolve_external_ipaddress
-        ;;
-    esac
-
-    update_os
-    set_ip_forward
-    set_iptables_rules
-    config_ssh
-    disable_services
-
-    return 0
+ logInfo ${TIMESTAMP} " - Running NAT User Data script"
+ externalDev="$(/usr/bin/nmcli -t -f DEVICE con show --active)"
+ logInfo "Determined external network device to be ${externalDev}"
+ update_os
+ update_os_cron
+ set_ip_forward
+ config_ssh
+ disable_services
+ set_firewalld_rules
+ 
+ hostname ${hostname}
+ echo ${hostname} > /etc/hostname
+ #install_elastic_agent
+ return 0
 }
-
 #
-# ====================================================================================
+# ===
 #
+export PATH=$PATH:/sbin:/bin:/root/bin
 
-# init local variable setup
-amazon=0
-atomic=0
-os_ver=0
+yum install firewalld NetworkManager -y
 
-# resolve local variables
-if [ -e /etc/redhat-release ]; then
-    cat /etc/redhat-release | grep Atomic &> /dev/null
-    if [ $? -eq 0 ]; then
-        os_ver=7
-        atomic=1
-    else
-        cat /etc/redhat-release | grep "Red Hat" &> /dev/null
-        if [ $? -eq 0 ]; then
-            # RedHat uses this format for the release file
-            os_ver=$(cat /etc/redhat-release | awk '{ print $7 }' | cut -d. -f1)
-        fi
-
-        cat /etc/redhat-release | grep "CentOs" &> /dev/null
-        if [ $? -eq 0 ]; then
-            # CentOS uses this format
-            os_ver=$(cat /etc/redhat-release | awk '{ print $4 }' | cut -d. -f1)
-        fi
-    fi
-elif [ -e /etc/issue ]; then
-    cat /etc/issue | grep Amazon &> /dev/null
-    if [ $? -eq 0 ]; then
-        amazon=1
-    fi
-else
-    os_ver=$(uname -m)
-    if [ "$os_ver" == "armv7l" ]; then
-        os_ver=99
-    fi
-    atomic=0
+${SYS_CTL} is-active --quiet NetworkManager
+if [[ $? -gt 0 ]]
+then
+ ${SYS_CTL} enable NetworkManager
+ ${SYS_CTL} start NetworkManager
+fi
+# log the NM config before we make any changes
+logInfo "NetworkManager connections before cleanup"
+logInfo "$(/usr/bin/nmcli connection show)"
+${SYS_CTL} is-active --quiet firewalld
+if [[ $? -gt 0 ]]
+then
+ logInfo "Starting firewalld:"
+ ${SYS_CTL} enable firewalld
+ ${SYS_CTL} start firewalld
 fi
 
 main
 result=$?
-
-echo "Exiting with code ${result} ..."
+logInfo "Exiting with code ${result} ..."
 exit ${result}
 
 '''
