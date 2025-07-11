@@ -1,9 +1,19 @@
 
-0.0.29a
-=======
+0.0.30a0
+========
+
+* TBD
+
+0.0.29
+======
 
 * Added a CLI command to download RDP client files, e.g.  [cons3rt run rdp --id 12345 --host 6789]
 * Fixed the API call for updating a template subscription
+* Updated and modernized the AWS cloudspace creation, updated the NAT config script to the latest
+* Added read timeouts to asset downloads for foreground and background
+* Fixed the remote access controller command `ractl`
+* Added a sample script to update categories
+* Added an overwrite option to the asset export sample script
 
 0.0.28
 ======
