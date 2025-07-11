@@ -2799,7 +2799,7 @@ class Cons3rtApi(object):
             raise Cons3rtApiError(msg)
 
         # Attempt to disable remote access
-        log.info('Waiting for VR ID [{i}] service [{s}] to reach state: [x]'.format(
+        log.info('Waiting for VR ID [{i}] service [{s}] to reach state: [{x}]'.format(
             i=str(vr_id), s=str(service_id), x=end_state))
         max_checks = 3600
         try_num = 1
@@ -2898,7 +2898,7 @@ class Cons3rtApi(object):
 
         # Check for services
         if 'services' not in vr_details.keys():
-            log.info('VR ID [{{i}] has no services'.format(i=str(vr_id)))
+            log.info('VR ID [{i}] has no services'.format(i=str(vr_id)))
             return
 
         # Loop through service to find the remote access service
@@ -3170,7 +3170,7 @@ class Cons3rtApi(object):
 
         # Check for services
         if 'services' not in vr_details.keys():
-            log.info('VR ID [{{i}] has no services'.format(i=str(vr_id)))
+            log.info('VR ID [{i}] has no services'.format(i=str(vr_id)))
             return
 
         # Loop through service to find the remote access service
