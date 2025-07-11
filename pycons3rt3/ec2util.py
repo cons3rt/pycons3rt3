@@ -18,6 +18,7 @@ from .aws_metadata import is_aws, get_instance_id, get_vpc_id_from_mac_address
 from .awsutil import get_boto3_client, get_linux_migration_user_data_script_contents, \
     get_linux_nat_config_user_data_script_contents, global_regions, gov_regions, us_regions
 from .bash import get_ip_addresses, validate_ip_address
+from .cons3rtinfra import Cons3rtInfra
 from .exceptions import AWSAPIError, AwsTransitGatewayError, EC2UtilError
 from .logify import Logify
 from .network import get_ip_list_for_hostname_list
@@ -115,6 +116,9 @@ class EC2Util(object):
                     self.client.describe_network_interfaces(NetworkInterfaceIds=[resource_id])
                 elif resource_id.startswith('h-'):
                     self.client.describe_hosts(HostIds=[resource_id])
+                elif resource_id.startswith('ami-'):
+                    # TODO implement ami existence test
+                    return True
                 else:
                     log.warning('Resource type not supported for this method: {r}'.format(r=resource_id))
                     return False
@@ -216,11 +220,11 @@ class EC2Util(object):
         # Exit if not running on AWS
         if not self.is_aws:
             log.info('This machine is not running in AWS, exiting...')
-            return
+            return None
 
         if not self.instance_id:
             log.warning('Unable to get the Instance ID for this machine')
-            return
+            return None
         log.info('Found Instance ID: {i}'.format(i=self.instance_id))
 
         log.info('Querying AWS to get the VPC ID...')
@@ -228,11 +232,12 @@ class EC2Util(object):
             instance = get_instance(client=self.client, instance_id=self.instance_id)
         except ClientError as exc:
             log.warning('Unable to query AWS to get info for instance {i}\n{e}'.format(i=self.instance_id, e=str(exc)))
-            return
+            return None
         if 'VpcId' in instance.keys():
             log.info('Found VPC ID: {v}'.format(v=instance['VpcId']))
             return instance['VpcId']
         log.warning('Unable to get VPC ID from instance: {i}'.format(i=str(instance)))
+        return None
 
     def list_available_regions(self):
         """Returns a list of available regions for this client
@@ -250,6 +255,9 @@ class EC2Util(object):
         if 'Regions' not in response.keys():
             raise EC2UtilError('Regions not found in response: {r}'.format(r=str(response)))
         return response['Regions']
+
+    def get_rhui_servers(self, all_available=False):
+        return self.get_rhui1_servers(all_available=all_available)
 
     def get_rhui_servers_all_versions(self, all_available=False):
         return self.get_rhui1_servers(all_available=all_available) + \
@@ -1259,7 +1267,7 @@ class EC2Util(object):
         """Given an interface number, gets the AWS elastic network
         interface associated with the interface.
 
-        :param interface: Integer associated to the interface/device number
+        :param interface: Integer associated with the interface/device number
         :return: String Elastic Network Interface ID or None if not found
         :raises OSError, AWSAPIError, EC2UtilError
         """
@@ -1326,7 +1334,7 @@ class EC2Util(object):
 
     def associate_elastic_ip(self, allocation_id, interface=1, private_ip=None):
         """Given an elastic IP address and an interface number, associates the
-        elastic IP to the interface number on this host.
+        elastic IP with the interface number on this host.
 
         :param allocation_id: String ID for the elastic IP
         :param interface: Integer associated to the interface/device number
@@ -1381,10 +1389,10 @@ class EC2Util(object):
 
     def associate_elastic_ip_to_instance_id(self, allocation_id, instance_id):
         """Given an elastic IP address and an instance ID, associates the
-        elastic IP to the instance
+        elastic IP with the instance
 
-        :param allocation_id: String ID for the elastic IP
-        :param instance_id: Integer associated to the interface/device number
+        :param allocation_id: (str) ID for the elastic IP
+        :param instance_id: (str) ID of the instance
         :return: None
         :raises: EC2UtilError
         """
@@ -1481,15 +1489,12 @@ class EC2Util(object):
         )
 
     def attach_new_eni(self, subnet_name, security_group_ids, device_index=2, allocation_id=None, description=''):
-        """Creates a new Elastic Network Interface on the Subnet
-        matching the subnet_name, with Security Group identified by
-        the security_group_name, then attaches an Elastic IP address
-        if specified in the allocation_id parameter, and finally
-        attaches the new ENI to the EC2 instance instance_id at
-        device index device_index.
+        """Creates a new Elastic Network Interface on the Subnet matching the subnet_name, with Security Group
+        identified by the security_group_name, then attaches an Elastic IP address if specified in the allocation_id
+        parameter, and finally attaches the new ENI to the EC2 instance instance_id at device index device_index.
 
         :param subnet_name: String name of the subnet
-        :param security_group_ids: List of str IDs of the security groups
+        :param security_group_ids: (list) Security Groups IDs
         :param device_index: Integer device index
         :param allocation_id: String ID of the elastic IP address
         :param description: String description
@@ -1688,7 +1693,7 @@ class EC2Util(object):
         # Return if no Public/Elastic IPs found
         if len(public_ips) == 0:
             log.info('No Elastic IPs found for this instance: {i}'.format(i=instance_id))
-            return
+            return None
         else:
             log.info('Found Public IPs: {p}'.format(p=public_ips))
 
@@ -1697,13 +1702,79 @@ class EC2Util(object):
             address_info = self.client.describe_addresses(DryRun=False, PublicIps=public_ips)
         except ClientError as exc:
             msg = 'Unable to query AWS to get info for addresses {p}'.format(p=public_ips)
-            log.error(msg)
             raise EC2UtilError(msg) from exc
         if not address_info:
             msg = 'No address info return for Public IPs: {p}'.format(p=public_ips)
-            log.error(msg)
             raise EC2UtilError(msg)
         return address_info
+
+    def get_elastic_ip_allocation_id(self, elastic_ip_address):
+        """Given the elastic IP address, return the allocation ID
+
+        :param elastic_ip_address: (str) IP address
+        :return: (str) allocation ID or None
+        """
+        log = logging.getLogger(self.cls_logger + '.get_elastic_ip_allocation_id')
+        log.info('Getting the allocation ID for elastic IP address: [{p}]'.format(p=elastic_ip_address))
+        try:
+            address_info = self.client.describe_addresses(DryRun=False, PublicIps=[elastic_ip_address])
+        except ClientError as exc:
+            msg = 'Unable to query AWS to get info for elastic IP address [{p}]'.format(p=elastic_ip_address)
+            raise EC2UtilError(msg) from exc
+        if not address_info:
+            msg = 'No address info return for elastic IP [{p}]'.format(p=elastic_ip_address)
+            raise EC2UtilError(msg)
+        if 'Addresses' not in address_info.keys():
+            raise EC2UtilError('Addresses not found in elastic IP address data: [{d}]'.format(d=str(address_info)))
+        for address in address_info['Addresses']:
+            if 'PublicIp' not in address.keys():
+                continue
+            if 'AllocationId' not in address.keys():
+                continue
+            if address['PublicIp'] == elastic_ip_address:
+                log.info('Found allocation ID [{a}] for address [{p}]'.format(
+                    a=address['AllocationId'], p=elastic_ip_address))
+                return address['AllocationId']
+        log.warning('Allocation ID not found for address: [{p}]'.format(p=elastic_ip_address))
+        return None
+
+    def disassociate_elastic_ips_from_instance(self, instance_id):
+        """For each attached Elastic IP, disassociate it
+
+        :param instance_id: (str) ID of the instance to disassociate the IP(s) from
+        :return: None
+        :raises AWSAPIError
+        """
+        log = logging.getLogger(self.cls_logger + '.disassociate_elastic_ips_from_instance')
+
+        try:
+            address_info = self.get_elastic_ips(instance_id=instance_id)
+        except AWSAPIError as exc:
+            msg = 'Unable to determine Elastic IPs on this EC2 instance'
+            raise AWSAPIError(msg) from exc
+
+        # Return is no elastic IPs were found
+        if not address_info:
+            log.info('No elastic IPs found to disassociate')
+            return
+
+        # Disassociate each Elastic IP
+        for address in address_info['Addresses']:
+            if 'AssociationId' not in address.keys():
+                continue
+            if 'PublicIp' not in address.kesys():
+                continue
+            association_id = address['AssociationId']
+            public_ip = address['PublicIp']
+            log.info('Attempting to disassociate address {p} from Association ID: {a}'.format(
+                p=public_ip, a=association_id))
+            try:
+                self.client.disassociate_address(PublicIp=public_ip, AssociationId=association_id)
+            except ClientError as exc:
+                msg = 'There was a problem disassociating Public IP {p} from Association ID {a}'.format(
+                    p=public_ip, a=association_id)
+                raise AWSAPIError(msg) from exc
+            log.info('Successfully disassociated Public IP: {p}'.format(p=public_ip))
 
     def disassociate_elastic_ips(self):
         """For each attached Elastic IP, disassociate it
@@ -1825,6 +1896,27 @@ class EC2Util(object):
             raise EC2UtilError('Problem setting name tag for security group ID: {i}'.format(i=security_group_id))
         return security_group_id
 
+    def delete_security_group(self, security_group_id):
+        """Deletes the security group
+
+        :param security_group_id: (str) ID of the security group
+        :return: (bool) True if successful, false otherwise
+        """
+        log = logging.getLogger(self.cls_logger + '.delete_security_group')
+        log.info('Deleting security group ID: [{g}]'.format(g=security_group_id))
+        try:
+            response = self.client.delete_security_group(DryRun=False, GroupId=security_group_id)
+        except ClientError as exc:
+            msg = 'Problem deleting security group ID: [{g}]'.format(g=security_group_id)
+            raise EC2UtilError(msg) from exc
+        if 'Return' not in response.keys():
+            msg = 'Return not found in response: {r}'.format(r=str(response))
+            raise EC2UtilError(msg)
+        if 'GroupId' not in response.keys():
+            msg = 'GroupId not found in response: {r}'.format(r=str(response))
+            raise EC2UtilError(msg)
+        return response['Return']
+
     def list_security_groups(self):
         """Lists security groups in the account/region
 
@@ -1931,9 +2023,13 @@ class EC2Util(object):
 
         :param security_group_id: (str) Security Group ID
         :param add_rules: (list) List of IpPermission objects to add
+        :return: (bool) True if all rules added successfully, False otherwise
         :raises: EC2UtilError
         """
         log = logging.getLogger(self.cls_logger + '.add_security_group_egress_rules')
+
+        # Return True if none of the rules fail to add
+        success = True
 
         if not isinstance(add_rules, list):
             raise EC2UtilError('add_rules arg must be type list, found: {t}'.format(
@@ -1941,7 +2037,7 @@ class EC2Util(object):
 
         if len(add_rules) < 1:
             log.info('No egress rules provided to add to security group: {g}'.format(g=security_group_id))
-            return
+            return success
 
         log.info('Adding {n} egress rules to security group: {g}'.format(n=str(len(add_rules)), g=security_group_id))
         for add_rule in add_rules:
@@ -1953,15 +2049,21 @@ class EC2Util(object):
             except EC2UtilError as exc:
                 log.warning('Failed to add egress rule to security group {g}: {r}\n{e}'.format(
                     g=security_group_id, r=str(add_rule), e=str(exc)))
+                success = False
+        return success
 
     def add_security_group_ingress_rules(self, security_group_id, add_rules):
         """Revokes a list of security group rules
 
         :param security_group_id: (str) Security Group ID
         :param add_rules: (list) List of IpPermission objects to add
+        :return: (bool) True if all rules added successfully, False otherwise
         :raises: EC2UtilError
         """
         log = logging.getLogger(self.cls_logger + '.add_security_group_ingress_rules')
+        
+        # Return True if none of the rules fail to add
+        success = True
 
         if not isinstance(add_rules, list):
             raise EC2UtilError('add_rules arg must be type list, found: {t}'.format(
@@ -1969,7 +2071,7 @@ class EC2Util(object):
 
         if len(add_rules) < 1:
             log.info('No ingress rules provided to add to security group: {g}'.format(g=security_group_id))
-            return
+            return success
 
         log.info('Adding {n} ingress rules to security group: {g}'.format(n=str(len(add_rules)), g=security_group_id))
         for add_rule in add_rules:
@@ -1981,6 +2083,8 @@ class EC2Util(object):
             except EC2UtilError as exc:
                 log.warning('Failed to add ingress rule to security group {g}: {r}\n{e}'.format(
                     g=security_group_id, r=str(add_rule), e=str(exc)))
+                success = False
+        return success
 
     def revoke_single_security_group_egress_rule(self, security_group_id, revoke_rule):
         """Revokes a single security group rule
@@ -2152,7 +2256,7 @@ class EC2Util(object):
 
         :param security_group_id: (str) Security Group ID
         :param desired_egress_rules: (list) List of IpPermissions as described in AWS boto3 docs
-        :return: None
+        :return: (bool) True if all rules configured successfully, False otherwise
         :raises: AWSAPIError, EC2UtilError
         """
         log = logging.getLogger(self.cls_logger + '.configure_security_group_egress')
@@ -2196,8 +2300,9 @@ class EC2Util(object):
         self.revoke_security_group_egress_rules(security_group_id=security_group_id, revoke_rules=revoke_ip_perms)
 
         # Add rules
-        self.add_security_group_egress_rules(security_group_id=security_group_id, add_rules=add_ip_perms)
+        result = self.add_security_group_egress_rules(security_group_id=security_group_id, add_rules=add_ip_perms)
         log.info('Completed configuring egress rules for security group: {g}'.format(g=security_group_id))
+        return result
 
     def configure_security_group_ingress(self, security_group_id, desired_ingress_rules):
         """Configures the security group ID allowing access
@@ -2206,10 +2311,10 @@ class EC2Util(object):
 
         :param security_group_id: (str) Security Group ID
         :param desired_ingress_rules: (list) List of IpPermissions as described in AWS boto3 docs
-        :return: None
+        :return: (bool) True if all rules configured successfully, False otherwise
         :raises: AWSAPIError, EC2UtilError
         """
-        log = logging.getLogger(self.cls_logger + '.configure_security_group_egress')
+        log = logging.getLogger(self.cls_logger + '.configure_security_group_ingress')
         # Validate args
         if not isinstance(security_group_id, str):
             raise EC2UtilError('security_group_id argument is not a string')
@@ -2250,8 +2355,9 @@ class EC2Util(object):
         self.revoke_security_group_ingress_rules(security_group_id=security_group_id, revoke_rules=revoke_ip_perms)
 
         # Add rules
-        self.add_security_group_ingress_rules(security_group_id=security_group_id, add_rules=add_ip_perms)
+        result = self.add_security_group_ingress_rules(security_group_id=security_group_id, add_rules=add_ip_perms)
         log.info('Completed configuring ingress rules for security group: {g}'.format(g=security_group_id))
+        return result
 
     def configure_security_group_ingress_legacy(self, security_group_id, port, desired_cidr_blocks, protocol='tcp'):
         """Configures the security group ID allowing access
@@ -2261,7 +2367,7 @@ class EC2Util(object):
         :param security_group_id: (str) Security Group ID
         :param port: (str) Port number
         :param desired_cidr_blocks: (list) List of desired CIDR
-               blocks, e.g. 192.168.1.2/32
+               blocks, e.g., 192.168.1.2/32
         :param protocol: (str) protocol tcp | udp | icmp | all
         :return: None
         :raises: AWSAPIError, EC2UtilError
@@ -2313,7 +2419,7 @@ class EC2Util(object):
                       '{g}'.format(p=port, g=security_group_id)
                 raise AWSAPIError(msg) from exc
 
-        # Build ingress rule based on the provided CIDR block list
+        # Build ingress rule based on the provided list of CIDR blocks
         if protocol == 'all':
             desired_ip_permissions = [
                 {
@@ -2360,7 +2466,7 @@ class EC2Util(object):
                 g=security_group_id, p=port))
 
     def revoke_security_group_ingress(self, security_group_id, ingress_rules):
-        """Revokes all ingress rules for a security group bu ID
+        """Revokes all ingress rules for a security group
 
         :param security_group_id: (str) Security Group ID
         :param ingress_rules: (list) List of IP permissions (see AWS API docs re: IpPermissions)
@@ -2380,7 +2486,7 @@ class EC2Util(object):
             raise AWSAPIError(msg) from exc
 
     def revoke_security_group_egress(self, security_group_id, egress_rules):
-        """Revokes all egress rules for a security group bu ID
+        """Revokes all egress rules for a security group
 
         :param security_group_id: (str) Security Group ID
         :param egress_rules: (list) List of IP permissions (see AWS API docs re: IpPermissions)
@@ -2399,12 +2505,31 @@ class EC2Util(object):
                 g=security_group_id)
             raise AWSAPIError(msg) from exc
 
+    def revoke_security_group_rules(self, security_group_id):
+        """Revoke all security group ingress and egress rules
+
+        :param security_group_id: (str) ID of the security group
+        :return: (tuple) ingress rules, egress rules
+        :raises: EC2UtilError
+        """
+        ingress_rules = self.get_security_group_ingress_rules(security_group_id=security_group_id)
+        egress_rules = self.get_security_group_egress_rules(security_group_id=security_group_id)
+        self.revoke_security_group_ingress_rules(
+            security_group_id=security_group_id,
+            revoke_rules=ingress_rules
+        )
+        self.revoke_security_group_egress_rules(
+            security_group_id=security_group_id,
+            revoke_rules=egress_rules
+        )
+        return ingress_rules, egress_rules
+
     def verify_security_groups_in_vpc(self, security_group_id_list, vpc_id):
         """Determines if the provided list of security groups reside in the VPC
         
         :param security_group_id_list: (list) of security group IDs
         :param vpc_id: (str) ID of the VPC 
-        :return: True if all of the security groups live in the provided VPC
+        :return: True if all security groups IDs listed live in the provided VPC
         """
         log = logging.getLogger(self.cls_logger + '.verify_security_groups_in_vpc')
         # Ensure the security group ID is in the provided VPC ID
@@ -2438,10 +2563,9 @@ class EC2Util(object):
         return True
 
     def launch_instance(self, ami_id, key_name, subnet_id, security_group_id=None, security_group_list=None,
-                        user_data_script_path=None, user_data_script_contents=None, instance_type='t3.small',
+                        user_data_script_path=None, user_data_script_contents=None, instance_type='c5a.large',
                         root_volume_location='/dev/xvda', root_volume_size_gb=100):
-        """Launches an EC2 instance with the specified parameters, intended to launch
-        an instance for creation of a CONS3RT template.
+        """Launches an EC2 instance with the specified parameters
 
         :param ami_id: (str) ID of the AMI to launch from
         :param key_name: (str) Name of the key-pair to use
@@ -2600,7 +2724,7 @@ class EC2Util(object):
 
         :param instance_id: (str) ID of the instance
         :param timeout_sec: (int) Time in seconds before returning False
-        :return: True True when the instance reaches the running state, False if not available by the provided timeout
+        :return: (bool) True when the instance reaches the running state, False otherwise
         :raises: EC2UtilError
         """
         return self.wait_for_instance_state(
@@ -2809,7 +2933,7 @@ class EC2Util(object):
 
         :param ami_id: (str) ID of the instance
         :param timeout_sec: (int) Time in seconds before returning False
-        :return: True when the AMI is available, False if not in available by the provided timeout
+        :return: True when the AMI is available, False if not available by the provided timeout
         :raises: EC2UtilError
         """
         log = logging.getLogger(self.cls_logger + '.wait_for_image_available')
@@ -3094,7 +3218,7 @@ class EC2Util(object):
         # Ensure VPCs were found
         if len(vpcs) < 1:
             log.info('No VPCs found')
-            return
+            return None
 
         # Check eac VPC for matching name
         log.info('Found [{n}] VPCs'.format(n=str(len(vpcs))))
@@ -3108,6 +3232,7 @@ class EC2Util(object):
                     log.info('Found VPC with name [{n}] has ID: {i}'.format(n=vpc_name, i=vpc['VpcId']))
                     return vpc
         log.info('VPC with name {n} not found'.format(n=vpc_name))
+        return None
 
     def create_vpc(self, vpc_name, cidr_block, amazon_ipv6_cidr=False, instance_tenancy='default', dry_run=False):
         """Creates a VPC with the provided name
@@ -3289,6 +3414,7 @@ class EC2Util(object):
                             v=vpc_id, i=ig['InternetGatewayId']))
                         return ig
         log.info('VPC ID [{v}] does not have an attached Internet gateway'.format(v=vpc_id))
+        return None
 
     def add_vpc_cidr(self, vpc_id, cidr, amazon_ipv6_cidr=False):
         """Adds the provided CIDR block to the VPC
@@ -3561,7 +3687,7 @@ class EC2Util(object):
 
         # Ensure the subnet ID exists
         try:
-            subnet = self.retrieve_subnet(subnet_id=subnet_id)
+            self.retrieve_subnet(subnet_id=subnet_id)
         except EC2UtilError as exc:
             msg = 'Subnet ID not found: {i}'.format(i=subnet_id)
             raise EC2UtilError(msg) from exc
@@ -3589,7 +3715,7 @@ class EC2Util(object):
         return False, None
 
     def associate_route_table(self, route_table_id, subnet_id):
-        """Associates the route table to the subnet
+        """Associates the route table with the subnet
 
         :param route_table_id: (str) ID of the route table
         :param subnet_id: (str) ID of the subnet
@@ -3629,7 +3755,7 @@ class EC2Util(object):
         :return: (str) ID of the association or None (not associated)
         :raises: EC2UtilError
         """
-        log = logging.getLogger(self.cls_logger + '.associate_route_table')
+        log = logging.getLogger(self.cls_logger + '.disassociate_vpc_route_table')
 
         # Get associations for the route table
         is_associated, association = self.is_vpc_route_table_associated_to_subnet(
@@ -3639,7 +3765,7 @@ class EC2Util(object):
         if not is_associated:
             log.info('Route table [{r}] is not associated to subnet ID [{s}], nothing to disassociate'.format(
                 r=route_table_id, s=subnet_id))
-            return
+            return None
 
         # Ensure the RouteTableAssociationId is found
         if 'RouteTableAssociationId' not in association.keys():
@@ -3653,7 +3779,7 @@ class EC2Util(object):
         log.info('Disassociating route table [{r}] from subnet ID [{s}], with association ID [{i}]'.format(
             r=route_table_id, s=subnet_id, i=association_id))
         try:
-            response = self.client.disassociate_route_table(AssociationId=association_id, DryRun=False)
+            self.client.disassociate_route_table(AssociationId=association_id, DryRun=False)
         except ClientError as exc:
             msg = 'Problem disassociating route table [{r}] from subnet ID [{s}] with association ID [{i}]'.format(
                 r=route_table_id, s=subnet_id, i=association_id)
@@ -3705,11 +3831,56 @@ class EC2Util(object):
         log = logging.getLogger(self.cls_logger + '.delete_network_acl')
         log.info('Deleting network ACL: {i}'.format(i=network_acl_id))
         try:
-            response = self.client.delete_network_acl(NetworkAclId=network_acl_id, DryRun=False)
+            self.client.delete_network_acl(NetworkAclId=network_acl_id, DryRun=False)
         except ClientError as exc:
             msg = 'Problem deleting network ACL: {i}'.format(i=network_acl_id)
             raise EC2UtilError(msg) from exc
         return network_acl_id
+
+    def get_default_network_acl_for_vpc(self, vpc_id):
+        """Returns the ID of the default network ACL for the VPC
+
+        :param vpc_id: (str) ID of the VPC
+        :return: (dict) network ACL or None
+        :raises: EC2UtilError
+        """
+        log = logging.getLogger(self.cls_logger + '.get_default_network_acl_for_vpc')
+        log.info('Getting the default network ACL for VPC ID: [{v}]'.format(v=vpc_id))
+        try:
+            response = self.client.describe_network_acls(
+                Filters=[
+                    {
+                        'Name': 'vpc-id',
+                        'Values': [
+                            vpc_id,
+                        ]
+                    },
+                    {
+                        'Name': 'default',
+                        'Values': [
+                            'true',
+                        ]
+                    },
+                ],
+                DryRun=False
+            )
+        except ClientError as exc:
+            msg = 'Problem determining the default network ACL for VPC ID: {v}'.format(v=vpc_id)
+            raise EC2UtilError(msg) from exc
+        if 'NetworkAcls' not in response.keys():
+            log.info('No default network ACLs found for VPC ID: {v}'.format(v=vpc_id))
+            return None
+        if len(response['NetworkAcls']) == 0:
+            log.info('No default network ACLs found for VPC ID: {v}'.format(v=vpc_id))
+            return None
+        if len(response['NetworkAcls']) != 1:
+            msg = 'Expected 1 network default network ACL in response, found: {n}\n{r}'.format(
+                n=str(len(response['NetworkAcls'])), r=str(response))
+            raise EC2UtilError(msg)
+        network_acl = response['NetworkAcls'][0]
+        if 'NetworkAclId' not in network_acl.keys():
+            raise EC2UtilError('NetworkAclId not found in network ACL data: [{d}]'.format(d=str(network_acl)))
+        return network_acl
 
     def get_network_acl_for_subnet(self, subnet_id):
         """Returns the associated network ACL ID for the specified subnet ID
@@ -3771,7 +3942,7 @@ class EC2Util(object):
 
         :param network_acl_id: (str) ID of the network ACL
         :param subnet_id: (str) ID of the subnet
-        :param delete_existing: (bool) Set True to delete the Network ACL currently associated to the subnet
+        :param delete_existing: (bool) Set True to delete the Network ACL currently associated with the subnet
         :return: (str) ID of the association
         :raises: EC2UtilError
         """
@@ -3820,6 +3991,52 @@ class EC2Util(object):
                 else:
                     log.info('Not deleting the default network ACL: {i}'.format(i=network_acl_id))
         return new_association_id
+
+    def disassociate_network_acl(self, network_acl_id, subnet_id, vpc_id):
+        """Disassociates the network ACL from the subnet
+
+        :param network_acl_id: (str) ID of the network ACL
+        :param subnet_id: (str) ID of the subnet
+        :param vpc_id: (str) ID of the VPC
+        :return: (str) ID of the association or None (not associated)
+        :raises: EC2UtilError
+        """
+        log = logging.getLogger(self.cls_logger + '.disassociate_network_acl')
+
+        # Get the current/default subnet association
+        log.info('Getting the current network ACL association for subnet ID: {s}'.format(s=subnet_id))
+        try:
+            current_network_acl_id, association_id, network_acl = self.get_network_acl_for_subnet(subnet_id=subnet_id)
+        except EC2UtilError as exc:
+            msg = 'Problem getting the network ACL ID from subnet ID: {i}'.format(i=subnet_id)
+            raise EC2UtilError(msg) from exc
+
+        # If it is not associated, return
+        if current_network_acl_id != network_acl_id:
+            log.info('Network ACL [{n}] is not associated to subnet ID [{s}], nothing to disassociate'.format(
+                n=network_acl_id, s=subnet_id))
+            return None
+
+        # Find the default VPC network ACL
+        try:
+            default_network_acl = self.get_default_network_acl_for_vpc(vpc_id=vpc_id)
+        except EC2UtilError as exc:
+            msg = ('Probelm determining the default network ACL for VPC [{v}], cannot change network ACL association '
+                   'for subnet [{s}]').format(v=vpc_id, s=subnet_id)
+            raise EC2UtilError(msg) from exc
+        default_network_acl_id = default_network_acl['NetworkAclId']
+
+        # Change the network ACL association to the default
+        log.info('Replacing association for subnet [{s}] from network ACL [{n}], with default network ACL [{d}]'.format(
+            s=subnet_id, n=network_acl_id, d=default_network_acl_id))
+        try:
+            self.client.replace_network_acl_association(
+                AssociationId=association_id, NetworkAclId=default_network_acl_id, DryRun=False)
+        except ClientError as exc:
+            msg = ('Problem replacing association for subnet [{s}] from network ACL [{n}], with default network '
+                   'ACL [{d}]').format(s=subnet_id, n=network_acl_id, d=default_network_acl_id)
+            raise EC2UtilError(msg) from exc
+        return association_id
 
     def create_network_acl_rule_ipv4_all(self, network_acl_id, cidr, rule_num, rule_action='allow', egress=False):
         """Creates a rule
@@ -3944,186 +4161,387 @@ class EC2Util(object):
                 i=instance_id, v=str(source_dest_check))
             raise EC2UtilError(msg) from exc
 
-    def launch_nat_instance_for_cons3rt(self, name, nat_subnet_id, key_name, nat_security_group_id, subnet_cidr, region,
-                                        remote_access_internal_ip, remote_access_port=9443):
-        """Launches a NAT instance to attach to a CONS3RT network
+    def allocate_networks_for_cons3rt(self, cloudspace_name, cons3rt_infra, vpc_id, nat_key_pair_name,
+                                      internet_gateway_id, networks, nat_ami_id,
+                                      remote_access_internal_ip_last_octet='253',  remote_access_external_port=9443,
+                                      remote_access_internal_port=9443, nat_instance_type='c5a.large',
+                                      nat_root_volume_location='/dev/sda1', nat_root_volume_size_gib=100,
+                                      fleet_agent_version=None, fleet_token=None):
+        """Allocates a list of networks given a specific input format
 
-        :param name: (str) name of the instance
-        :param nat_subnet_id: (str) ID of the subnet to launch into
-        :param key_name: (str) Name of the AWS keypair to use when launching
-        :param nat_security_group_id: (str) ID of the NAT security group
-        :param subnet_cidr: (str) CIDR block for the internal subnet the NAT instance will be NAT'ing for
-        :param region: (str) region launching in to
-        :param remote_access_internal_ip: (str) internal VPC IP address of the remote access box
-        :param remote_access_port: (int) TCP port number for remote access
-        :return: (str) NAT instance ID
+        :param cloudspace_name: (str) Name of the cloudspace this is creating or allocating into
+        :param cons3rt_infra: (Cons3rtInfra) object to represent cons3rt-infrastructure
+        :param vpc_id: (str) ID of the VPC to create networks in
+        :param nat_key_pair_name: (str) Name of the KeyPair to deplpy NAT instances with
+        :param internet_gateway_id: (str) ID of the Internet Gateway for the cloudspace
+        :param networks: (list) of (dict) network inputs
+        :param nat_ami_id: (str) ID of the AMI to deploy the NAT instance
+        :param remote_access_internal_ip_last_octet: (str) last octet of the internal IP of the remote access server
+        :param remote_access_external_port: (int) Remote Access external TCP port number
+        :param remote_access_internal_port: (int) Remote Access internal TCP port number
+        :param nat_instance_type: (str) Instance type for the NAT instance
+        :param nat_root_volume_location: (str) root volume location for the NAT instance
+        :param nat_root_volume_size_gib: (int) Size of the NAT instance root volume in GiB
+        :param fleet_agent_version: (str) Version of the Elastic Fleet Agent installed
+        :param fleet_token: (str) Elastic Fleet Token for this NAT / RA box
+
+        Example:
+
+        networks = [
+            {
+                'name': 'common-net-usgw1-az2',
+                'cidr': '10.1.0.0/24',
+                'availability_zone': az_2,
+                'routable': False,
+                'is_nat_subnet': True,
+                'is_cons3rt_net': False,
+                'elastic_ip_address': '96.127.36.104'  <-- cons3rt-net typically
+            },
+        ]
+
+        :return: (list) of created Cons3rtNetwork objects
         :raises: EC2UtilError
         """
-        log = logging.getLogger(self.cls_logger + '.launch_nat_instance_for_cons3rt')
+        log = logging.getLogger(self.cls_logger + '.allocate_networks_for_cons3rt')
+        log.info('Allocation a collection of networks for a CONS3RT cloudspace with VPC ID: [{v}]'.format(v=vpc_id))
 
-        # Ensure the RA server is a valid IP
-        if not validate_ip_address(remote_access_internal_ip):
-            msg = 'Provided remote access IP is not valid: {r}'.format(r=remote_access_internal_ip)
-            raise EC2UtilError(msg)
+        """
+        Ordered list of networks to create, the order should be:
+          1. common-net / NAT subnet
+          2. cons3rt-net
+          3. routable additional networks
+          4. non-routable additional networks
+        """
+        ordered_networks = []
 
-        # Ensure the RA port is valid
-        try:
-            int(remote_access_port)
-        except ValueError:
-            msg = 'Remote access port must be an int, found: {p}'.format(p=str(remote_access_port))
-            raise EC2UtilError(msg)
-        remote_access_port = str(remote_access_port)
+        # Network counts
+        nat_network_count = 0
+        cons3rt_network_count = 0
+        additional_network_count = 0
 
-        # Determine the AMI ID
-        try:
-            ami_id = nat_vm_ami[region]
-        except KeyError:
-            msg = 'AMI ID for region [{r}] not found in NAT AMI data: {d}'.format(r=region, d=str(nat_vm_ami))
-            raise EC2UtilError(msg)
+        # Validate the network data
+        for network in networks:
+            if 'name' not in network.keys():
+                raise EC2UtilError('Missing name data for network')
+            if 'cidr' not in network.keys():
+                raise EC2UtilError('Missing cidr data for network: [{a}]'.format(a=network['name']))
+            if 'availability_zone' not in network.keys():
+                raise EC2UtilError('Missing availability_zone data for network: [{a}]'.format(a=network['name']))
+            if 'routable' not in network.keys():
+                raise EC2UtilError('Missing routable data for network: [{a}]'.format(a=network['name']))
+            if 'is_nat_subnet' not in network.keys():
+                raise EC2UtilError('Missing is_nat_subnet data for network: [{a}]'.format(a=network['name']))
+            if 'is_cons3rt_net' not in network.keys():
+                raise EC2UtilError('Missing is_cons3rt_net data for network: [{a}]'.format(a=network['name']))
+            if network['is_nat_subnet'] and network['is_cons3rt_net']:
+                raise EC2UtilError('Network [{a}] cannot be both a NAT network and a cons3rt-net'.format(
+                    a=network['name']))
 
-        # Read in the user-data script contents from the awsutil variable
-        user_data_script_contents = get_linux_nat_config_user_data_script_contents()
+        # Add the NAT network
+        for network in networks:
+            if network['is_nat_subnet']:
+                nat_network_count += 1
+                ordered_networks.append(network)
 
-        # Replace the guac server IP, port, and virt tech
-        user_data_script_contents = user_data_script_contents.replace(
-            'CODE_REPLACE_ME_GUAC_SERVER_IP', remote_access_internal_ip)
-        user_data_script_contents = user_data_script_contents.replace(
-            'CODE_REPLACE_ME_GUAC_SERVER_PORT', remote_access_port)
-        user_data_script_contents = user_data_script_contents.replace(
-            'CODE_REPLACE_ME_VIRT_TECH', 'amazon')
+        # Add the cons3rt-net network
+        for network in networks:
+            if network['is_cons3rt_net']:
+                cons3rt_network_count += 1
+                ordered_networks.append(network)
 
-        # Replace the DNAT rules
-        # Example:
-        # iptables -t nat -I PREROUTING -d ${ipAddress} -p TCP --dport 9443 -j DNAT --to-destination 172.16.10.250:9443
-        # iptables -t nat -I POSTROUTING -d 172.16.10.250 -j SNAT --to-source ${ipAddress}
-        ra_dnat_rules = 'iptables -t nat -I PREROUTING -d $ipAddress -p TCP --dport {p} -j DNAT --to-destination ' \
-                        '{i}:{p}'.format(i=remote_access_internal_ip, p=remote_access_port)
-        ra_dnat_rules += '\n\t'
-        ra_dnat_rules += 'iptables -t nat -I POSTROUTING -d {i} -j SNAT --to-source $ipAddress'.format(
-            i=remote_access_internal_ip)
-        ra_dnat_rules += '\n'
+        # Add the routable additional-net networks
+        for network in networks:
+            if not network['is_nat_subnet'] and not network['is_cons3rt_net'] and network['routable']:
+                additional_network_count += 1
+                ordered_networks.append(network)
 
-        log.info('Replacing DNAT rules with: {r}'.format(r=ra_dnat_rules))
-        user_data_script_contents = user_data_script_contents.replace(
-            'CODE_ADD_IPTABLES_DNAT_RULES_HERE', ra_dnat_rules)
+        # Add the non-routable additional-net networks
+        for network in networks:
+            if not network['is_nat_subnet'] and not network['is_cons3rt_net'] and not network['routable']:
+                additional_network_count += 1
+                ordered_networks.append(network)
 
-        # Replace the SNAT rule
-        # Example:
-        # iptables -t nat -A POSTROUTING -s 172.16.10.0/24 -j SNAT --to-source ${ipAddress}
-        snat_rule = 'iptables -t nat -A POSTROUTING -s {s} -j SNAT --to-source $ipAddress'.format(s=subnet_cidr)
-        user_data_script_contents = user_data_script_contents.replace(
-            'CODE_ADD_IPTABLES_SNAT_RULES_HERE', snat_rule)
+        # Validate the network counts
+        if nat_network_count != 1:
+            raise EC2UtilError('Network list requires exactly 1 NAT network, found: [{c}]'.format(
+                c=str(nat_network_count)))
+        if cons3rt_network_count != 1:
+            raise EC2UtilError('Network list requires exactly 1 cons3rt-net network, found: [{c}]'.format(
+                c=str(cons3rt_network_count)))
+        if additional_network_count < 1:
+            raise EC2UtilError('Network list requires at least 1 additional network, found: [{c}]'.format(
+                c=str(additional_network_count)))
+        log.info('Allocating a NAT network, a cons3rt-net, and [{c}] additional networks'.format(
+            c=str(additional_network_count)))
 
-        # Launch the NAT VM
-        log.info('Attempting to launch the NAT VM...')
-        try:
-            instance_info = self.launch_instance(
-                ami_id=ami_id,
-                key_name=key_name,
-                subnet_id=nat_subnet_id,
-                security_group_id=nat_security_group_id,
-                user_data_script_contents=user_data_script_contents,
-                instance_type=nat_default_size,
-                root_volume_location='/dev/xvda',
-                root_volume_size_gb=8
+        # Build the list of ordered networks
+        cons3rt_networks = []
+        nat_subnet_id = None
+        for network in ordered_networks:
+            cons3rt_networks.append(
+                Cons3rtNetwork(
+                    cloudspace_name=cloudspace_name,
+                    network_name=network['name'],
+                    vpc_id=vpc_id,
+                    cidr=network['cidr'],
+                    availability_zone=network['availability_zone'],
+                    internet_gateway_id=internet_gateway_id,
+                    nat_key_pair_name=nat_key_pair_name,
+                    routable=network['routable'],
+                    is_nat_subnet=network['is_nat_subnet'],
+                    is_cons3rt_net=network['is_cons3rt_net'],
+                    nat_subnet_id=nat_subnet_id,
+                    remote_access_internal_ip_last_octet=remote_access_internal_ip_last_octet,
+                    remote_access_internal_port=remote_access_internal_port,
+                    remote_access_external_port=remote_access_external_port,
+                    elastic_ip_address=network['elastic_ip_address'],
+                    nat_instance_ami_id=nat_ami_id,
+                    nat_instance_type=nat_instance_type,
+                    nat_root_volume_location=nat_root_volume_location,
+                    nat_root_volume_size_gib=nat_root_volume_size_gib,
+                    cons3rt_infra=cons3rt_infra,
+                    fleet_agent_version=fleet_agent_version,
+                    fleet_token=fleet_token
+                )
             )
-        except EC2UtilError as exc:
-            msg = 'Problem launching the NAT EC2 instance with name: {n}'.format(n=name)
-            raise EC2UtilError(msg) from exc
-        instance_id = instance_info['InstanceId']
-        log.info('Launched NAT instance ID: {i}'.format(i=instance_id))
 
-        # Ensure the instance ID exists
-        if not self.ensure_exists(resource_id=instance_id):
-            raise EC2UtilError('Problem finding instance ID after successful creation: {i}'.format(i=instance_id))
+        # Create network resources for each network the subnets, route tables, network ACLs, and associate them
+        failed_allocation = False
+        for cons3rt_network in cons3rt_networks:
+            try:
+                cons3rt_network.set_nat_subnet_id(nat_subnet_id=nat_subnet_id)
+                cons3rt_network.allocate_network(ec2=self)
+            except EC2UtilError as exc:
+                log.error('Failed to allocate network [{n}]: [{e}]\n{t}'.format(
+                    n=cons3rt_network.network_name, e=str(exc), t=traceback.format_exc()))
+                failed_allocation = True
+                break
+            else:
+                log.info('Successfully allocated cons3rt network: [{n}]'.format(n=cons3rt_network.network_name))
+                if cons3rt_network.is_nat_subnet:
+                    nat_subnet_id = cons3rt_network.subnet_id
 
-        # Apply the name tag
-        if not self.create_name_tag(resource_id=instance_id, resource_name=name):
-            raise EC2UtilError('Problem adding name tag name of instance ID: {i}'.format(i=instance_id))
+        # Add additional security group rules across networks
+        if not failed_allocation:
 
-        # Wait for instance availability
-        if not self.wait_for_instance_availability(instance_id=instance_id):
-            msg = 'NAT instance did not become available'
-            raise EC2UtilError(msg)
-        log.info('NAT instance ID [{i}] is available and passed all checks'.format(i=instance_id))
+            # Get the list of additional network internal security group IDs
+            additional_network_security_group_ids = []
+            for cons3rt_network in cons3rt_networks:
+                if not cons3rt_network.is_nat_subnet and not cons3rt_network.is_cons3rt_net:
+                    log.info('Found additional network internal security group ID: [{g}]'.format(
+                        g=cons3rt_network.security_group_id))
+                    additional_network_security_group_ids.append(cons3rt_network.security_group_id)
 
-        # Set the source/dest checks to disabled/False
-        try:
-            self.set_instance_source_dest_check(instance_id=instance_id, source_dest_check=False)
-        except EC2UtilError as exc:
-            msg = 'Problem setting NAT instance ID [{i}] source/destination check to disabled'.format(i=instance_id)
-            raise EC2UtilError(msg) from exc
-        log.info('Set NAT instance ID [{i}] source/destination check to disabled'.format(i=instance_id))
-        return instance_id
+            # Add the ingress rules to each internal security group
+            for cons3rt_network in cons3rt_networks:
+                if not cons3rt_network.add_security_group_ingress_rules_from_group_ids(
+                        ec2=self,
+                        security_group_ids=additional_network_security_group_ids
+                ):
+                    log.error('Failed to add security group ingress rules for [{n}]'.format(
+                        n=cons3rt_network.security_group_name))
+                    failed_allocation = True
 
-    def allocate_network_for_cons3rt(self, name, vpc_id, cidr, vpc_cidr_blocks, availability_zone,
-                                     routable=False, key_name=None, nat_subnet_id=None, remote_access_internal_ip=None,
-                                     remote_access_port=9443, is_nat_subnet=False, is_cons3rt_net=False,
-                                     cons3rt_site_ip=None, ig_id=None):
-        """Allocates a network and related resources for registration in CONS3RT
+        # Roll back the networks if there was an error creating
+        if failed_allocation:
+            # First revoke security group rules
+            log.info('Revoking security group rules...')
+            for cons3rt_network in reversed(cons3rt_networks):
+                try:
+                    cons3rt_network.revoke_security_group_rules(ec2=self)
+                except EC2UtilError as exc:
+                    log.warning('Failed to revoke secuerity group rules for network [{n}]: [{e}]\n{t}'.format(
+                        n=cons3rt_network.network_name, e=str(exc), t=traceback.format_exc()))
+                else:
+                    log.info('Revoked security group rules for network: [{n}]'.format(n=cons3rt_network.network_name))
 
-        :param name: (str) Name tag for the subnet and other resources
-        :param vpc_id: (str) ID of the VPC to create resources in
-        :param cidr: (str) CIDR block for the new subnet
-        :param vpc_cidr_blocks: (list) of str VPC CIDR blocks
-        :param availability_zone: (str) availability zone
-        :param routable: (bool) Set True to make the network routable, creates a NAT SG and a NAT instance
-        :param key_name: (str) Name of the key pair to use for the NAT instance
-        :param nat_subnet_id: (str) ID of the subnet where NATs deploy into
-        :param remote_access_internal_ip: (str) internal IP of remote access on the cons3rt-net
-        :param remote_access_port: (int) TCP port for remote access
-        :param is_nat_subnet: (bool) Set True only when allocating a subnet for NAT instances
-        :param is_cons3rt_net: (bool) Set True only when allocating a cons3rt-net
-        :param cons3rt_site_ip: (str) IP address of the CONS3RT site (required for cons3rt-net)
-        :param ig_id: (str) ID of the Internet gateway (required for NAT subnet e.g. common-net)
-        :return: (Cons3rtNetwork) containing information about the network and its resources
+            log.info('Waiting 30 seconds, then deallocating networks...')
+            time.sleep(30)
+            for cons3rt_network in reversed(cons3rt_networks):
+                try:
+                    cons3rt_network.deallocate_network(ec2=self)
+                except EC2UtilError as exc:
+                    log.warning('Failed to deallocate network [{n}]: [{e}]\n{t}'.format(
+                        n=cons3rt_network.network_name, e=str(exc), t=traceback.format_exc()))
+                else:
+                    log.info('Deallocation complete for network: [{n}]'.format(n=cons3rt_network.network_name))
+            raise EC2UtilError('Allocation failed for cons3rt networks')
+        return cons3rt_networks
+
+
+class Cons3rtNetwork(object):
+
+    def __init__(self, cloudspace_name, network_name, vpc_id, cidr, availability_zone, internet_gateway_id=None,
+                 nat_key_pair_name=None,routable=False, is_nat_subnet=False, is_cons3rt_net=False, subnet_id=None,
+                 route_table_id=None, network_acl_id=None, security_group_id=None, nat_security_group_id=None,
+                 nat_instance_id=None, nat_subnet_id=None, remote_access_internal_ip_last_octet='253',
+                 remote_access_external_port=9443, remote_access_internal_port=9443, elastic_ip_address=None,
+                 nat_instance_ami_id=None, nat_instance_type='c5a.large', nat_root_volume_location='/dev/sda1',
+                 nat_root_volume_size_gib=100, cons3rt_infra=None, fleet_agent_version=None, fleet_token=None):
+        self.cls_logger = mod_logger + '.Cons3rtNetwork'
+        self.cloudspace_name = cloudspace_name
+        self.network_name = network_name
+        self.vpc_id = vpc_id
+        self.cidr = cidr
+        self.availability_zone = availability_zone
+        self.internet_gateway_id = internet_gateway_id
+        self.nat_key_pair_name = nat_key_pair_name
+        self.routable = routable
+        self.is_nat_subnet = is_nat_subnet
+        self.is_cons3rt_net = is_cons3rt_net
+        self.subnet_id = subnet_id
+        self.route_table_id = route_table_id
+        self.network_acl_id = network_acl_id
+        self.security_group_id = security_group_id
+        self.nat_security_group_id = nat_security_group_id
+        self.nat_instance_id = nat_instance_id
+        self.nat_subnet_id = nat_subnet_id
+        self.remote_access_internal_ip_last_octet = remote_access_internal_ip_last_octet
+        self.remote_access_external_port = remote_access_external_port
+        self.remote_access_internal_port = remote_access_internal_port
+        self.elastic_ip_address = elastic_ip_address
+        self.nat_instance_ami_id = nat_instance_ami_id
+        self.nat_instance_type = nat_instance_type
+        self.nat_root_volume_location = nat_root_volume_location
+        self.nat_root_volume_size_gib = nat_root_volume_size_gib
+        self.cons3rt_infra = cons3rt_infra
+        self.fleet_agent_version = fleet_agent_version
+        self.fleet_token = fleet_token
+
+        # Computed members
+        self.cloudspace_name_safe = self.cloudspace_name.replace(' ', '')
+        self.route_table_routes = []
+        self.security_group_name = None
+        self.nat_security_group_name = None
+        self.security_group_ingress_rules = []
+        self.security_group_egress_rules = []
+        self.nat_security_group_ingress_rules = []
+        self.nat_security_group_egress_rules = []
+        self.region = None
+        self.allocation_id = None
+
+    def add_security_group_ingress_rules_from_group_ids(self, ec2, security_group_ids):
+        """Add the provided security group IDs as ingress rules on the internal security group
+        
+        :param ec2: (EC2Util) boto3 client
+        :param security_group_ids: (list) Security Group IDs
+        :return: (bool) True if successful, False otherwise
+        :raise: EC2UtilError
+        """
+        log = logging.getLogger(self.cls_logger + '.add_security_group_ingress_rules_from_group_ids')
+
+        if not isinstance(security_group_ids, list):
+            raise EC2UtilError('security_group_ids should be list, found: [{t}]'.format(t=type(security_group_ids)))
+
+        log.info('Adding internal security group ingress rules for cloudspace [{c}] network [{n}]'.format(
+            c=self.cloudspace_name, n=self.network_name))
+
+        # Return if this is a NAT subnet or cons3rt-net
+        if self.is_nat_subnet:
+            log.info('This ia NAT subnet [{n}], nothing to do')
+            return True
+        if self.is_cons3rt_net:
+            log.info('This ia cons3rt-net subnet [{n}], nothing to do')
+            return True
+
+        # Ensure the security_group_id is set
+        if not isinstance(self.security_group_id, str):
+            raise EC2UtilError('self.security_group_id should be a str, found: [{t}]'.format(t=type(
+                self.security_group_id)))
+
+        # Ensure this network's internal security group ID is included on the list
+        validated_my_group_id = False
+        for security_group_id in security_group_ids:
+            if security_group_id == self.security_group_id:
+                validated_my_group_id = True
+        if not validated_my_group_id:
+            security_group_ids.append(self.security_group_id)
+
+        self.security_group_ingress_rules = get_additional_net_ingress_ip_permissions(
+            internal_security_group_ids=security_group_ids
+        )
+
+        # Configure the internal security group rules
+        log.info('Configuring ingress rules for security group [{i}]'.format(i=self.security_group_id))
+        return ec2.configure_security_group_ingress(
+                security_group_id=self.security_group_id,
+                desired_ingress_rules=self.security_group_ingress_rules
+        )
+
+    def allocate_network(self, ec2):
+        """Creates the CONS3RT-configurable network in AWS
+
+        :param ec2: (EC2Util) boto3 client
+        :return: None
         :raises: EC2UtilError
         """
-        log = logging.getLogger(self.cls_logger + '.allocate_network_for_cons3rt')
-        region = availability_zone[:len(availability_zone)-1]
+        log = logging.getLogger(self.cls_logger + '.allocate_network')
+
+        # Ensure the boto3 client
+        if not isinstance(ec2, EC2Util):
+            raise EC2UtilError('ec2 arg must be type EC2Util, found: [{t}]'.format(t=type(ec2)))
+
+        # Determine the region
+        self.region = self.availability_zone[:len(self.availability_zone)-1]
 
         # NAT subnet is never considered "routable" -- doesn't need a NAT box
-        if is_nat_subnet:
-            if not ig_id:
+        if self.is_nat_subnet:
+            if not self.internet_gateway_id:
                 raise EC2UtilError('ig_id for the Internet Gateway must be specified for a NAT subnet')
-            routable = False
-            is_cons3rt_net = False
+            self.routable = False
+            self.is_cons3rt_net = False
 
-        # Ensure the cons3rt-net is set up to be routable
-        if is_cons3rt_net:
-            if not cons3rt_site_ip:
-                raise EC2UtilError('cons3rt_site_ip must be specified for a cons3rt-net network')
-            routable = True
-
-        # Ensure additional routable params are provided when needed
-        if routable:
-            if not key_name:
-                raise EC2UtilError('key_name must be specified for a routable network')
-            if not nat_subnet_id:
-                raise EC2UtilError('nat_subnet_id must be specified for a routable network')
-            if not remote_access_internal_ip:
-                raise EC2UtilError('remote_access_internal_ip must be specified for a routable network')
-            if not remote_access_port:
-                raise EC2UtilError('remote_access_port must be specified for a routable network')
+        # Ensure params are available for cons3rt-net
+        if self.is_cons3rt_net:
+            self.routable = True
+            if not self.cons3rt_infra:
+                raise EC2UtilError('cons3rt_infra Cons3rtInfra object must be specified for a cons3rt-net network')
+            if not isinstance(self.cons3rt_infra, Cons3rtInfra):
+                raise EC2UtilError('cons3rt_infra object must be type Cons3rtInfra, found: [{t}]'.format(
+                    t=type(self.cons3rt_infra)))
+            if not self.remote_access_internal_ip_last_octet:
+                raise EC2UtilError('remote_access_internal_ip_last_octet must be specified for a cons3rt-net')
             try:
-                int(remote_access_port)
+                int(self.remote_access_external_port)
             except ValueError:
-                raise EC2UtilError('remote_access_port must be an integer TCP port number')
+                raise EC2UtilError('remote_access_external_port must be an integer TCP port number for a cons3rt-net')
+            try:
+                int(self.remote_access_internal_port)
+            except ValueError:
+                raise EC2UtilError('remote_access_internal_port must be an integer TCP port number for a cons3rt-net')
+
+        # Ensure additional the KeyPair name is provided for a routable network
+        if self.routable:
+            if not self.nat_key_pair_name:
+                raise EC2UtilError('nat_key_pair_name must be specified for a routable network')
+
+        # Ensure the NAT subnet ID is provided for routable networks (that are not the NAT network)
+        if not self.is_nat_subnet and self.routable:
+            if not self.nat_subnet_id:
+                raise EC2UtilError('nat_subnet_id must be specified for a routable network')
 
         log.info('Attempting to allocate a CONS3RT network with resources named [{n}], in VPC ID [{v}], with CIDR '
-                 '[{c}], in availability zone [{z}]'.format(n=name, v=vpc_id, c=cidr, z=availability_zone))
-        try:
-            subnet_id = self.create_subnet(name=name, cidr=cidr, vpc_id=vpc_id, availability_zone=availability_zone)
-            self.set_subnet_auto_assign_public_ip(subnet_id=subnet_id, auto_assign=is_nat_subnet)
+                 '[{c}], in availability zone [{z}]'.format(
+            n=self.network_name, v=self.vpc_id, c=self.cidr, z=self.availability_zone))
 
-            # Apply the cons3rtenabled tag except for NAT subnets
-            if not is_nat_subnet:
-                if not self.create_cons3rt_enabled_tag(resource_id=subnet_id, enabled=True):
-                    raise EC2UtilError('Problem setting cons3rtenabled true on subnet: {i}'.format(i=subnet_id))
+        # Create the resources
+        try:
+            # Create the subnet
+            self.subnet_id = ec2.create_subnet(
+                name=self.network_name,
+                cidr=self.cidr,
+                vpc_id=self.vpc_id,
+                availability_zone=self.availability_zone
+            )
+            ec2.set_subnet_auto_assign_public_ip(subnet_id=self.subnet_id, auto_assign=self.is_nat_subnet)
+
+            # Apply the cons3rtenabled tag except for NAT subnets ONLY
+            if not self.is_nat_subnet:
+                if not ec2.create_cons3rt_enabled_tag(resource_id=self.subnet_id, enabled=True):
+                    raise EC2UtilError('Problem setting cons3rtenabled true on subnet: {i}'.format(i=self.subnet_id))
 
             # Check for existing route table
-            route_table_id = None
-            existing_vpc_route_tables = self.list_vpc_route_tables(vpc_id=vpc_id)
+            existing_vpc_route_tables = ec2.list_vpc_route_tables(vpc_id=self.vpc_id)
             for existing_vpc_route_table in existing_vpc_route_tables:
                 if 'RouteTableId' not in existing_vpc_route_table.keys():
                     log.warning('RouteTableId not found in route table: {d}'.format(d=str(existing_vpc_route_table)))
@@ -4133,7 +4551,7 @@ class EC2Util(object):
                     log.info('Route table has no associations: {i}'.format(i=existing_route_table_id))
                     continue
                 log.info('Checking route table [{r}] for associations to subnet [{s}]'.format(
-                    r=existing_route_table_id, s=subnet_id))
+                    r=existing_route_table_id, s=self.subnet_id))
                 for association in existing_vpc_route_table['Associations']:
                     if 'RouteTableAssociationId' not in association.keys():
                         log.warning('RouteTableAssociationId not found in association: {d}'.format(d=str(association)))
@@ -4141,209 +4559,452 @@ class EC2Util(object):
                     if 'SubnetId' not in association.keys():
                         log.info('SubnetId not found in association: {d}'.format(d=str(association)))
                         continue
-                    if association['SubnetId'] == subnet_id:
+                    if association['SubnetId'] == self.subnet_id:
                         log.info('Subnet ID [{s}] is already associated to route table [{r}] with ID: {i}'.format(
-                            s=subnet_id, r=existing_route_table_id, i=association['RouteTableAssociationId']))
-                        route_table_id = existing_route_table_id
+                            s=self.subnet_id, r=existing_route_table_id, i=association['RouteTableAssociationId']))
+                        self.route_table_id = existing_route_table_id
                         break
 
-            # If existing route table was found, disassociate and delete it
-            if route_table_id:
-                log.info('Attempting to disassociate and delete the existing route table: {i}'.format(i=route_table_id))
-                self.disassociate_vpc_route_table(route_table_id=route_table_id, subnet_id=subnet_id)
-                self.delete_vpc_route_table(route_table_id=route_table_id)
+            # If an existing route table was found, disassociate and delete it
+            if self.route_table_id:
+                log.info('Attempting to disassociate and delete the existing route table: {i}'.format(
+                    i=self.route_table_id))
+                ec2.disassociate_vpc_route_table(route_table_id=self.route_table_id, subnet_id=self.subnet_id)
+                ec2.delete_vpc_route_table(route_table_id=self.route_table_id)
 
             # Create a new route table and associate it
-            log.info('Proceeding with route table creation...'.format(s=subnet_id))
-            route_table = self.create_vpc_route_table(name=name + '-rt', vpc_id=vpc_id)
-            route_table_id = route_table['RouteTableId']
-            self.associate_route_table(route_table_id=route_table_id, subnet_id=subnet_id)
+            log.info('Proceeding with route table creation...')
+            route_table = ec2.create_vpc_route_table(name=self.network_name + '-rt', vpc_id=self.vpc_id)
+            self.route_table_id = route_table['RouteTableId']
+            ec2.associate_route_table(route_table_id=self.route_table_id, subnet_id=self.subnet_id)
 
-            # create and associate the network ACL
-            network_acl_id = self.create_network_acl(name=name + '-acl', vpc_id=vpc_id)
-            self.associate_network_acl(network_acl_id=network_acl_id, subnet_id=subnet_id, delete_existing=True)
-            self.create_network_acl_rule(network_acl_id=network_acl_id, rule_num=100, cidr='0.0.0.0/0',
+            # Create and associate the Network ACL
+            self.network_acl_id = ec2.create_network_acl(name=self.network_name + '-acl', vpc_id=self.vpc_id)
+            ec2.associate_network_acl(network_acl_id=self.network_acl_id, subnet_id=self.subnet_id,
+                                      delete_existing=True)
+            ec2.create_network_acl_rule(network_acl_id=self.network_acl_id, rule_num=100, cidr='0.0.0.0/0',
                                          rule_action='allow', protocol='-1', egress=False)
-            self.create_network_acl_rule(network_acl_id=network_acl_id, rule_num=100, cidr='0.0.0.0/0',
+            ec2.create_network_acl_rule(network_acl_id=self.network_acl_id, rule_num=100, cidr='0.0.0.0/0',
                                          rule_action='allow', protocol='-1', egress=True)
-            security_group_id = self.create_security_group(name=name + '-sg', vpc_id=vpc_id,
-                                                           description='Internal CONS3RT SUT SG')
-            if not self.ensure_exists(resource_id=security_group_id):
-                raise EC2UtilError('Resource not found: {r}'.format(r=security_group_id))
+
+            # Create the internal Security Group
+            if not self.is_nat_subnet:
+                self.security_group_name = self.cloudspace_name_safe + '-' + self.network_name + '-sg'
+                self.security_group_id = ec2.create_security_group(
+                    name=self.security_group_name,
+                    vpc_id=self.vpc_id,
+                    description='Internal security group for {n}'.format(n=self.network_name)
+                )
+                if not ec2.ensure_exists(resource_id=self.security_group_id):
+                    raise EC2UtilError('Internal Security Group [{n}] not found: [{r}]'.format(
+                        n=self.security_group_name, r=self.security_group_id))
+
+            # Create the NAT Security Group if this network is routable
+            if self.routable and not self.is_nat_subnet:
+                self.nat_security_group_name = self.cloudspace_name_safe + '-' + self.network_name + '-nat-sg'
+                self.nat_security_group_id = ec2.create_security_group(
+                    name=self.nat_security_group_name,
+                    vpc_id=self.vpc_id,
+                    description='NAT security group for the {n}'.format(n=self.network_name)
+                )
+                if not ec2.ensure_exists(resource_id=self.nat_security_group_id):
+                    raise EC2UtilError('NAT Security Group [{n}] not found: [{r}]'.format(
+                        n=self.nat_security_group_name, r=self.nat_security_group_id))
+
         except EC2UtilError as exc:
             msg = 'Problem creating network resources for subnet with name [{n}] in VPC ID: {v}'.format(
-                n=name, v=vpc_id)
+                n=self.network_name, v=self.vpc_id)
             raise EC2UtilError(msg) from exc
 
-        # VPC Security group rules and routes
-        security_group_ingress_rules = []
-        route_table_routes = []
+        # Get the CIDR blocks for the VPC
+        vpc_cidr_blocks = ec2.retrieve_vpc_cidr_blocks(vpc_id=self.vpc_id)
+
+        # Add a route for each VPC CIDR to the list
         for vpc_cidr in vpc_cidr_blocks:
-            security_group_ingress_rules.append(
-                IpPermission(IpProtocol='-1', CidrIp=vpc_cidr, Description='Allow all from the VPC CIDR')
-            )
-            route_table_routes.append(
+            self.route_table_routes.append(
                 IpRoute(cidr=vpc_cidr, target='local')
             )
-        security_group_egress_rules = [
-            IpPermission(IpProtocol='-1', CidrIp='0.0.0.0/0', Description='Allow all out')
-        ]
-
-        # Create additional resources for routable networks
-        if not routable:
-            nat_security_group_id = None
-            nat_instance_id = None
-        else:
-            log.info('Allocating a routable network, creating additional resources...')
-            try:
-                nat_security_group_id = self.create_security_group(name=name + '-nat-sg', vpc_id=vpc_id,
-                                                                   description='CONS3RT NAT security group')
-
-                # Specify the ingress rules for the NAT security group
-                nat_sg_ingress_rules = [
-                    IpPermission(IpProtocol='-1', CidrIp=cidr,
-                                 Description='Allow from the internal subnet')
-                ]
-                nat_sg_egress_rules = [
-                    IpPermission(IpProtocol='-1', CidrIp='0.0.0.0/0', Description='Allow all out')
-                ]
-
-                # Configure cons3rt-net specific ingress and egress rules
-                if is_cons3rt_net:
-                    # Additional ingress rules for the cons3rt-net internal security group
-                    security_group_ingress_rules.append(
-                        IpPermission(IpProtocol='tcp', FromPort=remote_access_port, ToPort=remote_access_port,
-                                     CidrIp=remote_access_internal_ip, Description='Remote access from the NAT')
-                    )
-
-                    # Additional ingress rules for the cons3rt-net NAT security group
-                    cons3rt_site_cidr = cons3rt_site_ip + '/32'
-                    nat_sg_ingress_rules.append(
-                        IpPermission(IpProtocol='tcp', FromPort=remote_access_port, ToPort=remote_access_port,
-                                     CidrIp=cons3rt_site_cidr, Description='Remote access from CONS3RT site')
-                    )
-                    nat_sg_ingress_rules.append(
-                        IpPermission(IpProtocol='tcp', FromPort=remote_access_port, ToPort=remote_access_port,
-                                     CidrIp='140.24.0.0/16', Description='Remote access from CONS3RT site through DREN')
-                    )
-                    """ TODO add UserIdGroupPairs
-                    nat_sg_ingress_rules.append(
-                        IpPermission(IpProtocol='-1', PrefixListId=nat_security_group_id,
-                                     Description='All traffic from itself')
-                    )
-                    """
-
-                    # Replace egress rules for the cons3rt-net NAT security group
-                    nat_sg_egress_rules = [
-                        IpPermission(IpProtocol='tcp', FromPort=53, ToPort=53, CidrIp='0.0.0.0/0',
-                                     Description='Allow DNS TCP traffic out'),
-                        IpPermission(IpProtocol='udp', FromPort=53, ToPort=53, CidrIp='0.0.0.0/0',
-                                     Description='Allow DNS UDP traffic out'),
-                        IpPermission(IpProtocol='tcp', FromPort=443, ToPort=443, CidrIp='0.0.0.0/0',
-                                     Description='Allow https traffic out'),
-                        IpPermission(IpProtocol='tcp', FromPort=4443, ToPort=4443, CidrIp=cons3rt_site_cidr,
-                                     Description='Allow messaging traffic to CONS3RT site'),
-                        IpPermission(IpProtocol='tcp', FromPort=5443, ToPort=5443, CidrIp=cons3rt_site_cidr,
-                                     Description='Allow gitlab container registry traffic to CONS3RT site'),
-                        IpPermission(IpProtocol='tcp', FromPort=6443, ToPort=6443, CidrIp=cons3rt_site_cidr,
-                                     Description='Allow docker registry traffic to CONS3RT site'),
-                        IpPermission(IpProtocol='tcp', FromPort=7443, ToPort=7443, CidrIp=cons3rt_site_cidr,
-                                     Description='Allow cons3rt webdav traffic to CONS3RT site'),
-                        IpPermission(IpProtocol='tcp', FromPort=8443, ToPort=8443, CidrIp=cons3rt_site_cidr,
-                                     Description='Allow blobstore traffic to CONS3RT site'),
-                        IpPermission(IpProtocol='tcp', FromPort=remote_access_port, ToPort=remote_access_port,
-                                     CidrIp=remote_access_internal_ip + '/32',
-                                     Description='Allow remote access to the RA box')
-                    ]
-                    """ TODO add UserIdGroupPairs
-                    nat_sg_egress_rules.append(
-                        IpPermission(IpProtocol='-1', PrefixListId=nat_security_group_id,
-                                     Description='All traffic to itself'),
-                    """
-
-                # Configure NAT security group rules
-                self.configure_security_group_ingress(
-                    security_group_id=nat_security_group_id,
-                    desired_ingress_rules=nat_sg_ingress_rules
-                )
-                self.configure_security_group_egress(
-                    security_group_id=nat_security_group_id,
-                    desired_egress_rules=nat_sg_egress_rules
-                )
-
-                log.info('Launching a NAT instance for network: {n}'.format(n=name))
-                nat_instance_id = self.launch_nat_instance_for_cons3rt(
-                    name=name + '-nat',
-                    nat_subnet_id=nat_subnet_id,
-                    key_name=key_name,
-                    nat_security_group_id=nat_security_group_id,
-                    subnet_cidr=cidr,
-                    region=region,
-                    remote_access_internal_ip=remote_access_internal_ip,
-                    remote_access_port=remote_access_port
-                )
-
-                # Append the NAT instance route for routable networks
-                route_table_routes.append(
-                    IpRoute(cidr='0.0.0.0/0', target=nat_instance_id)
-                )
-            except EC2UtilError as exc:
-                msg = 'Problem creating additional external routing network resources for subnet with name [{n}] ' \
-                      'in VPC ID: {v}'.format(n=name, v=vpc_id)
-                raise EC2UtilError(msg) from exc
-            log.info('NAT instance created successfully for network: {n}'.format(n=name))
 
         # For a NAT subnet, route Internet traffic to the Internet gateway
-        if is_nat_subnet:
-            route_table_routes.append(
-                IpRoute(cidr='0.0.0.0/0', target=ig_id)
+        if self.is_nat_subnet:
+            self.route_table_routes.append(
+                IpRoute(cidr='0.0.0.0/0', target=self.internet_gateway_id)
             )
 
-        # Configure the route table rules
-        self.configure_routes(
-            route_table_id=route_table_id,
-            desired_routes=route_table_routes
+        # Configure the route table rules for non-route-able networks
+        # Since we do not need to wait for the NAT instance ID for a non-route-able network.
+        # The NAT subnet requires this before launching the NAT
+        if not self.routable:
+            ec2.configure_routes(
+                route_table_id=self.route_table_id,
+                desired_routes=self.route_table_routes
+            )
+
+        # Determine the INTERNAL security group rules depending on the type of network
+        # There are no security group rules for the NAT subnet
+        if not self.is_nat_subnet:
+
+            # Configure cons3rt-net ingress and egress rules, these are known at this time
+            if self.is_cons3rt_net:
+                self.security_group_ingress_rules += get_cons3rt_net_ingress_ip_permissions(
+                    internal_security_group_id=self.security_group_id,
+                    nat_security_group_id=self.nat_security_group_id,
+                    remote_access_port=self.remote_access_internal_port
+                )
+                self.security_group_egress_rules += get_cons3rt_net_egress_ip_permissions()
+
+            # Configure additional network ingress and egress rules
+            # NOTE - The other additional network security group IDs are not known at this point
+            # NOTE - Additional call required to allow all the non-cons3rt networks by ID on the INGRESS
+            else:
+                # Not configuring ingress rules for additional networks here, not until all SG IDs are known.
+                self.security_group_egress_rules += get_additional_net_egress_ip_permissions()
+
+            # Configure the internal security group rules
+            log.info('Configuring ingress rules for security group [{n}]'.format(n=self.security_group_name))
+            if not ec2.configure_security_group_ingress(
+                security_group_id=self.security_group_id,
+                desired_ingress_rules=self.security_group_ingress_rules
+            ):
+                msg = 'Problem configuring ingress rules for security group [{n}]'.format(n=self.security_group_name)
+                raise EC2UtilError(msg)
+
+            log.info('Configuring egress rules for security group [{n}]'.format(n=self.security_group_name))
+            if not ec2.configure_security_group_egress(
+                security_group_id=self.security_group_id,
+                desired_egress_rules=self.security_group_egress_rules
+            ):
+                msg = 'Problem configuring egress rules for security group [{n}]'.format(n=self.security_group_name)
+                raise EC2UtilError(msg)
+
+        # Determine the NAT security group rules depending on the type of network
+        # There are no security group rules for the NAT subnet
+        if not self.is_nat_subnet and self.routable:
+
+            # Configure cons3rt-net NAT ingress and egress rules, these are known at this time
+            if self.is_cons3rt_net:
+                self.nat_security_group_ingress_rules += get_cons3rt_net_nat_ingress_ip_permissions(
+                    cons3rt_infra=self.cons3rt_infra,
+                    internal_security_group_id=self.security_group_id,
+                    nat_security_group_id=self.nat_security_group_id,
+                    external_remote_access_port=self.remote_access_external_port
+                )
+                self.nat_security_group_egress_rules += get_cons3rt_net_nat_egress_ip_permissions(
+                    cons3rt_infra=self.cons3rt_infra,
+                    rhui_update_server_ips=ec2.get_rhui_servers(all_available=True),
+                    internal_cons3rt_net_security_group_id=self.security_group_id,
+                    remote_access_internal_port=self.remote_access_internal_port,
+                    nat_cons3rt_net_security_group_id=self.nat_security_group_id
+                )
+
+            # Configure additional network ingress and egress rules
+            else:
+                self.nat_security_group_ingress_rules += get_additional_net_nat_ingress_ip_permissions(
+                    internal_security_group_id=self.security_group_id
+                )
+                self.nat_security_group_egress_rules += get_additional_net_nat_egress_ip_permissions(
+                    cons3rt_infra=self.cons3rt_infra
+                )
+
+            # Configure the internal security group rules
+            log.info('Configuring ingress rules for NAT security group [{n}]'.format(n=self.nat_security_group_name))
+            if not ec2.configure_security_group_ingress(
+                security_group_id=self.nat_security_group_id,
+                desired_ingress_rules=self.nat_security_group_ingress_rules
+            ):
+                msg = 'Problem configuring ingress rules for NAT security group [{n}]'.format(
+                    n=self.nat_security_group_name)
+                raise EC2UtilError(msg)
+
+            log.info('Configuring egress rules for NAT security group [{n}]'.format(n=self.nat_security_group_name))
+            if not ec2.configure_security_group_egress(
+                security_group_id=self.nat_security_group_id,
+                desired_egress_rules=self.nat_security_group_egress_rules
+            ):
+                msg = 'Problem configuring egress rules for NAT security group [{n}]'.format(
+                    n=self.nat_security_group_name)
+                raise EC2UtilError(msg)
+
+            # Launch the NAT instance
+            log.info('Launching a NAT instance for network: [{n}]'.format(n=self.network_name))
+            try:
+                self.nat_instance_id = self.launch_nat_instance(ec2)
+            except EC2UtilError as exc:
+                msg = 'Problem launching NAT for subnet with name [{n}] in VPC ID: [{v}]'.format(
+                    n=self.network_name, v=self.vpc_id)
+                raise EC2UtilError(msg) from exc
+            log.info('NAT instance created successfully for network [{n}] with ID: [{i}]'.format(
+                n=self.network_name, i=self.nat_instance_id))
+
+        # Append the NAT instance route for routable networks and configure routes
+        if self.routable:
+
+            # Ensure the NAT instance was created; otherwise we cannot add the required route to the NAT
+            if not self.nat_instance_id:
+                raise EC2UtilError(
+                    'NAT instance ID is required to configure routes for route-able network: [{n}]'.format(
+                        n=self.network_name))
+
+            # Append the route to send all traffic to the NAT
+            self.route_table_routes.append(
+                IpRoute(cidr='0.0.0.0/0', target=self.nat_instance_id)
+            )
+
+            # Configure the route table rules for the routeable network now that we know the NAT instance ID
+            ec2.configure_routes(
+                route_table_id=self.route_table_id,
+                desired_routes=self.route_table_routes
+            )
+
+    def deallocate_network(self, ec2):
+        """Rolls back a cons3rt network that failed to create, or deallocates an existing network
+
+        :param ec2: (EC2Util) boto3 client
+        :return: None
+        :raises: EC2UtilError
+        """
+        log = logging.getLogger(self.cls_logger + '.deallocate_network')
+
+        # Ensure the boto3 client
+        if not isinstance(ec2, EC2Util):
+            raise EC2UtilError('ec2 arg must be type EC2Util, found: [{t}]'.format(t=type(ec2)))
+
+        # Disassociate the elastic IP
+        if self.allocation_id:
+            try:
+                ec2.disassociate_elastic_ips_from_instance(instance_id=self.nat_instance_id)
+            except AWSAPIError as exc:
+                log.warning('Problem disassociating elastic IPs from NAT instance ID [{i}]: [{e}]\n{t}'.format(
+                    i=self.nat_instance_id, e=str(exc), t=traceback.format_exc()))
+            else:
+                log.info('Waiting 5 seconds...')
+                time.sleep(5)
+
+        # Terminate the EC2 instance
+        if self.nat_instance_id:
+            try:
+                ec2.terminate_instance(instance_id=self.nat_instance_id)
+            except EC2UtilError as exc:
+                log.warning('Problem terminating NAT instance ID [{i}]: [{e}]\n{t}'.format(
+                    i=self.nat_instance_id, e=str(exc), t=traceback.format_exc()))
+            else:
+                log.info('Waiting 5 seconds...')
+                time.sleep(5)
+
+        # Revoke rules from the NAT security group
+        self.revoke_security_group_rules(ec2=ec2)
+
+        # If an existing route table was found, disassociate and delete it
+        if self.route_table_id:
+            log.info('Attempting to disassociate and delete the route table: [{i}]'.format(i=self.route_table_id))
+            try:
+                ec2.disassociate_vpc_route_table(route_table_id=self.route_table_id, subnet_id=self.subnet_id)
+            except EC2UtilError as exc:
+                log.warning('Problem disassociating route table [{r}] from subnet [{s}]: [{e}]\n{t}'.format(
+                    r=self.route_table_id, s=self.subnet_id, e=str(exc), t=traceback.format_exc()))
+            try:
+                ec2.delete_vpc_route_table(route_table_id=self.route_table_id)
+            except EC2UtilError as exc:
+                log.warning('Problem deleting route table [{r}]: [{e}]\n{t}'.format(
+                    r=self.route_table_id, e=str(exc), t=traceback.format_exc()))
+
+        # If an existing network ACL was found, disassociate and delete it
+        if self.network_acl_id:
+            log.info('Attempting to disassociate and delete the network ACL: [{i}]'.format(i=self.network_acl_id))
+            try:
+                ec2.disassociate_network_acl(network_acl_id=self.network_acl_id, subnet_id=self.subnet_id,
+                                             vpc_id=self.vpc_id)
+            except EC2UtilError as exc:
+                log.warning('Problem disassociating network ACL [{n}] from subnet [{s}]: [{e}]\n{t}'.format(
+                    n=self.network_acl_id, s=self.subnet_id, e=str(exc), t=traceback.format_exc()))
+            try:
+                ec2.delete_network_acl(network_acl_id=self.network_acl_id)
+            except EC2UtilError as exc:
+                log.warning('Problem deleting network ACL [{n}]: [{e}]\n{t}'.format(
+                    n=self.network_acl_id, e=str(exc), t=traceback.format_exc()))
+
+        # Delete the subnet
+        if self.subnet_id:
+            log.info('Waiting 5 seconds...')
+            time.sleep(5)
+            try:
+                ec2.delete_subnet(subnet_id=self.subnet_id)
+            except EC2UtilError as exc:
+                log.warning('Problem deleting subnet [{s}]: [{e}]\n{t}'.format(
+                    s=self.subnet_id, e=str(exc), t=traceback.format_exc()))
+
+        # Delete the NAT security group
+        if self.nat_security_group_id:
+            log.info('Waiting 20 seconds before deleting security groups...')
+            time.sleep(20)
+            try:
+                ec2.delete_security_group(security_group_id=self.nat_security_group_id)
+            except EC2UtilError as exc:
+                log.warning('Problem deleting security group [{g}]: [{e}]\n{t}'.format(
+                    g=self.nat_security_group_id, e=str(exc), t=traceback.format_exc()))
+        if self.security_group_id:
+            log.info('Waiting 20 seconds before deleting security groups...')
+            time.sleep(20)
+            try:
+                ec2.delete_security_group(security_group_id=self.security_group_id)
+            except EC2UtilError as exc:
+                log.warning('Problem deleting security group [{g}]: [{e}]\n{t}'.format(
+                    g=self.security_group_id, e=str(exc), t=traceback.format_exc()))
+
+        log.info('Completed deallocation of subnet ID [{s}] in VPC ID [{v}]'.format(s=self.subnet_id, v=self.vpc_id))
+
+    def launch_nat_instance(self, ec2):
+        """Launches a NAT instance to attach to this CONS3RT network
+
+        :param ec2: (EC2Util) boto3 client
+        :return: None
+        :raises: EC2UtilError
+        """
+        log = logging.getLogger(self.cls_logger + '.launch_nat_instance')
+
+        # Validate required data exists
+        if not self.nat_instance_ami_id:
+            raise EC2UtilError('AMI ID required to deploy NAT instance')
+
+        # Get the remote access internal IP address
+        remote_access_internal_ip=get_remote_access_internal_ip(
+            cons3rt_net_cidr=self.cidr,
+            remote_access_ip_last_octet=self.remote_access_internal_ip_last_octet
         )
 
-        # Configure the internal security group rules
-        self.configure_security_group_ingress(
-            security_group_id=security_group_id,
-            desired_ingress_rules=security_group_ingress_rules
-        )
-        self.configure_security_group_egress(
-            security_group_id=security_group_id,
-            desired_egress_rules=security_group_egress_rules
-        )
+        # Determine the hostname
+        nat_hostname = self.cloudspace_name_safe + '-' + self.network_name
 
-        # Return a Cons3rtNetwork object containing the allocated network info
-        return Cons3rtNetwork(
-            name=name,
-            vpc_id=vpc_id,
-            cidr=cidr,
-            availability_zone=availability_zone,
-            subnet_id=subnet_id,
-            route_table_id=route_table_id,
-            security_group_id=security_group_id,
-            routable=routable,
-            nat_security_group_id=nat_security_group_id,
-            nat_instance_id=nat_instance_id
-        )
+        # Ensure the AMI exists TODO
+
+        # Read in the user-data script contents from the awsutil variable
+        user_data_script_contents = get_linux_nat_config_user_data_script_contents()
+
+        # Replace the guac server IP, port, and virt tech
+        user_data_script_contents = user_data_script_contents.replace(
+            'CODE_REPLACE_ME_GUAC_SERVER_IP', remote_access_internal_ip)
+        user_data_script_contents = user_data_script_contents.replace(
+            'CODE_REPLACE_ME_GUAC_SERVER_PORT', str(self.remote_access_internal_port))
+        user_data_script_contents = user_data_script_contents.replace(
+            'CODE_REPLACE_ME_HOSTNAME', nat_hostname)
+        user_data_script_contents = user_data_script_contents.replace(
+            'CODE_REPLACE_ME_SUBNET_CIDR_BLOCK', self.cidr)
+        user_data_script_contents = user_data_script_contents.replace(
+            'CODE_REPLACE_ME_VIRT_TECH', 'amazon')
+        user_data_script_contents = user_data_script_contents.replace(
+            'CODE_REPLACE_ME_FLEET_AGENT_VERSION', self.fleet_agent_version)
+        user_data_script_contents = user_data_script_contents.replace(
+            'CODE_REPLACE_ME_FLEET_SERVER_FQDN', self.cons3rt_infra.elastic_fleet_server_fqdn)
+        user_data_script_contents = user_data_script_contents.replace(
+            'CODE_REPLACE_ME_FLEET_MANAGER_PORT', str(self.cons3rt_infra.elastic_logging_port))
+        user_data_script_contents = user_data_script_contents.replace(
+            'CODE_REPLACE_ME_FLEET_TOKEN', self.fleet_token)
+        user_data_script_contents = user_data_script_contents.replace(
+            'CODE_REPLACE_ME_CONS3RT_ROOT_CA_DOWNLOAD_URL', self.cons3rt_infra.ca_download_url)
+
+        # Create the firewalld rules
+        firewalld_rules = 'firewall-cmd --permanent --add-forward-port=port={e}:proto=tcp:toport={i}:toaddr={r}'.format(
+            e=self.remote_access_external_port, i=self.remote_access_internal_port, r=remote_access_internal_ip)
+        firewalld_rules += '\n'
+
+        # Replace the firewalld rules
+        log.info('Replacing CODE_ADD_FIREWALLD_DNAT_RULES_HERE with:\n[{r}]'.format(r=firewalld_rules))
+        user_data_script_contents = user_data_script_contents.replace(
+            'CODE_ADD_FIREWALLD_DNAT_RULES_HERE', firewalld_rules)
+
+        # Determine the NAT instance name tag
+        nat_instance_name = nat_hostname + '-nat'
+
+        # Launch the NAT VM
+        log.info('Attempting to launch the NAT instance with name: [{n}]'.format(n=nat_instance_name))
+        try:
+            instance_info = ec2.launch_instance(
+                ami_id=self.nat_instance_ami_id,
+                key_name=self.nat_key_pair_name,
+                subnet_id=self.nat_subnet_id,
+                security_group_id=self.nat_security_group_id,
+                user_data_script_contents=user_data_script_contents,
+                instance_type=self.nat_instance_type,
+                root_volume_location=self.nat_root_volume_location,
+                root_volume_size_gb=self.nat_root_volume_size_gib
+            )
+        except EC2UtilError as exc:
+            msg = 'Problem launching the NAT instance with name: {n}'.format(n=nat_instance_name)
+            raise EC2UtilError(msg) from exc
+
+        # Get the NAT instance ID
+        if 'InstanceId' not in instance_info.keys():
+            raise EC2UtilError('InstanceId not found in instance data: [{d}]'.format(d=str(instance_info)))
+        self.nat_instance_id = instance_info['InstanceId']
+        log.info('Launched NAT instance ID: {i}'.format(i=self.nat_instance_id))
+
+        # Ensure the instance ID exists
+        if not ec2.ensure_exists(resource_id=self.nat_instance_id):
+            raise EC2UtilError('Problem finding instance ID after successful creation: {i}'.format(
+                i=self.nat_instance_id))
+
+        # Apply the name tag
+        if not ec2.create_name_tag(resource_id=self.nat_instance_id, resource_name=nat_instance_name):
+            raise EC2UtilError('Problem adding name tag name of instance ID: {i}'.format(i=self.nat_instance_id))
+
+        # Wait for instance availability
+        if not ec2.wait_for_instance_availability(instance_id=self.nat_instance_id):
+            msg = 'NAT instance did not become available'
+            raise EC2UtilError(msg)
+        log.info('NAT instance ID [{i}] is available and passed all checks'.format(i=self.nat_instance_id))
+
+        # Set the source/dest checks to disabled/False
+        ec2.set_instance_source_dest_check(instance_id=self.nat_instance_id, source_dest_check=False)
+        log.info('Set NAT instance ID [{i}] source/destination check to disabled'.format(i=self.nat_instance_id))
+
+        # Assign the elastic IP to the instance if specified
+        if self.elastic_ip_address:
+            self.allocation_id = ec2.get_elastic_ip_allocation_id(self.elastic_ip_address)
+            ec2.associate_elastic_ip_to_instance_id(
+                allocation_id=self.allocation_id,
+                instance_id=self.nat_instance_id
+            )
+        return self.nat_instance_id
+
+    def revoke_security_group_rules(self, ec2):
+        """Revokes security group rules for this network
+
+        :param ec2: (EC2Util) boto3 client
+        :return: (bool) True if successful, False otherwise
+        :raises: EC2UtilError
+        """
+        log = logging.getLogger(self.cls_logger + '.revoke_security_group_rules')
+        log.info('Revoking security group rules for cloudspace [{c}] network [{n}]...'.format(
+            n=self.network_name, c=self.cloudspace_name))
+
+        revoke_success = True
+
+        # Revoke rules from the NAT security group
+        if self.nat_security_group_id:
+            try:
+                ec2.revoke_security_group_rules(security_group_id=self.nat_security_group_id)
+            except EC2UtilError as exc:
+                log.warning('Problem revoking security group rules from [{g}]: [{e}]\n{t}'.format(
+                    g=self.nat_security_group_id, e=str(exc), t=traceback.format_exc()))
+                revoke_success = False
+
+        # Revoke rules form the internal security group
+        if self.security_group_id:
+            try:
+                ec2.revoke_security_group_rules(security_group_id=self.security_group_id)
+            except EC2UtilError as exc:
+                log.warning('Problem revoking security group rules from [{g}]: [{e}]\n{t}'.format(
+                    g=self.security_group_id, e=str(exc), t=traceback.format_exc()))
+                revoke_success = False
+        return revoke_success
 
 
-class Cons3rtNetwork(object):
+    def set_nat_subnet_id(self, nat_subnet_id):
+        """Sets the nat_subnet_id
 
-    def __init__(self, name, vpc_id, cidr, availability_zone, subnet_id, route_table_id, security_group_id,
-                 routable=False, nat_security_group_id=None, nat_instance_id=None):
-        self.name = name
-        self.vpc_id = vpc_id
-        self.cidr = cidr
-        self.availability_zone = availability_zone
-        self.subnet_id = subnet_id
-        self.route_table_id = route_table_id
-        self.security_group_id = security_group_id
-        self.routable = routable
-        self.nat_security_group_id = nat_security_group_id
-        self.nat_instance_id = nat_instance_id
+        :return: None
+        """
+        self.nat_subnet_id = nat_subnet_id
 
 
 class IpPermission(object):
@@ -4353,13 +5014,14 @@ class IpPermission(object):
     FromPort --> ToPort is a range of ports (not a source/destination port)
 
     """
-    def __init__(self, IpProtocol, CidrIp=None, CidrIpv6=None, Description=None, PrefixListId=None, FromPort=None,
-                 ToPort=None):
+    def __init__(self, IpProtocol, CidrIp=None, CidrIpv6=None, Description=None, PrefixListId=None, GroupId=None,
+                 FromPort=None, ToPort=None):
         self.IpProtocol = IpProtocol
         self.CidrIp = CidrIp
         self.CidrIpv6 = CidrIpv6
         self.Description = Description
         self.PrefixListId = PrefixListId
+        self.GroupId = GroupId
         self.FromPort = FromPort
         self.ToPort = ToPort
 
@@ -4375,6 +5037,8 @@ class IpPermission(object):
             out_str += ', CidrIpv6: {c}'.format(c=self.CidrIpv6)
         if self.PrefixListId:
             out_str += ', PrefixListId: {p}'.format(p=self.PrefixListId)
+        if self.GroupId:
+            out_str += ', GroupId: {p}'.format(p=self.GroupId)
         if self.Description:
             out_str += ', Description: {d}'.format(d=self.Description)
         return out_str
@@ -4402,6 +5066,8 @@ class IpPermission(object):
             return self.CidrIpv6 == other.CidrIpv6
         if self.PrefixListId and other.PrefixListId:
             return self.PrefixListId == other.PrefixListId
+        if self.GroupId and other.GroupId:
+            return self.GroupId == other.GroupId
         return False
 
     def get_json(self):
@@ -4437,6 +5103,14 @@ class IpPermission(object):
                 rule['Description'] = self.Description
             json_output['PrefixListIds'].append(rule)
         print(json_output)
+        if self.GroupId:
+            json_output['UserIdGroupPairs'] = []
+            rule = {
+                'GroupId': self.GroupId
+            }
+            if self.Description:
+                rule['Description'] = self.Description
+            json_output['UserIdGroupPairs'].append(rule)
         return json_output
 
 
@@ -4523,12 +5197,14 @@ class IpRoute(object):
             return 'NatGatewayId'
         elif self.target.startswith('lgw-'):
             return 'LocalGatewayId'
+        return None
 
     def get_cidr_type(self):
         if self.cidr:
             return 'DestinationCidrBlock'
         elif self.cidr_ipv6:
             return 'DestinationIpv6CidrBlock'
+        return None
 
 
 class TransitGateway(object):
@@ -4795,7 +5471,7 @@ class TransitGateway(object):
         """Attached a VPC to the transit gateway using the provided subnet IDs
 
         :param vpc_id: (str) ID of the VPC to attach
-        :param subnet_ids: (list) of subnet IDs in the VPC to attach
+        :param subnet_ids: (list) Subnet IDs in the VPC to attach
         :return: (str) Transit gateway attachment ID
         :raises: AwsTransitGatewayError
         """
@@ -4895,7 +5571,7 @@ class TransitGateway(object):
                 break
         if not attachment_id:
             log.info('VPC ID {v} not attached to transit gateway {t}'.format(v=vpc_id, t=self.id))
-            return
+            return None
         log.info('Deleting attachment [{a}] for VPC [{v}] from transit gateway: {t}'.format(
             a=attachment_id, v=vpc_id, t=self.id))
         return self.delete_attachment(attachment_id=attachment_id)
@@ -4917,6 +5593,7 @@ class TransitGateway(object):
             return attachment_id
         else:
             log.info('No attachments found for VPC ID: {v}'.format(v=vpc_id))
+            return None
 
     def create_route_table_for_attachment(self, attachment_id, remove_existing=True, propagation=False):
         """Creates a route table for the specified attachment ID
@@ -4950,7 +5627,6 @@ class TransitGateway(object):
                     attachment_id=attachment_id
                 )
                 self.wait_for_available()
-                route_table_id = None
 
         # If not found, create a new route table
         route_table_id = self.create_transit_gateway_route_table(route_table_name='{n}-rt'.format(n=self.name))
@@ -5034,7 +5710,7 @@ class TransitGateway(object):
         return response['TransitGatewayRouteTable']
 
     def associate_route_table_to_attachment(self, route_table_id, attachment_id):
-        """Associates the route table ID to the transit gateway attachment
+        """Associates the route table ID with the transit gateway attachment
 
         :param route_table_id: (str) route table ID
         :param attachment_id: (str) attachment ID
@@ -5116,10 +5792,11 @@ class TransitGateway(object):
         attachment_id = self.get_attachment_for_vpc(vpc_id=vpc_id)
         if not attachment_id:
             log.info('No attachment found for VPC: {v}'.format(v=vpc_id))
-            return
+            return None
         for association in self.associations:
             if attachment_id == association['TransitGatewayAttachmentId']:
                 return association['TransitGatewayRouteTableId']
+        return None
 
     def enable_propagation(self, route_table_id, attachment_id):
         """Enables the route propagation for the provided route table ID and attachment ID
@@ -5697,7 +6374,7 @@ def get_rhui3_server_permissions(regions):
 
 
 def get_permissions_for_hostnames(hostname_list, protocol='-1', from_port=None, to_port=None):
-    """Get a list of IP permissions from hostname list
+    """Get a list of IP permissions from the provided list of hostnames
 
     :param hostname_list: (str) list of hostnames
     :param protocol: (str) Set to the desired protocol, -1 for any, tcp, udp
@@ -5737,7 +6414,6 @@ def merge_permissions_by_description(primary_permission_list, merge_permission_l
     :param merge_permission_list: (list) IPPermission objects
     :return: (list) IPPermission objects
     """
-    log = logging.getLogger(mod_logger + '.merge_permissions_by_description')
     merged_permission_list = []
 
     # Loop on the primary permission list
@@ -5987,13 +6663,13 @@ def get_aws_service_ips(regions=None, ipv6=False, include_amazon_service=True, i
 # Method for retrieving AWS Red Hat Update Server RHUI IP addresses
 ############################################################################
 
-def get_aws_rhui_ips(regions=None, version=3):
+def get_aws_rhui_ips(regions=None, version=1):
     """Returns the list of Red Hat RHUI3 IP addresses
 
     Note: GovCloud uses the US-based servers
 
     :param regions: (list) region IDs to include in the results (e.g. [us-gov-west-1, us-gov-east-1])
-    :param version: (int) version number of the RHUI (e.g. 1, 2, or 3)
+    :param version: (int) version number of the RHUI (e.g., 1, 2, or 3)
     :return: (list) of IP addresses
     """
     log = logging.getLogger(mod_logger + '.get_aws_rhui_ips')
@@ -6016,8 +6692,8 @@ def get_aws_rhui_ips(regions=None, version=3):
             v=str(version), s=','.join(map(str, supported_rhui_versions))))
         return rhui_ips
 
-    # Get the list of regions
-    # If using a gov region, all of the US-based commercial servers are included in the list
+    # Get a list of AWS regions to query
+    # If using a gov region, all the US-based commercial servers are included in the list
     if not regions:
         regions = global_regions
     else:
@@ -6842,3 +7518,282 @@ def get_host_capacity_for_instance_type(client, host_id, instance_type):
             return available_capacity
     log.info('Available capacity not found for instance type [{t}] on host: {h}'.format(t=instance_type, h=host_id))
     return 0
+
+############################################################################
+# Methods for general networking
+############################################################################
+
+def get_additional_net_egress_ip_permissions():
+    """Return a list of IPPermission objects to represent an additional network's internal egress rules
+
+    :return: (list) of IpPermission objects
+    :raises: EC2UtilError
+    """
+
+    # List of ingress rules, add default rule to allow traffic from the internal cons3rt-net CIDR
+    sg_egress_rules = [
+        IpPermission(IpProtocol='-1', CidrIp='0.0.0.0/0', Description='Allow all out')
+    ]
+    return sg_egress_rules
+
+
+def get_additional_net_ingress_ip_permissions(internal_security_group_ids):
+    """Return a list of IPPermission objects to represent an additional network's internal ingress rules
+
+    NOTE - The input should exclude NAT security groups
+
+    :param internal_security_group_ids: (list) of internal security group IDs
+    :return: (list) of IpPermission objects
+    :raises: EC2UtilError
+    """
+
+    sg_ingress_rules = []
+
+    # Add a rule to allow all traffic from each of the internal security group IDs
+    for internal_security_group_id in internal_security_group_ids:
+        sg_ingress_rules.append(
+            IpPermission(IpProtocol='-1', GroupId=internal_security_group_id,
+                         Description='Allow traffic from an internal additional non-cons3rt network'),
+        )
+    return sg_ingress_rules
+
+
+def get_additional_net_nat_egress_ip_permissions(cons3rt_infra):
+    """Return a list of IPPermission objects to represent a typical egress for a routable additional network
+
+    :param cons3rt_infra: (Cons3rtInfra) object describing a CONS3RT infrastructure
+    :return: (list) of IpPermission objects
+    :raises: EC2UtilError
+    """
+
+    # Add the base egress rules DNS, NTP, CONS3RT Infra, Remote Access to internal, and Elastic
+    nat_sg_egress_rules = [
+        IpPermission(IpProtocol='tcp', FromPort=53, ToPort=53, CidrIp='0.0.0.0/0',
+                     Description='Allow DNS TCP traffic out'),
+        IpPermission(IpProtocol='udp', FromPort=53, ToPort=53, CidrIp='0.0.0.0/0',
+                     Description='Allow DNS UDP traffic out'),
+        IpPermission(IpProtocol='tcp', FromPort=80, ToPort=80, CidrIp='0.0.0.0/0',
+                     Description='Allow HTTP traffic out'),
+        IpPermission(IpProtocol='tcp', FromPort=123, ToPort=123, CidrIp='0.0.0.0/0',
+                     Description='Allow NTP TCP traffic out'),
+        IpPermission(IpProtocol='udp', FromPort=123, ToPort=123, CidrIp='0.0.0.0/0',
+                     Description='Allow NTP UDP traffic out'),
+        IpPermission(IpProtocol='tcp', FromPort=443, ToPort=443, CidrIp='0.0.0.0/0',
+                     Description='Allow HTTPS traffic out'),
+        IpPermission(IpProtocol='tcp', FromPort=8443, ToPort=8443, CidrIp='0.0.0.0/0',
+                     Description='Allow TCP/8443 traffic out'),
+        IpPermission(IpProtocol='tcp', FromPort=cons3rt_infra.elastic_logging_port,
+                     ToPort=cons3rt_infra.elastic_logging_port,
+                     CidrIp=cons3rt_infra.elastic_logging_ip + '/32',
+                     Description='Allow logging traffic to Elastic/Kibana'),
+    ]
+    return nat_sg_egress_rules
+
+
+def get_additional_net_nat_ingress_ip_permissions(internal_security_group_id):
+    """Return a list of IPPermission objects to represent an additional network's NAT ingress rules
+
+    :param internal_security_group_id: (str) internal security group ID for the network
+    :return: (list) of IpPermission objects
+    :raises: EC2UtilError
+    """
+
+    nat_sg_ingress_rules = [
+        IpPermission(
+            IpProtocol='-1',
+            GroupId=internal_security_group_id,
+            Description='Allow traffic from the internal additional network security group')
+    ]
+
+    # Add a rule to allow all traffic from the internal security group ID
+    return nat_sg_ingress_rules
+
+
+def get_cons3rt_net_egress_ip_permissions():
+    """Return a list of IPPermission objects to represent cons3rt-net internal egress rules
+
+    :return: (list) of IpPermission objects
+    :raises: EC2UtilError
+    """
+
+    # List of ingress rules, add default rule to allow traffic from the internal cons3rt-net CIDR
+    sg_egress_rules = [
+        IpPermission(IpProtocol='-1', CidrIp='0.0.0.0/0', Description='Allow all out')
+    ]
+    return sg_egress_rules
+
+
+def get_cons3rt_net_ingress_ip_permissions(internal_security_group_id, nat_security_group_id, remote_access_port=9443):
+    """Return a list of IPPermission objects to represent cons3rt-net internal ingress rules
+
+    :param internal_security_group_id: (str) ID of the internal cons3rt-net security group
+    :param nat_security_group_id: (str) ID on the cons3rt-net NAT security group
+    :param remote_access_port: (int) Internal guacd server port
+    :return: (list) of IpPermission objects
+    :raises: EC2UtilError
+    """
+
+    # List of ingress rules, add default rule to allow traffic from the internal cons3rt-net CIDR
+    sg_ingress_rules = [
+        IpPermission(IpProtocol='-1', GroupId=internal_security_group_id,
+                     Description='Allow traffic from the internal cons3rt-net Security Group'),
+        IpPermission(IpProtocol='tcp', FromPort=remote_access_port,
+                     ToPort=remote_access_port,
+                     GroupId=nat_security_group_id,
+                     Description='Allow remote access traffic from the cons3rt-net NAT Security Group')
+    ]
+    return sg_ingress_rules
+
+
+def get_cons3rt_net_nat_egress_ip_permissions(cons3rt_infra, rhui_update_server_ips,
+                                              internal_cons3rt_net_security_group_id,
+                                              nat_cons3rt_net_security_group_id, remote_access_internal_port=9443):
+    """Return a list of IPPermission objects to represent cons3rt-net NAT egress rules
+
+    :param cons3rt_infra: (Cons3rtInfra) object describing a CONS3RT infrastructure
+    :param rhui_update_server_ips: (list) of IP addresses of the Red Hat Update (RHUI) servers
+    :param internal_cons3rt_net_security_group_id: (str) ID of the internal cons3rt-net Security Group
+    :param remote_access_internal_port: (int) Internal port for remote access server
+    :param nat_cons3rt_net_security_group_id: (str) ID of the NAT cons3rt-net Security Group
+    :return: (list) of IpPermission objects
+    :raises: EC2UtilError
+    """
+    # Validate the cons3rt_infra type
+    if not isinstance(cons3rt_infra, Cons3rtInfra):
+        raise EC2UtilError('cons3rt_infra object must be type Cons3rtInfra, found: [{t}]'.format(
+            t=type(cons3rt_infra)))
+
+    # Add the base egress rules DNS, NTP, CONS3RT Infra, Remote Access to internal, and Elastic
+    nat_sg_egress_rules = [
+        IpPermission(IpProtocol='tcp', FromPort=53, ToPort=53, CidrIp='0.0.0.0/0',
+                     Description='Allow DNS TCP traffic out'),
+        IpPermission(IpProtocol='udp', FromPort=53, ToPort=53, CidrIp='0.0.0.0/0',
+                     Description='Allow DNS UDP traffic out'),
+        IpPermission(IpProtocol='tcp', FromPort=123, ToPort=123, CidrIp='0.0.0.0/0',
+                     Description='Allow NTP TCP traffic out'),
+        IpPermission(IpProtocol='udp', FromPort=123, ToPort=123, CidrIp='0.0.0.0/0',
+                     Description='Allow NTP UDP traffic out'),
+        IpPermission(IpProtocol='tcp', FromPort=cons3rt_infra.web_gateway_port, ToPort=cons3rt_infra.web_gateway_port,
+                     CidrIp=cons3rt_infra.web_gateway_ip + '/32',
+                     Description='Allow web-gateway traffic to CONS3RT'),
+        IpPermission(IpProtocol='tcp', FromPort=cons3rt_infra.messaging_port, ToPort=cons3rt_infra.messaging_port,
+                     CidrIp=cons3rt_infra.messaging_inbound_ip + '/32',
+                     Description='Allow messaging traffic to CONS3RT'),
+        IpPermission(IpProtocol='tcp', FromPort=cons3rt_infra.sourcebuilder_port,
+                     ToPort=cons3rt_infra.sourcebuilder_port,
+                     CidrIp=cons3rt_infra.sourcebuilder_inbound_ip + '/32',
+                     Description='Allow gitlab container registry traffic to CONS3RT'),
+        IpPermission(IpProtocol='tcp', FromPort=cons3rt_infra.webdav_port, ToPort=cons3rt_infra.webdav_port,
+                     CidrIp=cons3rt_infra.webdav_inbound_ip + '/32',
+                     Description='Allow cons3rt webdav traffic to CONS3RT'),
+        IpPermission(IpProtocol='tcp', FromPort=cons3rt_infra.assetdb_port, ToPort=cons3rt_infra.assetdb_port,
+                     CidrIp=cons3rt_infra.assetdb_inbound_ip + '/32',
+                     Description='Allow blobstore traffic to CONS3RT'),
+        IpPermission(IpProtocol='tcp', FromPort=cons3rt_infra.elastic_logging_port,
+                     ToPort=cons3rt_infra.elastic_logging_port,
+                     CidrIp=cons3rt_infra.elastic_logging_ip + '/32',
+                     Description='Allow logging traffic to Elastic/Kibana'),
+        IpPermission(IpProtocol='tcp', FromPort=remote_access_internal_port,
+                     ToPort=remote_access_internal_port,
+                     GroupId=internal_cons3rt_net_security_group_id,
+                     Description='Allow remote access traffic to the internal cons3rt-net security group'),
+        IpPermission(IpProtocol='-1', GroupId=nat_cons3rt_net_security_group_id,
+                     Description='Allow traffic to the NAT cons3rt-net security group'),
+    ]
+
+    # Add rules for RHUI Red Hat update servers
+    for rhui_update_server_ip in rhui_update_server_ips:
+        if not validate_ip_address(rhui_update_server_ip):
+            raise EC2UtilError('Invalid RHUI server IP found: [{i}]'.format(i=rhui_update_server_ip))
+        nat_sg_egress_rules.append(
+            IpPermission(IpProtocol='tcp', FromPort=443, ToPort=443,
+                         CidrIp=rhui_update_server_ip + '/32',
+                         Description='Allow traffic to Red Hat Update Server'),
+        )
+    return nat_sg_egress_rules
+
+
+def get_cons3rt_net_nat_ingress_ip_permissions(cons3rt_infra, internal_security_group_id, nat_security_group_id,
+                                               external_remote_access_port=9443):
+    """Return a list of IPPermission objects to represent cons3rt-net NAT ingress rules
+
+    :param cons3rt_infra: (Cons3rtInfra) object describing a CONS3RT infrastructure
+    :param internal_security_group_id: (str) ID of the internal Security Group
+    :param nat_security_group_id: (str) ID of the NAT Security Group
+    :param external_remote_access_port: (int) External port for remote access traffic
+    :return: (list) of IpPermission objects
+    :raises: EC2UtilError
+    """
+
+    # List of ingress rules, add default rule to allow traffic from the internal cons3rt-net CIDR
+    nat_sg_ingress_rules = [
+        IpPermission(IpProtocol='-1', GroupId=internal_security_group_id,
+                     Description='Allow traffic from the internal cons3rt-net Security Group'),
+        IpPermission(IpProtocol='-1', GroupId=nat_security_group_id,
+                     Description='Allow traffic from the NAT cons3rt-net Security Group')
+    ]
+
+    # Build a unique list of IPs to allow remote access traffic from
+    remote_access_ingress_ips = []
+    if cons3rt_infra.cons3rt_outbound_ip not in remote_access_ingress_ips:
+        remote_access_ingress_ips.append(cons3rt_infra.cons3rt_outbound_ip)
+    if cons3rt_infra.venue_outbound_ip not in remote_access_ingress_ips:
+        remote_access_ingress_ips.append(cons3rt_infra.venue_outbound_ip)
+    if cons3rt_infra.web_gateway_ip not in remote_access_ingress_ips:
+        remote_access_ingress_ips.append(cons3rt_infra.web_gateway_ip)
+
+    for remote_access_ingress_ip in remote_access_ingress_ips:
+        nat_sg_ingress_rules.append(
+            IpPermission(IpProtocol='tcp', FromPort=external_remote_access_port,
+                         ToPort=external_remote_access_port,
+                         CidrIp=remote_access_ingress_ip + '/32',
+                         Description='Allow remote access traffic inbound to the RA box')
+        )
+    return nat_sg_ingress_rules
+
+
+def get_remote_access_internal_ip(cons3rt_net_cidr, remote_access_ip_last_octet):
+    """Given a CIDR and remote access last octet, return a list of IPPermission objects to represent
+    cons3rt-net egress rules
+
+    :param cons3rt_net_cidr: (str) CIDR block for the cons3rt-net
+    :param remote_access_ip_last_octet: (str) Last octet for the internal remote access IP address
+    :return: (list) of IpPermission
+    :raises: EC2UtilError
+    """
+
+    # Validate args
+    if not isinstance(cons3rt_net_cidr, str):
+        raise EC2UtilError('Expected string for cons3rt_net_cidr, found: [{t}]'.format(t=type(cons3rt_net_cidr)))
+    if not isinstance(remote_access_ip_last_octet, str):
+        raise EC2UtilError('Expected string for remote_access_ip_last_octet, found: [{t}]'.format(
+            t=type(remote_access_ip_last_octet)))
+
+    # Split the CIDR by the /
+    remote_access_cidr_base_parts = cons3rt_net_cidr.split('/')
+    if len(remote_access_cidr_base_parts) != 2:
+        raise EC2UtilError('Invalid cons3rt-net CIDR provided, unable to split on /, '
+                           'expected format x.x.x.x/y: {s}'.format(s=cons3rt_net_cidr))
+    remote_access_cidr_base = remote_access_cidr_base_parts[0]
+
+    # Ensure the CIDR base is valid
+    if not validate_ip_address(remote_access_cidr_base):
+        raise EC2UtilError('Invalid cons3rt-net CIDR provided, CIDR base expected format x.x.x.x: {s}'.format(
+            s=remote_access_cidr_base))
+
+    # Split the IP octets
+    octets = remote_access_cidr_base.split('.')
+    if len(octets) != 4:
+        raise EC2UtilError('Invalid cons3rt-net CIDR provided, unable to split on ., '
+                           'expected format x.x.x.x/y: {s}'.format(s=cons3rt_net_cidr))
+
+    # Build the remote access internal IP address string
+    remote_access_internal_ip = octets[0] + '.'
+    remote_access_internal_ip += octets[1] + '.'
+    remote_access_internal_ip += octets[2] + '.'
+    remote_access_internal_ip += remote_access_ip_last_octet
+
+    if not validate_ip_address(remote_access_internal_ip):
+        raise EC2UtilError('Invalid remote access internal IP address found: [{i}]'.format(
+            i=remote_access_internal_ip))
+    return remote_access_internal_ip
