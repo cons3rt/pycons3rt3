@@ -19,6 +19,11 @@ from .exceptions import Cons3rtClientError
 # Set up logger name for this module
 mod_logger = Logify.get_name() + '.httpclient'
 
+# Default timeout values
+default_connect_timeout = 27.05
+default_read_timeout = 99
+default_read_timeout_asset_downloads = 900
+
 
 class Client:
 
@@ -109,10 +114,13 @@ class Client:
             raise
         return response
 
-    def http_get_download(self, rest_user, target):
+    def http_get_download(self, rest_user, target, connect_timeout=default_connect_timeout,
+                          read_timeout=default_read_timeout_asset_downloads):
         """Runs an HTTP GET request to the CONS3RT ReST API
 
         :param rest_user: (RestUser) user info
+        :param connect_timeout: (float) seconds to wait for the connection to succeed, should be > multiple of 3
+        :param read_timeout: (int) seconds to wait in between bytes received, 99.9% it's the 1st byte
         :param target: (str) URL
         :return: http response
         """
@@ -129,12 +137,14 @@ class Client:
 
         try:
             response = http_get_with_retries(url=url, headers=headers, client_cert_path=rest_user.cert_file_path,
-                                             cert_bundle_path=rest_user.cert_bundle)
+                                             cert_bundle_path=rest_user.cert_bundle, connect_timeout=connect_timeout,
+                                             read_timeout=read_timeout)
         except Cons3rtClientError:
             raise
         return response
 
-    def http_delete(self, rest_user, target, content=None, keep_alive=False, connect_timeout=27.05, read_timeout=99):
+    def http_delete(self, rest_user, target, content=None, keep_alive=False, connect_timeout=default_connect_timeout,
+                    read_timeout=default_read_timeout):
         """Runs an HTTP DELETE request to the CONS3RT ReST API
 
         :param rest_user: (RestUser) user info
@@ -187,7 +197,7 @@ class Client:
             time.sleep(self.retry_time_sec)
 
     def http_post(self, rest_user, target, content_data=None, content_file=None, content_type='application/json',
-                  connect_timeout=27.05, read_timeout=99):
+                  connect_timeout=default_connect_timeout, read_timeout=default_read_timeout):
         """Makes an HTTP Post to the requested URL
 
         :param rest_user: (RestUser) user info
@@ -256,7 +266,7 @@ class Client:
             time.sleep(self.retry_time_sec)
 
     def http_put(self, rest_user, target, content_data=None, content_file=None, content_type='application/json',
-                 connect_timeout=27.05, read_timeout=99):
+                 connect_timeout=default_connect_timeout, read_timeout=default_read_timeout):
         """Makes an HTTP Post to the requested URL
 
         :param rest_user: (RestUser) user info
@@ -319,7 +329,8 @@ class Client:
             attempt_num += 1
             time.sleep(self.retry_time_sec)
 
-    def http_multipart(self, method, rest_user, target, content_file, connect_timeout=27.05, read_timeout=99):
+    def http_multipart(self, method, rest_user, target, content_file, connect_timeout=default_connect_timeout,
+                       read_timeout=default_read_timeout):
         """Makes an HTTP Multipart request to upload a file
 
         :param method: (str) PUT or POST
@@ -487,7 +498,8 @@ class Client:
         log.debug('Parsing response...')
         return parse_response(response=response)
 
-    def http_download(self, rest_user, target, download_file, overwrite=True, suppress_status=True):
+    def http_download(self, rest_user, target, download_file, overwrite=True, suppress_status=True,
+                      connect_timeout=default_connect_timeout, read_timeout=default_read_timeout_asset_downloads):
         """Runs an HTTP GET request to the CONS3RT ReST API
 
         :param rest_user: (RestUser) user info
@@ -495,6 +507,8 @@ class Client:
         :param download_file (str) destination file path
         :param overwrite (bool) set True to overwrite the existing file
         :param suppress_status: (bool) Set to True to suppress printing download status
+        :param connect_timeout: (float) seconds to wait for the connection to succeed, should be > multiple of 3
+        :param read_timeout: (int) seconds to wait in between bytes received, 99.9% it's the 1st byte
         :return: (str) path to the downloaded file
         """
         log = logging.getLogger(self.cls_logger + '.http_download')
@@ -517,7 +531,8 @@ class Client:
 
             log.info('Attempt # {n} of {m} to query target URL: {u}'.format(n=try_num, m=max_retries, u=target))
             try:
-                response = self.http_get_download(rest_user=rest_user, target=target)
+                response = self.http_get_download(rest_user=rest_user, target=target, connect_timeout=connect_timeout,
+                                                  read_timeout=read_timeout)
             except Cons3rtClientError as exc:
                 msg = 'There was a problem querying target with GET: {u}'.format(u=target)
                 raise Cons3rtClientError(msg) from exc
@@ -595,8 +610,8 @@ def get_content(content_file=None, content_data=None):
 
 
 def http_download(url, download_file, headers=None, basic_auth=None, client_cert_path=None, cert_bundle_path=None,
-                  max_retry_attempts=10, retry_time_sec=3, connect_timeout=27.05, read_timeout=99,
-                  suppress_status=False):
+                  max_retry_attempts=10, retry_time_sec=3, connect_timeout=default_connect_timeout,
+                  read_timeout=default_read_timeout_asset_downloads, suppress_status=False):
     """Download the file and stream content to the download file location
 
     :param url: (str) URL to query
@@ -658,7 +673,8 @@ def http_download(url, download_file, headers=None, basic_auth=None, client_cert
 
 
 def http_get_with_retries(url, headers=None, basic_auth=None, client_cert_path=None, cert_bundle_path=None,
-                          max_retry_attempts=10, retry_time_sec=3, connect_timeout=27.05, read_timeout=99):
+                          max_retry_attempts=10, retry_time_sec=3, connect_timeout=default_connect_timeout,
+                          read_timeout=default_read_timeout):
     """Run http get request with retries
 
     :param url: (str) URL to query

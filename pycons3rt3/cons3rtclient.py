@@ -2287,13 +2287,16 @@ class Cons3rtClient:
         :raises: Cons3rtClientError
         """
         target = 'assets/{i}/download'.format(i=str(asset_id))
+        read_timeout = 99
         if background:
             target += '?background=true'
         else:
             target += '?background=false'
+            read_timeout = 900
         try:
             asset_zip = self.http_client.http_download(rest_user=self.user, target=target, download_file=download_file,
-                                                       overwrite=overwrite, suppress_status=suppress_status)
+                                                       overwrite=overwrite, suppress_status=suppress_status,
+                                                       read_timeout=read_timeout)
         except Cons3rtClientError as exc:
             msg = 'Problem downloading asset ID: {a}'.format(a=str(asset_id))
             raise Cons3rtClientError(msg) from exc
@@ -2382,7 +2385,7 @@ class Cons3rtClient:
         try:
             rdp_file_path = self.http_client.http_download(rest_user=self.user, target=target,
                                                            download_file=download_file, overwrite=overwrite,
-                                                           suppress_status=suppress_status)
+                                                           suppress_status=suppress_status, read_timeout=99)
         except Cons3rtClientError as exc:
             msg = 'Problem downloading an RDP file for deployment run [{d}] host [{h}]: {e}'.format(
                 d=str(dr_id), h=str(host_id), e=str(exc))
