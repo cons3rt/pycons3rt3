@@ -157,7 +157,7 @@ Update an existing asset in CONS3RT by ID:
 
 Update an asset using asset data, set log level, but specify which site URL, project, and ID to update:
 
-`asset update --asset_dir=/path/to/asset --loglevel=DEBUG --url=app.qa.cons3rt.io --project=jackpine --id=35610`
+`asset update --asset_dir=/path/to/asset --loglevel=DEBUG --url=api.qa.cons3rt.io --project=jackpine --id=35610`
 
 * Uses the asset ID in the asset.yml file
 * Creates an asset zip, and updates the asset ID
@@ -639,6 +639,12 @@ s3organizer sync --bucket 'source-bucket-name' --targetbucket 'target-bucket-nam
 
 # Use --excludelength to exclude files with a file name length of this many chars
 s3organizer sync --bucket 'source-bucket-name' --targetbucket 'target-bucket-name' --excludelength 10
+
+# Delete all keys from a bucket
+s3organizer delete --bucket 'source-bucket-name'
+
+# Sync AND dlete all keys from a bucket - use same options with the `all` command
+s3organizer all --bucket 'source-bucket-name' --targetbucket 'target-bucket-name' --excludelength 10 --organize 'path/to/objects'
 ```
 
 ## Bash (Linux only)
