@@ -234,7 +234,10 @@ class RemoteAccessController(object):
             raise RemoteAccessControllerError(msg)
         self.level = level
         self.config = config
-        self.ids = ids
+        if ids:
+            self.ids = ids
+        else:
+            self.ids = []
         self.load_data = load_data
         self.skip_cloudspace_ids = skip_cloudspace_ids
         self.slack_msg = None
@@ -401,7 +404,7 @@ class RemoteAccessController(object):
                     if 'id' not in site_cloud.keys():
                         log.warning('id not found in cloud: [{d}]'.format(d=str(site_cloud)))
                         continue
-                    self.ids.append(site_cloud.id)
+                    self.ids.append(site_cloud['id'])
 
             # Get the cloudspace IDs for all the cloud IDs
             for cloud_id in self.ids:
