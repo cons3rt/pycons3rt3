@@ -693,6 +693,21 @@ class Cons3rtClient:
         team_details = json.loads(content)
         return team_details
 
+    def get_organization_details(self, org_id, team_id):
+        """Queries CONS3RT for organization details by organization ID
+
+        :param org_id: (int) ID of the organization
+        :param team_id: (int) ID of the team
+        :return: (dict) containing organization details
+        """
+        response = self.http_client.http_get(
+            rest_user=self.user,
+            target='teams/{t}/organizations/{o}'.format(t=str(team_id), o=str(org_id))
+        )
+        content = parse_response(response=response)
+        team_details = json.loads(content)
+        return team_details
+
     def list_services_for_team(self, team_id):
         """Lists the services for a team
 

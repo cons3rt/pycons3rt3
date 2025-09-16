@@ -2,7 +2,7 @@
 0.0.30a0
 ========
 
-* TBD
+* Added cons3rt API call to retrieve organization details 
 
 0.0.29
 ======

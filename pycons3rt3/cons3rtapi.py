@@ -1498,6 +1498,42 @@ class Cons3rtApi(object):
             raise Cons3rtApiError(msg) from exc
         return team_details
 
+    def get_organization_details(self, org_id, team_id):
+        """Returns details for the specified organization ID
+
+        :param (int) org_id: ID of the organization to query
+        :param (int) team_id: ID of the team to query
+        :return: (dict) details for the team ID
+        :raises Cons3rtApiError
+        """
+        log = logging.getLogger(self.cls_logger + '.get_organization_details')
+
+        # Ensure the org_id is an int
+        if not isinstance(org_id, int):
+            try:
+                org_id = int(org_id)
+            except ValueError as exc:
+                msg = 'org_id arg must be an Integer, found: {t}'.format(t=org_id.__class__.__name__)
+                raise Cons3rtApiError(msg) from exc
+
+        # Ensure the team_id is an int
+        if not isinstance(team_id, int):
+            try:
+                team_id = int(team_id)
+            except ValueError as exc:
+                msg = 'team_id arg must be an Integer, found: {t}'.format(t=team_id.__class__.__name__)
+                raise Cons3rtApiError(msg) from exc
+
+        log.debug('Attempting query details for organization ID [{o}] using team ID [{t}]'.format(
+            t=str(team_id), o=str(org_id)))
+        try:
+            org_details = self.cons3rt_client.get_organization_details(org_id=org_id, team_id=team_id)
+        except Cons3rtClientError as exc:
+            msg = 'Unable to query CONS3RT for details on organization ID [{o}], team ID [{t}]'.format(
+                o=str(org_id), t=str(team_id))
+            raise Cons3rtApiError(msg) from exc
+        return org_details
+
     def list_projects_in_team(self, team_id):
         """Returns a list of project IDs
 
