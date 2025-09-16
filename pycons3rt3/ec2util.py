@@ -4957,13 +4957,24 @@ class Cons3rtNetwork(object):
         ec2.set_instance_source_dest_check(instance_id=self.nat_instance_id, source_dest_check=False)
         log.info('Set NAT instance ID [{i}] source/destination check to disabled'.format(i=self.nat_instance_id))
 
-        # Assign the elastic IP to the instance if specified
+        # Assign the elastic IP to the instance if specified, otherwise allocate a new elastic IP address
         if self.elastic_ip_address:
             self.allocation_id = ec2.get_elastic_ip_allocation_id(self.elastic_ip_address)
-            ec2.associate_elastic_ip_to_instance_id(
-                allocation_id=self.allocation_id,
-                instance_id=self.nat_instance_id
-            )
+        else:
+            eip_info = ec2.allocate_elastic_ip()
+            # {'AllocationId': allocation_id, 'PublicIp': public_ip}
+            if 'AllocationId' not in eip_info.keys():
+                raise EC2UtilError('Elastic IP AllocationId not found to attach to the NAT instance')
+            if 'PublicIp' not in eip_info.keys():
+                raise EC2UtilError('Elastic IP PublicIp not found to attach to the NAT instance')
+            self.elastic_ip_address = eip_info['PublicIp']
+            self.allocation_id = eip_info['AllocationId']
+
+        # Associate the elastic IP to the NAT
+        ec2.associate_elastic_ip_to_instance_id(
+            allocation_id=self.allocation_id,
+            instance_id=self.nat_instance_id
+        )
         return self.nat_instance_id
 
     def revoke_security_group_rules(self, ec2):

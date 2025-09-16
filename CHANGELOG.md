@@ -2,7 +2,9 @@
 0.0.30a0
 ========
 
-* Added cons3rt API call to retrieve organization details 
+* Added cons3rt API call to retrieve organization details
+* Added a sample script to create a cons3rt AWS cloudspace
+* Added the ability to allocate an elastic IP when one is not provided when creating a cloudspace
 
 0.0.29
 ======
