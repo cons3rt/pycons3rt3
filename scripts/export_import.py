@@ -22,11 +22,23 @@ asset_ids = []
 
 # Path to the config.json files for the CONS3RT sites to export and import
 # See the sample-configs directory for sample config files
-export_config_file = '/path/to/conf/config-source.json'
-import_config_file = '/path/to/conf/config-dest.json'
+export_config_file = '/path/to/source/config.json'
+import_config_file = '/path/to/destination/config.json'
 
 # Directory where the assets will be exported to before importing
-export_import_dir = '/path/to/export_import'
+export_import_dir = '/Users/yennaco/Downloads/export_import'
+
+# Visibility override - otherwise the import will attempt to match the export
+valid_visibility = ['OWNER', 'OWNING_PROJECT', 'TRUSTED_PROJECTS', 'COMMUNITY']
+
+# Default NONE to use the exported visibility
+#import_visibility_override = 'NONE'
+
+# Set to a valid visibility to override the exported value
+import_visibility_override = 'OWNING_PROJECT'
+
+# Set a list of trusted project IDs for the import if TRUSTED_PROJECTS
+trusted_project_ids = []
 
 # ################### END EDIT HERE ############################
 
@@ -84,6 +96,9 @@ for asset_id in asset_ids:
     exported_asset_state = exported_asset_data['state']
     exported_asset_visibility = exported_asset_data['visibility']
 
+    print('Found asset state [{s}] for exported asset [{a}]'.format(s=exported_asset_state, a=str(asset_id)))
+    print('Found asset visibility [{v}] for exported asset [{a}]'.format(v=exported_asset_visibility, a=str(asset_id)))
+
     print('Importing asset #[{n}] of [{t}]'.format(n=str(count), t=str(len(asset_ids))))
 
     # Import the asset
@@ -105,11 +120,15 @@ for asset_id in asset_ids:
     # Set visibility and state to match the exported site if the imported ID is known
     if isinstance(imported_asset_id, int):
 
-        # Set visibility to match the export site
+        # Set visibility either to match the export site or the override
+        if import_visibility_override in valid_visibility:
+            exported_asset_visibility = import_visibility_override
+
         print('Setting visibility to [{v}] for asset ID: [{i}]'.format(
             i=str(imported_asset_id), v=exported_asset_visibility))
         try:
-            importer.update_asset_visibility(asset_id=imported_asset_id, visibility=exported_asset_visibility)
+            importer.update_asset_visibility(asset_id=imported_asset_id, visibility=exported_asset_visibility,
+                                             trusted_projects=trusted_project_ids)
         except Cons3rtApiError as exc:
             fix_visibility.append(imported_asset_id)
             print('Problem setting visibility to [{v}] on new asset ID: {i}'.format(

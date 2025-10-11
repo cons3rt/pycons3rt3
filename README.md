@@ -287,8 +287,8 @@ cons3rt cloudspace template share --provider_id=1 --ids=2,3,4,5,6 --name 'cons3r
 # Share multiple templates from one cloudspace to another
 cons3rt cloudspace template share --provider_id=1 --ids=2,3,4,5,6 --names 'cons3rt-redhat-8,cons3rt-redhat-9'
 
-# Share all templates from one cloudspace to another
-cons3rt cloudspace template share --provider_id=1 --ids=2,3,4,5,6 --all
+# Share all templates from one cloudspace to another and specify the max CPU and RAM in Megabytes
+cons3rt cloudspace template share --provider_id=1 --ids=2,3,4,5,6 --all --cpu 16 --ram 32000 
 
 # Unregister a cloudspace
 cons3rt cloudspace unregister --id 123

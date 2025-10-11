@@ -1088,18 +1088,21 @@ class CloudspaceCli(Cons3rtCli):
             self.err(msg)
             raise Cons3rtCliError(msg)
         max_cpus = self.get_max_cpu()
+        max_ram = self.get_max_ram()
         if self.names:
             self.c5t.share_templates_to_vrs_by_name(
                 provider_vr_id=self.args.provider_id,
                 template_names=self.names,
                 vr_ids=self.ids,
-                max_cpus=max_cpus
+                max_cpus=max_cpus,
+                max_ram_mb=max_ram,
             )
         elif self.args.all:
             self.c5t.share_templates_to_vrs_by_name(
                 provider_vr_id=self.args.provider_id,
                 vr_ids=self.ids,
-                max_cpus=max_cpus
+                max_cpus=max_cpus,
+                max_ram_mb=max_ram
             )
 
     def set_ids_to_all_cloudspaces(self):

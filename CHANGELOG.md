@@ -5,6 +5,8 @@
 * Added cons3rt API call to retrieve organization details
 * Added a sample script to create a cons3rt AWS cloudspace
 * Added the ability to allocate an elastic IP when one is not provided when creating a cloudspace
+* Added a visibility override for the export_import.py sample script
+* Added the --ram option when sharing OS templates via CIL for example,  cons3rt cloudspace template share --ram 16000
 
 0.0.29
 ======
