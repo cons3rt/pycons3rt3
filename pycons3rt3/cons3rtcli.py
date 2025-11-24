@@ -1283,6 +1283,79 @@ class DeploymentCli(Cons3rtCli):
             self.c5t.release_deployment_run(dr_id=active_run_id)
 
 
+class HostCli(Cons3rtCli):
+
+    def __init__(self, args, subcommands):
+        Cons3rtCli.__init__(self, args=args, subcommands=subcommands)
+        self.valid_subcommands = [
+            'off',
+            'on',
+            'rdp',
+            'release',
+            'restore',
+            'snapshot'
+        ]
+
+    def process_subcommands(self):
+        if not self.subcommands:
+            return True
+        if len(self.subcommands) < 1:
+            return True
+        if self.subcommands[0] not in self.valid_subcommands:
+            self.err('Unrecognized command: {c}'.format(c=self.subcommands[0]))
+            return False
+        if self.subcommands[0] == 'cancel':
+            try:
+                self.cancel()
+            except Cons3rtCliError:
+                return False
+        if self.subcommands[0] == 'off':
+            try:
+                self.power_off()
+            except Cons3rtCliError:
+                return False
+        if self.subcommands[0] == 'on':
+            try:
+                self.power_on()
+            except Cons3rtCliError:
+                return False
+        if self.subcommands[0] == 'release':
+            try:
+                self.cancel()
+            except Cons3rtCliError:
+                return False
+        if self.subcommands[0] == 'rdp':
+            try:
+                self.download_rdp()
+            except Cons3rtCliError:
+                return False
+        if self.subcommands[0] == 'restore':
+            try:
+                self.restore()
+            except Cons3rtCliError:
+                return False
+        if self.subcommands[0] == 'snapshot':
+            try:
+                self.snapshot()
+            except Cons3rtCliError:
+                return False
+        return True
+
+    def cancel(self):
+        unlock = False
+        if self.args.unlock:
+            unlock = True
+        for run_id in self.ids:
+            self.c5t.release_deployment_run(dr_id=run_id, unlock=unlock)
+            print('Attempted to cancel deployment run: {r}'.format(r=str(run_id)))
+
+    def delete(self):
+        results = []
+        for run_id in self.ids:
+            results += self.c5t.delete_run_snapshots(dr_id=run_id)
+        self.print_host_action_results(results=results)
+
+
 class ProjectCli(Cons3rtCli):
 
     def __init__(self, args, subcommands):

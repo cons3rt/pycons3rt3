@@ -7,6 +7,7 @@
 * Added the ability to allocate an elastic IP when one is not provided when creating a cloudspace
 * Added a visibility override for the export_import.py sample script
 * Added the --ram option when sharing OS templates via CIL for example,  cons3rt cloudspace template share --ram 16000
+* Added the azurecomputeutil module with some methods for querying azure VM images
 
 0.0.29
 ======

@@ -184,3 +184,12 @@ class S3UtilError(Exception):
 
 class StsUtilError(Exception):
     """There was a problem with an AWS STS operation"""
+
+
+"""
+Azure API exceptions
+"""
+
+
+class AzAPIError(Exception):
+    """Simple exception type for Azure API errors"""

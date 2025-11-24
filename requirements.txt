@@ -1,3 +1,6 @@
+azure-identity
+azure-mgmt-compute
+azure-mgmt-resource
 boto3
 botocore
 cryptography>=42.0.5
