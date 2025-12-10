@@ -7,7 +7,7 @@ Compute API.
 import logging
 import os
 
-from azure.identity import AzureAuthorityHosts, DefaultAzureCredential
+from azure.identity import AzureAuthorityHosts, AzureCliCredential, DefaultAzureCredential
 from azure.mgmt.compute import ComputeManagementClient
 from azure.mgmt.resource import SubscriptionClient
 
@@ -21,6 +21,149 @@ __author__ = 'Joe Yennaco'
 mod_logger = Logify.get_name() + '.azcomputeutil'
 
 
+class AzureEnvironment:
+    """
+    Singleton class representing the Azure environment configuration.
+    Only one instance may ever exist.
+    """
+    _instance = None
+    _initialized = False
+
+    def __new__(cls, *args, **kwargs):
+        if cls._instance is None:
+            cls._instance = super(AzureEnvironment, cls).__new__(cls)
+        return cls._instance
+
+    def __init__(self, authority_host=None, management_endpoint=None):
+        # Prevent re-initialization when __init__ is called again on the singleton
+        if AzureEnvironment._initialized:
+            print('Loaded: ' + self.__repr__())
+            return
+
+        self.cls_logger = mod_logger + '.AzureEnvironment'
+        self.authority_host = authority_host
+        self.management_endpoint = management_endpoint
+        self.__initialize__()
+
+        AzureEnvironment._initialized = True
+
+    def __repr__(self):
+        return (
+            f"AzureEnvironment(authority_host={self.authority_host!r}, "
+            f"management_endpoint={self.management_endpoint!r})"
+        )
+    
+    def __initialize__(self):
+        """Given the azure cloud/environment, return the auth authority and management endpoint
+
+        :return: (tuple) AzureAuthorityHost, string endpoint URL
+        :raises: OSError
+        """
+        log = logging.getLogger(self.cls_logger + '.__initialize__')
+
+        if self.authority_host and self.management_endpoint:
+            log.info('AzureEnvironment already initialized with authority_host and management_endpoint.')
+            return
+
+        # Info for configuring Azure Environment based on the AZURE_AUTHORITY_HOST
+        # environment variable.  Only contains supported regions.
+        az_authority_host_endpoint_map = {
+            AzureAuthorityHosts.AZURE_PUBLIC_CLOUD: 'https://management.azure.com/',
+            AzureAuthorityHosts.AZURE_GOVERNMENT: 'https://management.usgovcloudapi.net'
+        }
+
+        # Map the AZURE_ENVIRONMENT to AZURE_AUTHORITY_HOST endpoint
+        # AZURE_PUBLIC_CLOUD, AZURE_CHINA_CLOUD, AZURE_US_GOVERNMENT
+        az_environment_authority_host_map = {
+            'AZURE_PUBLIC_CLOUD': AzureAuthorityHosts.AZURE_PUBLIC_CLOUD,
+            'AZURE_US_GOVERNMENT': AzureAuthorityHosts.AZURE_GOVERNMENT,
+            'AzurePublic': AzureAuthorityHosts.AZURE_PUBLIC_CLOUD,
+            'AzureUSGovernment': AzureAuthorityHosts.AZURE_GOVERNMENT
+        }
+
+        # Check for the AZURE_AUTHORITY_HOST and AZURE_ENVIRONMENT environment variables
+        az_auth_host = os.environ.get('AZURE_AUTHORITY_HOST')
+        az_environment = os.environ.get('AZURE_ENVIRONMENT')
+
+        if az_auth_host:
+            if az_auth_host not in az_authority_host_endpoint_map.keys():
+                msg = 'Invalid AZURE_AUTHORITY_HOST environment variable, must be '
+                msg += 'one of: [{v}]'.format(v=','.join(az_authority_host_endpoint_map.keys()))
+                raise OSError(msg)
+            if AzureAuthorityHosts.AZURE_PUBLIC_CLOUD in az_auth_host:
+                az_auth_host = AzureAuthorityHosts.AZURE_PUBLIC_CLOUD
+            elif AzureAuthorityHosts.AZURE_GOVERNMENT in az_auth_host:
+                az_auth_host = AzureAuthorityHosts.AZURE_GOVERNMENT
+            log.info('Loaded AZURE_AUTHORITY_HOST: [{e}]'.format(e=az_auth_host))
+        elif az_environment:
+            # AZURE_AUTHORITY_HOST is not set, check for the AZURE_ENVIRONMENT environment variable
+            if az_environment not in az_environment_authority_host_map.keys():
+                msg = 'Invalid AZURE_ENVIRONMENT environment variable, must be '
+                msg += 'one of: [{v}]'.format(v=','.join(az_environment_authority_host_map.keys()))
+                raise OSError(msg)
+            log.info('Loaded AZURE_ENVIRONMENT: [{e}]'.format(e=az_environment))
+            az_auth_host = az_environment_authority_host_map[az_environment]
+            log.info('Using AZURE_AUTHORITY_HOST: [{e}]'.format(e=az_auth_host))
+        else:
+            # Ask the user
+            az_env_options = {
+                '1': AzureAuthorityHosts.AZURE_PUBLIC_CLOUD,
+                '2': AzureAuthorityHosts.AZURE_GOVERNMENT
+            }
+
+            print('Select the Azure Environment:')
+            print('\t1) Azure Public Cloud')
+            print('\t2) Azure US Government')
+
+            while True:
+                selection = input('Enter selection [1-2]: ')
+                if selection in az_env_options.keys():
+                    az_auth_host = az_env_options[selection]
+                    log.info('User selected Azure environment: [{e}]'.format(e=az_auth_host))
+                    break
+                else:
+                    print('Invalid selection, please try again.')
+        
+        # Get the endpoint for the authority host
+        endpoint = az_authority_host_endpoint_map[az_auth_host]
+        log.info('Loaded auth host [{h}] and endpoint [{e}]'.format(h=az_auth_host, e=endpoint))
+        
+        # Return the environment based on the configured environment vars
+        self.authority_host = az_auth_host
+        self.management_endpoint = endpoint
+    
+    def get_scopes(self):
+        """Get the scopes for the Azure environment
+
+        :return: (list) of scopes
+        :raises: OSError
+        """
+        log = logging.getLogger(self.cls_logger + '.get_scopes')
+
+        # The scope is the management endpoint with '/.default' appended
+        scope = self.management_endpoint.rstrip('/') + '/.default'
+        log.info('Using scope: [{s}]'.format(s=scope))
+        return [scope]
+    
+    def get_subscription_from_env(self):
+        """Get subscription ID from environment variable
+
+        :return: (str) subscription ID
+        :raises: OSError
+        """
+        log = logging.getLogger(self.cls_logger + '.get_subscription_from_env')
+
+        # Get the Azure subscription ID if set
+        subscription_id = os.environ.get("AZURE_SUBSCRIPTION_ID")
+
+        # Ensure the subscription ID was provided
+        if subscription_id:
+            log.info('Loaded AZURE_SUBSCRIPTION_ID: [{s}]'.format(s=subscription_id))
+        else:
+            log.info('AZURE_SUBSCRIPTION_ID environment variable is not set.')
+        return subscription_id
+
+
 def connect():
     """Connect to the Azure compute API using default credentials scheme
 
@@ -30,10 +173,10 @@ def connect():
     log = logging.getLogger(mod_logger + '.connect')
 
     # Get the Azure environment
-    az_auth_host, az_management_endpoint = get_azure_environment()
+    az_env = AzureEnvironment()
 
     # Get the Azure subscription ID if set
-    subscription_id = os.environ.get("AZURE_SUBSCRIPTION_ID")
+    subscription_id = az_env.get_subscription_from_env()
 
     # Ensure the subscription ID was provided
     if not subscription_id:
@@ -41,66 +184,18 @@ def connect():
     log.info('Loaded AZURE_SUBSCRIPTION_ID: [{s}]'.format(s=subscription_id))
 
     # Use DefaultAzureCredential to authenticate
-    credential = DefaultAzureCredential(authority=az_auth_host)
+    credential = DefaultAzureCredential(authority=az_env.authority_host)
 
     # Initialize the Compute Management client
+    log.info('Connecting to Azure Compute API AZ auth host [{h}] at endpoint [{e}] and subscription ID [{s}]...'.format(
+        h=az_env.authority_host, e=az_env.management_endpoint, s=subscription_id))
     compute_client = ComputeManagementClient(
         credential, 
         subscription_id,
-        base_url=az_management_endpoint
+        base_url=az_env.management_endpoint,
+        credential_scopes=az_env.get_scopes(),
     )
     return compute_client
-
-
-def get_azure_environment():
-    """Given the azure cloud/environment, return the auth authority and management endpoint
-
-    :return: (tuple) AzureAuthorityHost, string endpoint URL
-    :raises: OSError
-    """
-    log = logging.getLogger(mod_logger + '.get_azure_environment')
-
-    # Info for configuring Azure Environment based on the AZURE_AUTHORITY_HOST
-    # environment variable.  Only cointains supported regions.
-    az_authority_host_endpoint_map = {
-        AzureAuthorityHosts.AZURE_PUBLIC_CLOUD: 'https://management.azure.com/',
-        AzureAuthorityHosts.AZURE_GOVERNMENT: 'https://management.usgovcloudapi.net'
-    }
-
-    # Map the AZURE_ENVIRONMENT to AZURE_AUTHORITY_HOST endpoint
-    # AZURE_PUBLIC_CLOUD, AZURE_CHINA_CLOUD, AZURE_US_GOVERNMEN
-    az_environment_authority_host_map = {
-        'AZURE_PUBLIC_CLOUD': AzureAuthorityHosts.AZURE_PUBLIC_CLOUD,
-        'AZURE_US_GOVERNMENT': AzureAuthorityHosts.AZURE_GOVERNMENT
-    }
-
-    # Check for the AZURE_ENVIRONMENT/AZURE_CLOUD environment variables (these are interchangable)
-    az_environment = os.environ.get('AZURE_ENVIRONMENT')
-    if not az_environment:
-        az_environment = os.environ.get('AZURE_CLOUD')
-    if az_environment:
-        if az_environment not in az_environment_authority_host_map.keys():
-            raise OSError('Invalid AZURE_ENVIRONMENT or AZURE_CLOUD environment variable, must be' \
-            'one of: [{v}]'.format(v=','.join(az_environment_authority_host_map.keys())))
-        log.info('Loaded AZURE_ENVIRONMENT/AZURE_CLOUD: [{e}]'.format(e=az_environment))
-
-    # Check for the AZURE_AUTHORITY_HOST environment variable
-    az_auth_host = os.environ.get('AZURE_AUTHORITY_HOST')
-    if az_auth_host:
-        if az_environment not in az_environment_authority_host_map.keys():
-            raise OSError('Invalid AZURE_ENVIRONMENT or AZURE_CLOUD environment variable, must be' \
-            'one of: [{v}]'.format(v=','.join(az_environment_authority_host_map.keys())))
-        log.info('Loaded AZURE_AUTHORITY_HOST: [{e}]'.format(e=az_auth_host))
-    
-    # Return the environment based on the configured environment vars
-    if az_auth_host:
-        return az_auth_host, az_authority_host_endpoint_map[az_auth_host]
-    elif az_environment:
-        az_auth_host = az_environment_authority_host_map[az_environment]
-        return az_auth_host, az_authority_host_endpoint_map[az_auth_host]
-    else:
-        raise OSError('One of these environment variables must be set: AZURE_CLOUD, AZURE_ENVIRONMENT, ' \
-        'or AZURE_AUTHORITY_HOST')
 
 
 def get_image_details(compute_client, location, publisher, offer, sku, version):
@@ -186,17 +281,19 @@ def get_images(compute_client, location, publisher, offer, sku):
 
 
 def get_subscription_locations():
-    """Get subcription locations
+    """Get subscription locations
 
     :return: (list) of location strings
     """
     log = logging.getLogger(mod_logger + '.get_subscription_locations')
 
+    log.info('Getting subscription available locations...')
+
     # Get the Azure environment
-    az_auth_host, _ = get_azure_environment()
+    az_env = AzureEnvironment()
 
     # Get the Azure subscription ID if set
-    subscription_id = os.environ.get("AZURE_SUBSCRIPTION_ID")
+    subscription_id = az_env.get_subscription_from_env()
 
     # Ensure the subscription ID was provided
     if not subscription_id:
@@ -204,10 +301,14 @@ def get_subscription_locations():
     log.info('Loaded AZURE_SUBSCRIPTION_ID: [{s}]'.format(s=subscription_id))
 
     # Use DefaultAzureCredential to authenticate
-    credential = DefaultAzureCredential(authority=az_auth_host)
+    credential = DefaultAzureCredential(authority=az_env.authority_host)
     
     # Initialize the subscription client
-    subscription_client = SubscriptionClient(credential)
+    subscription_client = SubscriptionClient(
+        credential,
+        base_url=az_env.management_endpoint,
+        credential_scopes=az_env.get_scopes(),
+    )
 
     # List all locations for the subscription
     locations = subscription_client.subscriptions.list_locations(subscription_id)
