@@ -2211,7 +2211,7 @@ class RunCli(Cons3rtCli):
     
     def power(self):
         if len(self.subcommands) > 1:
-            run_power_subcommand = self.subcommands[2]
+            run_power_subcommand = self.subcommands[1]
             if run_power_subcommand == 'off':
                 self.power_off()
                 return
@@ -2251,7 +2251,7 @@ class RunCli(Cons3rtCli):
     
     def snapshot(self):
         if len(self.subcommands) > 1:
-            run_snapshot_subcommand = self.subcommands[2]
+            run_snapshot_subcommand = self.subcommands[1]
             if run_snapshot_subcommand == 'create':
                 self.create_snapshots()
                 return
