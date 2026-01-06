@@ -94,7 +94,11 @@ class AliasImportError(Exception):
 
 
 class Cons3rtSlackerError(Exception):
-    """There was a problem with a slack operation"""
+    """There was a problem with a Slack operation"""
+
+
+class Cons3rtTeamsError(Exception):
+    """There was a problem with a Teams operation"""
 
 
 class SshConfigError(Exception):

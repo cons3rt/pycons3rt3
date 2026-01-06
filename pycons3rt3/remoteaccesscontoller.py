@@ -81,8 +81,9 @@ valid_levels_str = ','.join(valid_levels)
 valid_actions = ['enable', 'disable', 'lock', 'print', 'toggle', 'unlock']
 valid_actions_str = ','.join(valid_actions)
 
-# Default time between enabling/disabling remote access for a cloudspace
-default_cloudspace_wait_time_sec = 180
+# Default time between enabling/toggling remote access for a cloudspace
+default_cloudspace_enable_wait_time_sec = 180
+default_cloudspace_disable_wait_time_sec = 5
 
 
 class RemoteAccessControllerError(Exception):
@@ -227,7 +228,7 @@ class EnabledRemoteAccess(object):
 class RemoteAccessController(object):
 
     def __init__(self, level, config=None, ids=None, slack_channel=None, slack_url=None, unlock=False, load_data=False,
-                 skip_cloudspace_ids=None, delay_sec=None, ra_port=9443, ra_ip='172.16.10.253', rdp_proxy=True):
+                 skip_cloudspace_ids=None, ra_port=9443, ra_ip='172.16.10.253', rdp_proxy=True):
         self.cls_logger = mod_logger + '.RemoteAccessController'
         if level not in valid_levels:
             msg = 'Invalid level [{z}], must be: {c}'.format(z=level, c=valid_levels_str)
@@ -252,10 +253,6 @@ class RemoteAccessController(object):
         self.ra_ip = ra_ip
         self.rdp_proxy = rdp_proxy
 
-        # Determine the wait time
-        if not delay_sec:
-            self.cloudspace_wait_time_sec = default_cloudspace_wait_time_sec
-
         # Create a Cons3rtApi
         try:
             self.c5t = Cons3rtApi(config_file=self.config)
@@ -276,13 +273,18 @@ class RemoteAccessController(object):
         with open(out_file, 'a') as f:
             f.write(str(ra_run_data) + '\n')
 
-    def disable_remote_access(self):
+    def disable_remote_access(self, delay_sec=None):
         """Disables remote access for all enabled cloudspaces found, does not unlock
 
+        :param delay_sec: (int) Number of seconds in between each action
         :return: None
         :raises: RemoteAccessControllerError
         """
         log = logging.getLogger(self.cls_logger + '.disable_remote_access')
+
+        # Set the delay to the default if not provided
+        if not delay_sec:
+            delay_sec = default_cloudspace_disable_wait_time_sec
 
         for enabled_ra in self.remote_access_run_info:
 
@@ -306,11 +308,11 @@ class RemoteAccessController(object):
                 msg = 'Problem disabling remote access for cloudspace: {i}'.format(i=str(enabled_ra.cloudspace_id))
                 raise RemoteAccessControllerError(msg) from exc
             log.info('Waiting {t} seconds before proceeding to the next cloudspace'.format(
-                t=str(self.cloudspace_wait_time_sec)))
-            time.sleep(self.cloudspace_wait_time_sec)
+                t=str(delay_sec)))
+            time.sleep(delay_sec)
 
     def enable_remote_access(self, instance_type=None, guac_ip_address=None, remote_access_port=None,
-                             rdp_proxy_enabled=True, access_point_ip=None):
+                             rdp_proxy_enabled=True, access_point_ip=None, delay_sec=None):
         """Enables remote access the specified cloudspaces
 
         {
@@ -329,6 +331,10 @@ class RemoteAccessController(object):
         :raises: RemoteAccessControllerError
         """
         log = logging.getLogger(self.cls_logger + '.enable_remote_access')
+
+        # Set the delay to the default if not provided
+        if not delay_sec:
+            delay_sec = default_cloudspace_enable_wait_time_sec
 
         for ra_info in self.remote_access_run_info:
 
@@ -377,9 +383,8 @@ class RemoteAccessController(object):
                 raise RemoteAccessControllerError(msg) from exc
 
             # Wait to proceed on to the next cloudspace
-            log.info('Waiting {t} seconds before proceeding to the next cloudspace'.format(
-                t=str(self.cloudspace_wait_time_sec)))
-            time.sleep(self.cloudspace_wait_time_sec)
+            log.info('Waiting {t} seconds before proceeding to the next cloudspace'.format(t=str(delay_sec)))
+            time.sleep(delay_sec)
 
     def get_cloudspace_data(self):
         """Populates the list with cloud and cloudspace data
@@ -709,6 +714,11 @@ class RemoteAccessController(object):
         """
         log = logging.getLogger(self.cls_logger + '.read_remote_access_run_data_from_file')
 
+        # Ensure the report directory exists
+        if not os.path.isdir(get_report_dir()):
+            log.info('Creating report directory: [{d}]'.format(d=get_report_dir()))
+            os.makedirs(get_report_dir(), exist_ok=True)
+
         if not self.load_data:
             if os.path.isfile(out_file):
                 log.info('--load not specified, removing existing data file')
@@ -810,12 +820,18 @@ class RemoteAccessController(object):
                 log.info('Run lock returned: {b}'.format(b=str(lock_result)))
                 return lock_result
 
-    def toggle_remote_access(self):
+    def toggle_remote_access(self, delay_sec=None):
         """Toggles remote access for cloudspaces where RA is enabled
 
+        :param delay_sec: (int) Number of seconds in between each action
         :return: None
         """
         log = logging.getLogger(self.cls_logger + '.toggle_remote_access')
+
+        # Set the delay to the default if not provided
+        if not delay_sec:
+            delay_sec = default_cloudspace_enable_wait_time_sec
+
         for enabled_ra in self.remote_access_run_info:
             if enabled_ra.cloudspace_id in self.skip_cloudspace_ids:
                 log.info('Skipping cloudspace ID {c}, it is on the skip list'.format(c=str(enabled_ra.cloudspace_id)))
@@ -832,12 +848,13 @@ class RemoteAccessController(object):
                     c=str(enabled_ra.cloudspace_id), n=enabled_ra.cloudspace_name, e=str(exc))
                 raise RemoteAccessControllerError(msg) from exc
             log.info('Waiting {t} seconds before proceeding to the next cloudspace'.format(
-                t=str(self.cloudspace_wait_time_sec)))
-            time.sleep(self.cloudspace_wait_time_sec)
+                t=str(delay_sec)))
+            time.sleep(delay_sec)
 
-    def unlock_and_disable_remote_access(self):
+    def unlock_and_disable_remote_access(self, delay_sec=None):
         """Unlocks and disables remote access for all enabled cloudspaces found
 
+        :param delay_sec: (int) Number of seconds in between each action
         :return: None
         :raises: RemoteAccessControllerError
         """
@@ -845,11 +862,12 @@ class RemoteAccessController(object):
         log.info('Unlocking and disabling remote access at level [{r}] for IDs: [{i}]'.format(
             r=self.level, i=",".join(map(str, self.ids))))
         self.set_remote_access_run_locks(lock=False)
-        self.disable_remote_access()
+        self.disable_remote_access(delay_sec=delay_sec)
 
-    def unlock_and_toggle_remote_access(self):
+    def unlock_and_toggle_remote_access(self, delay_sec=None):
         """Unlocks and toggles remote access for all enabled cloudspaces found
 
+        :param delay_sec: (int) Number of seconds in between each action
         :return: None
         :raises: RemoteAccessControllerError
         """
@@ -857,7 +875,7 @@ class RemoteAccessController(object):
         log.info('Unlocking and toggling remote access at level [{r}] for IDs: [{i}]'.format(
             r=self.level, i=",".join(map(str, self.ids))))
         self.set_remote_access_run_locks(lock=False)
-        self.toggle_remote_access()
+        self.toggle_remote_access(delay_sec=delay_sec)
 
     def write_output_file(self):
         """Dumps the remote access data into a CVS file
@@ -983,8 +1001,7 @@ def main():
     # Create a RemoteAccessController object will the desired settings
     rac = RemoteAccessController(level=command_level, config=config, ids=ids, slack_channel=slack_channel,
                                  slack_url=slack_url, unlock=unlock, load_data=load_data, skip_cloudspace_ids=skip_ids,
-                                 delay_sec=delay_sec, ra_port=remote_access_port, ra_ip=remote_access_ip_address,
-                                 rdp_proxy=rdp_proxy_enabled)
+                                 ra_port=remote_access_port, ra_ip=remote_access_ip_address, rdp_proxy=rdp_proxy_enabled)
 
     rac.read_remote_access_run_data_from_file()
     rac.get_cloudspace_data()
@@ -993,7 +1010,7 @@ def main():
     # Process the provided command_action
     if command_action == 'enable':
         try:
-            rac.enable_remote_access()
+            rac.enable_remote_access(delay_sec=delay_sec)
         except RemoteAccessControllerError as exc:
             print('Problem enabling remote access runs\n{e}'.format(e=str(exc)))
             traceback.print_exc()
@@ -1001,14 +1018,14 @@ def main():
     elif command_action == 'disable':
         if unlock:
             try:
-                rac.unlock_and_disable_remote_access()
+                rac.unlock_and_disable_remote_access(delay_sec=delay_sec)
             except RemoteAccessControllerError as exc:
                 print('Problem unlocking and disabling remote access runs\n{e}'.format(e=str(exc)))
                 traceback.print_exc()
                 return 2
         else:
             try:
-                rac.disable_remote_access()
+                rac.disable_remote_access(delay_sec=delay_sec)
             except RemoteAccessControllerError as exc:
                 print('Problem disabling remote access runs\n{e}'.format(e=str(exc)))
                 traceback.print_exc()
@@ -1025,14 +1042,14 @@ def main():
     elif command_action == 'toggle':
         if unlock:
             try:
-                rac.unlock_and_toggle_remote_access()
+                rac.unlock_and_toggle_remote_access(delay_sec=delay_sec)
             except RemoteAccessControllerError as exc:
                 print('Problem unlocking and toggling remote access runs\n{e}'.format(e=str(exc)))
                 traceback.print_exc()
                 return 2
         else:
             try:
-                rac.toggle_remote_access()
+                rac.toggle_remote_access(delay_sec=delay_sec)
             except RemoteAccessControllerError as exc:
                 print('Problem toggling remote access runs\n{e}'.format(e=str(exc)))
                 traceback.print_exc()

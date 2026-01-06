@@ -7,7 +7,7 @@ This module contains a shared library of classes
 class HostActionResult(object):
 
     def __init__(self, dr_id, dr_name, host_id, host_role, action, request_time, num_disks, storage_gb,
-                 err_msg='None', result='None'):
+                 snapshot_storage_gb=0, gpu_profile='None', gpu_type='None', err_msg='None', result='None'):
         self.dr_id = dr_id
         self.dr_name = dr_name
         self.host_id = host_id
@@ -16,6 +16,9 @@ class HostActionResult(object):
         self.request_time = request_time
         self.num_disks = num_disks
         self.storage_gb = storage_gb
+        self.snapshot_storage_gb = snapshot_storage_gb
+        self.gpu_profile = gpu_profile
+        self.gpu_type = gpu_type
         self.err_msg = err_msg
         self.result = result
 
@@ -26,13 +29,16 @@ class HostActionResult(object):
                self.host_role + ',' + \
                str(self.num_disks) + ',' + \
                str(self.storage_gb) + ',' + \
+               str(self.snapshot_storage_gb) + ',' + \
+               str(self.gpu_profile) + ',' + \
+               str(self.gpu_type) + ',' + \
                self.request_time + ',' + \
                self.result + ',' + \
                self.err_msg
 
     @staticmethod
     def get_host_action_result_header():
-        return 'DR_ID,DR_Name,HostID,RoleName,NumDisks,StorageGb,RequestTime,Result,ErrorMessage'
+        return 'DR_ID,DR_Name,HostID,RoleName,NumDisks,StorageGb,SnapshotStorageGb,GpuProfile,GpuType,RequestTime,Result,ErrorMessage'
 
     def is_fail(self):
         if self.result == 'FAIL':
@@ -49,10 +55,13 @@ class HostActionResult(object):
 
     def set_fail(self):
         self.set_result(result='FAIL')
+    
+    def set_noop(self):
+        self.set_result(result='NOOP')
 
     def set_result(self, result):
-        if result not in ['FAIL', 'OK']:
-            raise ValueError('Acceptable result values are: FAIL, OK')
+        if result not in ['FAIL', 'NOOP', 'OK']:
+            raise ValueError('Acceptable result values are: FAIL, NOOP, OK')
         self.result = result
 
     def set_success(self):
@@ -68,6 +77,9 @@ class HostActionResult(object):
             'request_time': self.request_time,
             'num_disks': self.num_disks,
             'storage_gb': self.storage_gb,
+            'snapshot_storage_gb': self.snapshot_storage_gb,
+            'gpu_profile': self.gpu_profile,
+            'gpu_type': self.gpu_type,
             'err_msg': self.err_msg,
             'result': self.result
         }

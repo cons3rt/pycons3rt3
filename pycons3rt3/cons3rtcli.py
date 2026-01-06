@@ -6,6 +6,7 @@ import traceback
 
 from .cons3rtapi import Cons3rtApi
 from .cons3rtdefaults import default_template_subscription_max_cpus, default_template_subscription_max_ram_mb
+from .cons3rtenums import cons3rt_deployment_run_status_active
 from .exceptions import Cons3rtApiError, Cons3rtReportsError
 from .osutil import get_dest_dir
 from .pycons3rtlibs import HostActionResult
@@ -225,7 +226,18 @@ class Cons3rtCli(object):
             dict_results.append(result.to_dict())
         self.print_formatted_list(
             item_list=dict_results,
-            included_columns=['host_id', 'host_role', 'dr_id', 'action', 'num_disks', 'storage_gb', 'result', 'err_msg']
+            included_columns=[
+                'host_id', 
+                'host_role', 
+                'dr_id', 
+                'action', 
+                'num_disks', 
+                'storage_gb', 
+                'snapshot_storage_gb',
+                'gpu_profile',
+                'result', 
+                'err_msg'
+            ]
         )
 
     def print_projects(self, project_list):
@@ -675,12 +687,19 @@ class CloudspaceCli(Cons3rtCli):
             'register',
             'release_active_runs',
             'retrieve',
+            'run',
             'template',
             'unregister',
             'user'
         ]
+        self.skip_run_ids = []
+        self.unlock = False
 
     def process_subcommands(self):
+        if not self.ids:
+            msg = '--id or --ids arg required to specify the cloudspace ID(s)'
+            self.err(msg)
+            raise Cons3rtCliError(msg)
         if not self.subcommands:
             return True
         if len(self.subcommands) < 1:
@@ -699,6 +718,7 @@ class CloudspaceCli(Cons3rtCli):
             except Cons3rtCliError:
                 return False
         elif self.subcommands[0] == 'delete_inactive_runs':
+            print('DEPRECATION WARNING: This command is deprecated and will be removed soon: delete_inactive_runs')
             try:
                 self.delete_inactive_runs()
             except Cons3rtCliError:
@@ -719,6 +739,7 @@ class CloudspaceCli(Cons3rtCli):
             except Cons3rtCliError:
                 return False
         elif self.subcommands[0] == 'release_active_runs':
+            print('DEPRECATION WARNING: This command is deprecated and will be removed soon: release_active_runs')
             try:
                 self.release_active_runs()
             except Cons3rtCliError:
@@ -726,6 +747,11 @@ class CloudspaceCli(Cons3rtCli):
         elif self.subcommands[0] == 'retrieve':
             try:
                 self.retrieve_cloudspace()
+            except Cons3rtCliError:
+                return False
+        elif self.subcommands[0] == 'run':
+            try:
+                self.handle_runs()
             except Cons3rtCliError:
                 return False
         elif self.subcommands[0] == 'template':
@@ -784,20 +810,46 @@ class CloudspaceCli(Cons3rtCli):
                 i=str(cloudspace_id), e=str(exc))
             self.err(msg)
             raise Cons3rtCliError(msg) from exc
+    
+    def create_snapshots(self):
+        """Creates snapshots for cloudspace runs
+
+        :return: None
+        :raises: Cons3rtCliError
+        """
+        cloudspace_id_list = [str(num) for num in self.ids]
+        unlock = False
+        if self.args.unlock:
+            unlock = True
+        results = []
+        for cloudspace_id in self.ids:
+            print('Creating snapshots for runs in cloudspace: {i}'.format(i=str(cloudspace_id)))
+            results += self.c5t.create_snapshots_for_virtualization_realm(vr_id=cloudspace_id, unlock=unlock, skip_run_ids=self.skip_run_ids)
+        print('Completed creating snapshots for runs in cloudspaces {i}'.format(i=','.join(map(str, cloudspace_id_list))))
+        self.print_host_action_results(results=results)
 
     def deallocate_cloudspace(self):
-        if not self.ids:
-            msg = '--id or --ids arg required to specify the cloudspace ID(s)'
-            self.err(msg)
-            raise Cons3rtCliError(msg)
+        cloudspaces_to_deallocate = []
+        for cloudspace_id in self.ids:
+            cloudspaces_to_deallocate.append(self.c5t.get_virtualization_realm_details(vr_id=cloudspace_id))
+        self.print_formatted_list(
+            item_list=cloudspaces_to_deallocate, 
+            included_columns=['id', 'name']
+        )
+        proceed = input('These cloudspaces, including all VMs and snapshots, will not be recoverable, proceed with deallocation? (y/n) ')
+        if not proceed:
+            return
+        if proceed != 'y':
+            return
         for cloudspace_id in self.ids:
             self.c5t.deallocate_virtualization_realm(vr_id=cloudspace_id)
+        print('Deallocated cloudspaces:')
+        self.print_formatted_list(
+            item_list=cloudspaces_to_deallocate, 
+            included_columns=['id', 'name']
+        )
 
     def delete_inactive_runs(self):
-        if not self.ids:
-            msg = '--id or --ids arg required to specify the cloudspace ID(s)'
-            self.err(msg)
-            raise Cons3rtCliError(msg)
         for cloudspace_id in self.ids:
             self.delete_inactive_runs_from_cloudspace(cloudspace_id)
 
@@ -814,6 +866,37 @@ class CloudspaceCli(Cons3rtCli):
             print('Unable to delete {n} inactive runs from cloudspace: {i}'.format(
                 n=str(len(not_deleted_runs)), i=str(cloudspace_id)))
 
+    def delete_runs(self):
+        runs = self.list_runs(search_type='SEARCH_INACTIVE', suppress_print=True)
+        if len(runs) > 0:
+            runs = self.sort_by_id(runs)
+        else:
+            print('No inactive runs to delete for project IDs: [{i}]'.format(
+                i=','.join(map(str, self.ids))))
+            return
+        print('Total number of inactive runs found to delete: {n}'.format(n=str(len(runs))))
+        for run in runs:
+            self.c5t.delete_inactive_run(dr_id=run['id'])
+        print('Deleted inactive runs:')
+        self.print_drs(runs)
+
+    def delete_snapshots(self):
+        """Deletes the snapshots for cloudspace runs
+
+        :return: None
+        :raises: Cons3rtCliError
+        """
+        cloudspace_id_list = [str(num) for num in self.ids]
+        unlock = False
+        if self.args.unlock:
+            unlock = True
+        results = []
+        for cloudspace_id in self.ids:
+            print('Deleting snapshots for runs in cloudspace: {i}'.format(i=str(cloudspace_id)))
+            results += self.c5t.delete_snapshots_for_virtualization_realm(vr_id=cloudspace_id, unlock=unlock, skip_run_ids=self.skip_run_ids)
+        print('Completed deleting snapshots for runs in cloudspaces: {i}'.format(i=','.join(map(str, cloudspace_id_list))))
+        self.print_host_action_results(results=results)
+
     def delete_templates(self):
         for cloudspace_id in self.ids:
             if self.args.all:
@@ -822,28 +905,45 @@ class CloudspaceCli(Cons3rtCli):
                 for template_name in self.names:
                     self.c5t.delete_template_registration(vr_id=cloudspace_id, template_name=template_name)
 
+    def handle_runs(self):
+        if self.args.unlock:
+            self.unlock = True
+        if len(self.subcommands) > 1:
+            run_subcommand = self.subcommands[1]
+            if run_subcommand == 'delete':
+                self.delete_runs()
+                return
+            elif run_subcommand == 'list':
+                self.list_runs()
+                return
+            elif run_subcommand == 'off':
+                self.power_off_runs()
+                return
+            elif run_subcommand == 'on':
+                self.power_on_runs()
+                return
+            elif run_subcommand == 'power':
+                self.power()
+                return
+            elif run_subcommand == 'release':
+                self.release_runs()
+                return
+            elif run_subcommand == 'restore':
+                self.restore_snapshots()
+                return
+            elif run_subcommand == 'snapshot':
+                self.snapshot()
+                return
+            else:
+                self.err('Unrecognized cloudspace run subcommand: {c}'.format(c=run_subcommand))
+                return False
+
     def list_active_runs(self):
         if not self.ids:
             msg = '--id or --ids arg required to specify the cloudspace ID(s)'
             self.err(msg)
             raise Cons3rtCliError(msg)
-        for cloudspace_id in self.ids:
-            self.list_active_runs_in_cloudspace(cloudspace_id)
-
-    def list_active_runs_in_cloudspace(self, cloudspace_id):
-        try:
-            drs = self.c5t.list_deployment_runs_in_virtualization_realm(
-                vr_id=cloudspace_id,
-                search_type='SEARCH_ACTIVE'
-            )
-        except Cons3rtApiError as exc:
-            msg = 'There was a problem deleting inactive runs from cloudspace ID: {i}\n{e}'.format(
-                i=str(cloudspace_id), e=str(exc))
-            self.err(msg)
-            raise Cons3rtCliError(msg) from exc
-        print('Found {n} active runs in Cloudspace ID: {i}'.format(n=str(len(drs)), i=str(cloudspace_id)))
-        if len(drs) > 0:
-            self.print_drs(dr_list=drs)
+        return self.list_runs(search_type='SEARCH_ACTIVE')
 
     def list_cloudspace(self):
         if self.ids:
@@ -944,6 +1044,30 @@ class CloudspaceCli(Cons3rtCli):
             cloudspaces = self.sort_by_id(cloudspaces)
             self.print_cloudspaces(cloudspaces_list=cloudspaces)
         print('Total number of cloudspaces found: {n}'.format(n=str(len(cloudspaces))))
+    
+    def list_runs(self, search_type=None, suppress_print=False):
+
+        # If the --active flag was set, search_type=SEARCH_ACTIVE
+        if not search_type:
+            if self.args.active:
+                search_type = 'SEARCH_ACTIVE'
+            elif self.args.inactive:
+                search_type = 'SEARCH_INACTIVE'
+            else:
+                search_type = 'SEARCH_ALL'
+
+        cloudspace_runs = []
+        for cloudspace_id in self.ids:
+            try:
+                cloudspace_runs += self.c5t.list_deployment_runs_in_virtualization_realm(vr_id=cloudspace_id, search_type=search_type)
+            except Cons3rtApiError as exc:
+                msg = 'Problem listing deployment runs with search type [{s}] for cloudspace ID: {c}\n{e}'.format(
+                    s=search_type, c=str(cloudspace_id), e=str(exc))
+                self.err(msg)
+                raise Cons3rtCliError(msg) from exc
+        if len(cloudspace_runs) > 0 and not suppress_print:
+            self.print_drs(dr_list=cloudspace_runs)
+        return cloudspace_runs
 
     def list_templates(self):
         templates = []
@@ -965,6 +1089,66 @@ class CloudspaceCli(Cons3rtCli):
             self.err(msg)
             raise Cons3rtCliError(msg) from exc
         return templates
+    
+    def power(self):
+        skip_run_id_strs = []
+        if self.args.skip:
+            skip_run_id_strs = self.args.skip.split(',')
+        for skip_run_id_str in skip_run_id_strs:
+            self.skip_run_ids.append(int(skip_run_id_str))
+        if len(self.subcommands) > 2:
+            power_subcommand = self.subcommands[2]
+            if power_subcommand == 'off':
+                self.power_off_runs()
+                return
+            elif power_subcommand == 'on':
+                self.power_on_runs()
+                return
+            elif power_subcommand == 'restart':
+                self.restart_runs()
+                return
+            else:
+                self.err('Unrecognized cloudspace run power subcommand: {c}'.format(c=power_subcommand))
+                return
+    
+    def power_off_runs(self):
+        """Powers off the cloudspace runs
+
+        :return: None
+        :raises: Cons3rtCliError
+        """
+        runs = self.list_active_runs()
+        cloudspace_id_list = [str(num) for num in self.ids]
+        self.print_drs(runs)
+        print('Attempting to power off [{n}] runs in cloudspaces: [{p}]'.format(
+                n=str(len(runs)), p=','.join(cloudspace_id_list)))
+        proceed = input('Hosts in these runs will be powered off, proceed? (y/n) ')
+        if not proceed:
+            return
+        if proceed != 'y':
+            return
+        try:
+            results = self.c5t.power_off_multiple_runs(drs=runs, unlock=self.unlock)
+        except Cons3rtApiError as exc:
+            msg = 'Problem powering off runs in cloudspaces: [{p}]'.format(p=cloudspace_id_list)
+            raise Cons3rtCliError(msg) from exc
+        self.print_host_action_results(results=results)
+
+    def power_on_runs(self):
+        """Powers on the cloudspace runs
+
+        :return: None
+        :raises: Cons3rtCliError
+        """
+        runs = self.list_active_runs()
+        cloudspace_id_list = [str(num) for num in self.ids]
+        print('Attempting to power on {n} runs in cloudspaces: {p}'.format(n=str(len(runs)), p=','.join(cloudspace_id_list)))
+        try:
+            results = self.c5t.power_on_multiple_runs(drs=runs, unlock=self.unlock)
+        except Cons3rtApiError as exc:
+            msg = 'Problem powering on runs in cloudspaces: {p}'.format(p=cloudspace_id_list)
+            raise Cons3rtCliError(msg) from exc
+        self.print_host_action_results(results=results)
 
     def register_cloudspace(self):
         if not self.ids:
@@ -1033,12 +1217,7 @@ class CloudspaceCli(Cons3rtCli):
                     print(str(cloudspace['cloudspace_id']) + '\t\t\t\t' + fail)
 
     def release_active_runs(self):
-        if not self.ids:
-            msg = '--id or --ids arg required to specify the cloudspace ID(s)'
-            self.err(msg)
-            raise Cons3rtCliError(msg)
-        for cloudspace_id in self.ids:
-            self.release_active_runs_from_cloudspace(cloudspace_id)
+        self.release_runs()
 
     def release_active_runs_from_cloudspace(self, cloudspace_id):
         try:
@@ -1052,6 +1231,67 @@ class CloudspaceCli(Cons3rtCli):
         if len(not_released_runs) > 0:
             print('Unable to release {n} active runs from cloudspace: {i}'.format(
                 n=str(len(not_released_runs)), i=str(cloudspace_id)))
+
+    def release_runs(self):
+        runs = self.list_runs(search_type='SEARCH_ACTIVE', suppress_print=True)
+        if len(runs) > 0:
+            runs = self.sort_by_id(runs)
+        else:
+            print('No active runs to release for cloudspace IDs: [{i}]'.format(
+                i=','.join(map(str, self.ids))))
+            return
+        self.print_drs(dr_list=runs)
+        print('Total number of active runs found to release: {n}'.format(n=str(len(runs))))
+        proceed = input('These runs will not be recoverable, proceed with release? (y/n) ')
+        if not proceed:
+            return
+        if proceed != 'y':
+            return
+        for run in runs:
+            if 'id' not in run.keys():
+                print('WARNING: id not found in run: {r}'.format(r=str(run)))
+                continue
+            self.c5t.release_deployment_run(dr_id=run['id'], unlock=self.unlock)
+        print('Released runs:')
+        self.print_drs(dr_list=runs)
+    
+    def restart_runs(self):
+        """Restarts the cloudspace runs
+
+        :return: None
+        :raises: Cons3rtCliError
+        """
+        runs = self.list_active_runs()
+        cloudspace_id_list = [str(num) for num in self.ids]
+        self.print_drs(runs)
+        print('Attempting to restart [{n}] runs in cloudspaces: [{c}]'.format(
+                n=str(len(runs)), p=','.join(cloudspace_id_list)))
+        proceed = input('Hosts in these runs will be restarted, proceed? (y/n) ')
+        if not proceed:
+            return
+        if proceed != 'y':
+            return
+        try:
+            self.c5t.restart_multiple_runs(drs=runs, unlock=self.unlock)
+        except Cons3rtApiError as exc:
+            msg = 'Problem restarting runs in projects: [{c}]'.format(c=cloudspace_id_list)
+            raise Cons3rtCliError(msg) from exc
+        print('Restarted runs:')
+        self.print_drs(runs)
+
+    def restore_snapshots(self):
+        """Restore the cloudspace runs from snapshots
+
+        :return: None
+        :raises: Cons3rtCliError
+        """
+        cloudspace_id_list = [str(num) for num in self.ids]
+        results = []
+        for cloudspace_id in self.ids:
+            print('Restoring snapshots for runs in cloudspace: {i}'.format(i=str(cloudspace_id)))
+            results += self.c5t.restore_snapshots_for_virtualization_realm(cloudspace_id=cloudspace_id, unlock=self.unlock, skip_run_ids=self.skip_run_ids)
+        print('Completed restoring snapshots for runs in cloudspaces: {i}'.format(i=','.join(map(str, cloudspace_id_list))))
+        self.print_host_action_results(results=results)
 
     def retrieve_cloudspace(self):
         if not self.ids:
@@ -1118,11 +1358,28 @@ class CloudspaceCli(Cons3rtCli):
         for cloudspace in all_cloudspaces:
             self.ids.append(cloudspace['id'])
 
+    def snapshot(self):
+        skip_run_id_strs = []
+        if self.args.skip:
+            skip_run_id_strs = self.args.skip.split(',')
+        for skip_run_id_str in skip_run_id_strs:
+            self.skip_run_ids.append(int(skip_run_id_str))
+        if len(self.subcommands) > 2:
+            cloudspace_snapshot_subcommand = self.subcommands[2]
+            if cloudspace_snapshot_subcommand == 'create':
+                self.create_snapshots()
+                return
+            elif cloudspace_snapshot_subcommand == 'delete':
+                self.delete_snapshots()
+                return
+            elif cloudspace_snapshot_subcommand == 'restore':
+                self.restore_snapshots()
+                return
+            else:
+                self.err('Unrecognized project run snapshot subcommand: {c}'.format(c=cloudspace_snapshot_subcommand))
+                return
+
     def templates(self):
-        if not self.ids:
-            msg = '--id or --ids arg required to specify the cloudspace ID(s)'
-            self.err(msg)
-            raise Cons3rtCliError(msg)
         if len(self.subcommands) > 1:
             template_subcommand = self.subcommands[1]
 
@@ -1144,6 +1401,18 @@ class CloudspaceCli(Cons3rtCli):
             msg = '--id or --ids arg required to specify the cloudspace ID(s)'
             self.err(msg)
             raise Cons3rtCliError(msg)
+        cloudspaces_to_unregister = []
+        for cloudspace_id in self.ids:
+            cloudspaces_to_unregister.append(self.c5t.get_virtualization_realm_details(vr_id=cloudspace_id))
+        self.print_formatted_list(
+            item_list=cloudspaces_to_unregister, 
+            included_columns=['id', 'name']
+        )
+        proceed = input('These cloudspaces will be unregistered but may still exist in the backend, proceed with unregistration? (y/n) ')
+        if not proceed:
+            return
+        if proceed != 'y':
+            return
         for cloudspace_id in self.ids:
             self.c5t.unregister_virtualization_realm(vr_id=cloudspace_id)
 
@@ -1156,6 +1425,7 @@ class DeploymentCli(Cons3rtCli):
             'list',
             'run'
         ]
+        self.unlock = False
 
     def process_subcommands(self):
         if not self.subcommands:
@@ -1182,6 +1452,8 @@ class DeploymentCli(Cons3rtCli):
             msg = '--id or --ids arg required to specify the deployment ID(s)'
             self.err(msg)
             raise Cons3rtCliError(msg)
+        if self.args.unlock:
+            self.unlock = True
         if len(self.subcommands) > 1:
             run_subcommand = self.subcommands[1]
             if run_subcommand == 'delete':
@@ -1251,36 +1523,35 @@ class DeploymentCli(Cons3rtCli):
 
     def release_runs(self):
         runs = self.list_runs_for_deployments()
-        active_run_ids = []
-        if len(runs) > 0:
-            runs = self.sort_by_id(runs)
-        else:
+        if len(runs) < 1:
             print('No runs found to release')
             return
+        runs = self.sort_by_id(runs)
+        active_runs = []
         for run in runs:
             if 'id' not in run.keys():
-                print('WARN: id not found in run: {r}'.format(r=str(run)))
+                print('WARN: [id] not found in run: [{r}]'.format(r=str(run)))
                 continue
             if 'deploymentRunStatus' not in run.keys():
-                print('WARN: deploymentRunStatus not found in run: {r}'.format(r=str(run)))
+                print('WARN: [deploymentRunStatus] not found in run: [{r}]'.format(r=str(run)))
                 continue
-            if run['deploymentRunStatus'] in ['RESERVED']:
-                active_run_ids.append(run['id'])
-        if len(active_run_ids) > 0:
-            active_run_ids = self.sort_by_id(active_run_ids)
-        else:
+            if run['deploymentRunStatus'] in cons3rt_deployment_run_status_active:
+                active_runs.append(run)
+        if len(active_runs) < 1:
             print('No active runs to release for deployment IDs: [{i}]'.format(
                 i=','.join(map(str, self.ids))))
-            return
-        print('Releasing [{n}] active runs: [{i}]'.format(
-            n=str(len(active_run_ids)), i=','.join(map(str, active_run_ids))))
+            return active_runs
+        self.print_drs(active_runs)
+        print('Releasing [{n}] active runs'.format(n=str(len(active_runs))))
         proceed = input('These runs will not be recoverable, proceed with release? (y/n) ')
         if not proceed:
             return
         if proceed != 'y':
             return
-        for active_run_id in active_run_ids:
-            self.c5t.release_deployment_run(dr_id=active_run_id)
+        for active_run in active_runs:
+            self.c5t.release_deployment_run(dr_id=active_run['id'], unlock=self.unlock)
+        print('Released runs:')
+        self.print_drs(active_runs)
 
 
 class HostCli(Cons3rtCli):
@@ -1290,13 +1561,38 @@ class HostCli(Cons3rtCli):
         self.valid_subcommands = [
             'off',
             'on',
+            'power',
             'rdp',
-            'release',
-            'restore',
+            'resize',
             'snapshot'
         ]
+        self.run_id = None
+        self.host_id = None
+        self.cpu = None
+        self.ram = None
 
     def process_subcommands(self):
+        if not self.ids:
+            msg = '--id arg required to specify the run ID'
+            self.err(msg)
+            raise Cons3rtCliError(msg)
+        self.run_id = self.ids[0]
+        if not self.args.host:
+            raise Cons3rtCliError('The --host <ID> arg specifying the host ID is required')
+        try:
+            self.host_id = int(self.args.host)
+        except ValueError:
+            raise Cons3rtCliError('The --host <ID> arg specifying the host ID must be a valid integer')
+        if self.args.cpu:
+            try:
+                self.cpu = int(self.args.cpu)
+            except ValueError:
+                raise Cons3rtCliError('The --cpu <num> arg must be a valid integer')
+        if self.args.ram:
+            try:
+                self.ram = int(self.args.ram)
+            except ValueError:
+                raise Cons3rtCliError('The --ram <MB> arg must be a valid integer')
         if not self.subcommands:
             return True
         if len(self.subcommands) < 1:
@@ -1304,56 +1600,115 @@ class HostCli(Cons3rtCli):
         if self.subcommands[0] not in self.valid_subcommands:
             self.err('Unrecognized command: {c}'.format(c=self.subcommands[0]))
             return False
-        if self.subcommands[0] == 'cancel':
-            try:
-                self.cancel()
-            except Cons3rtCliError:
-                return False
         if self.subcommands[0] == 'off':
             try:
                 self.power_off()
             except Cons3rtCliError:
                 return False
-        if self.subcommands[0] == 'on':
+        elif self.subcommands[0] == 'on':
             try:
                 self.power_on()
             except Cons3rtCliError:
                 return False
-        if self.subcommands[0] == 'release':
+        elif self.subcommands[0] == 'power':
             try:
-                self.cancel()
+                self.power()
             except Cons3rtCliError:
                 return False
-        if self.subcommands[0] == 'rdp':
+        elif self.subcommands[0] == 'rdp':
             try:
                 self.download_rdp()
             except Cons3rtCliError:
                 return False
-        if self.subcommands[0] == 'restore':
+        elif self.subcommands[0] == 'resize':
             try:
-                self.restore()
+                self.resize()
             except Cons3rtCliError:
                 return False
-        if self.subcommands[0] == 'snapshot':
+        elif self.subcommands[0] == 'snapshot':
             try:
                 self.snapshot()
             except Cons3rtCliError:
                 return False
         return True
+    
+    def create_snapshot(self):
+        self.c5t.perform_host_action(dr_id=self.run_id, dr_host_id=self.host_id, action='CREATE_SNAPSHOT')
 
-    def cancel(self):
-        unlock = False
-        if self.args.unlock:
-            unlock = True
-        for run_id in self.ids:
-            self.c5t.release_deployment_run(dr_id=run_id, unlock=unlock)
-            print('Attempted to cancel deployment run: {r}'.format(r=str(run_id)))
+    def delete_snapshot(self):
+        self.c5t.perform_host_action(dr_id=self.run_id, dr_host_id=self.host_id, action='REMOVE_ALL_SNAPSHOTS')
 
-    def delete(self):
-        results = []
-        for run_id in self.ids:
-            results += self.c5t.delete_run_snapshots(dr_id=run_id)
-        self.print_host_action_results(results=results)
+    def download_rdp(self):
+        dest_dir = get_dest_dir(self.args.dest)
+        self.c5t.download_rdp_file(
+            dr_id=self.run_id,
+            host_id=self.host_id,
+            dest_dir=dest_dir,
+            overwrite=True,
+            suppress_status=False,
+            background=False
+        )
+    
+    def power(self):
+        if len(self.subcommands) > 1:
+            run_power_subcommand = self.subcommands[1]
+            if run_power_subcommand == 'off':
+                self.power_off()
+                return
+            elif run_power_subcommand == 'on':
+                self.power_on()
+                return
+            elif run_power_subcommand == 'restart':
+                self.restart()
+                return
+            else:
+                self.err('Unrecognized run power subcommand: {c}'.format(c=run_power_subcommand))
+                return
+
+    def power_off(self):
+        self.c5t.perform_host_action(dr_id=self.run_id, dr_host_id=self.host_id, action='POWER_OFF')
+
+    def power_on(self):
+        self.c5t.perform_host_action(dr_id=self.run_id, dr_host_id=self.host_id, action='POWER_ON')
+    
+    def resize(self):
+        if not self.cpu and not self.ram:
+            raise Cons3rtCliError('Either the --cpu <num> or --ram <MB> or both args are required for resize')
+        msg = 'Resizing run [{r}] host [{h}]:'.format(r=str(self.run_id), h=str(self.host_id))
+        if self.cpu:
+            msg += '\n\tSetting number of CPUs to: [{c}]'.format(c=str(self.cpu))
+        if self.ram:
+            msg += '\n\tSetting RAM in to: [{r} MB]'.format(r=str(self.ram))
+        print(msg)
+        proceed = input('This host with be resized and will include a reboot, proceed? (y/n) ')
+        if not proceed:
+            return
+        if proceed != 'y':
+            return
+        self.c5t.perform_host_action(dr_id=self.run_id, dr_host_id=self.host_id, action='RESIZE', cpu=self.cpu, ram=self.ram)
+        print('Resize completed.')
+    
+    def restart(self):
+        self.c5t.perform_host_action(dr_id=self.run_id, dr_host_id=self.host_id, action='REBOOT')
+
+    def restore_snapshot(self):
+        self.c5t.perform_host_action(dr_id=self.run_id, dr_host_id=self.host_id, action='RESTORE_SNAPSHOT')
+    
+    def snapshot(self):
+        if len(self.subcommands) > 1:
+            host_snapshot_subcommand = self.subcommands[1]
+            if host_snapshot_subcommand == 'create':
+                self.create_snapshot()
+                return
+            elif host_snapshot_subcommand == 'delete':
+                self.delete_snapshot()
+                return
+            elif host_snapshot_subcommand == 'restore':
+                self.restore_snapshot()
+                return
+            else:
+                self.err('Unrecognized run snapshot subcommand: {c}'.format(c=host_snapshot_subcommand))
+                return
 
 
 class ProjectCli(Cons3rtCli):
@@ -1369,8 +1724,15 @@ class ProjectCli(Cons3rtCli):
         self.runs = None
         self.member_list = None
         self.skip_run_ids = []
+        self.unlock = False
+        self.project_id_list = []
 
     def process_subcommands(self):
+        if not self.ids:
+            msg = '--id or --ids arg required to specify the project ID(s)'
+            self.err(msg)
+            raise Cons3rtCliError(msg)
+        self.project_id_list = [str(num) for num in self.ids]
         if not self.subcommands:
             return True
         if len(self.subcommands) < 1:
@@ -1406,27 +1768,27 @@ class ProjectCli(Cons3rtCli):
         :return: None
         :raises: Cons3rtCliError
         """
-        project_id_list = [str(num) for num in self.ids]
         results = []
         for project_id in self.ids:
             print('Creating snapshots for runs in project: {i}'.format(i=str(project_id)))
-            results += self.c5t.create_snapshots_for_project(project_id=project_id, skip_run_ids=self.skip_run_ids)
-        print('Completed creating snapshots for runs in projects: {i}'.format(i=','.join(map(str, project_id_list))))
+            results += self.c5t.create_snapshots_for_project(project_id=project_id, unlock=self.unlock, skip_run_ids=self.skip_run_ids)
+        print('Completed creating snapshots for runs in projects: {i}'.format(i=','.join(map(str, self.project_id_list))))
         self.print_host_action_results(results=results)
 
     def delete_runs(self):
         runs = []
         for project_id in self.ids:
             runs += self.list_runs_for_project(project_id=project_id, search_type='SEARCH_INACTIVE')
-        if len(runs) > 0:
-            runs = self.sort_by_id(runs)
-        else:
+        if len(runs) < 1:
             print('No inactive runs to delete for project IDs: [{i}]'.format(
                 i=','.join(map(str, self.ids))))
             return
+        runs = self.sort_by_id(runs) 
         print('Total number of inactive runs found to delete: {n}'.format(n=str(len(runs))))
         for run in runs:
             self.c5t.delete_inactive_run(dr_id=run['id'])
+        print('Deleted runs:')
+        self.print_drs(runs)
 
     def delete_snapshots(self):
         """Deletes the snapshots for project runs
@@ -1434,19 +1796,14 @@ class ProjectCli(Cons3rtCli):
         :return: None
         :raises: Cons3rtCliError
         """
-        project_id_list = [str(num) for num in self.ids]
         results = []
         for project_id in self.ids:
             print('Deleting snapshots for runs in project: {i}'.format(i=str(project_id)))
-            results += self.c5t.delete_snapshots_for_project(project_id=project_id, skip_run_ids=self.skip_run_ids)
-        print('Completed deleting snapshots for runs in projects: {i}'.format(i=','.join(map(str, project_id_list))))
+            results += self.c5t.delete_snapshots_for_project(project_id=project_id, unlock=self.unlock, skip_run_ids=self.skip_run_ids)
+        print('Completed deleting snapshots for runs in projects: {i}'.format(i=','.join(map(str, self.project_id_list))))
         self.print_host_action_results(results=results)
 
     def get_project(self):
-        if not self.ids:
-            msg = '--id or --ids arg required to specify the project ID(s)'
-            self.err(msg)
-            raise Cons3rtCliError(msg)
         for project_id in self.ids:
             try:
                 project_details = self.c5t.get_project_details(project_id=project_id)
@@ -1458,10 +1815,8 @@ class ProjectCli(Cons3rtCli):
             print(str(project_details))
 
     def handle_runs(self):
-        if not self.ids:
-            msg = '--id or --ids arg required to specify the project ID(s)'
-            self.err(msg)
-            raise Cons3rtCliError(msg)
+        if self.args.unlock:
+            self.unlock = True
         if len(self.subcommands) > 1:
             run_subcommand = self.subcommands[1]
             if run_subcommand == 'delete':
@@ -1475,6 +1830,9 @@ class ProjectCli(Cons3rtCli):
                 return
             elif run_subcommand == 'on':
                 self.power_on_runs()
+                return
+            elif run_subcommand == 'power':
+                self.power()
                 return
             elif run_subcommand == 'release':
                 self.release_runs()
@@ -1537,7 +1895,7 @@ class ProjectCli(Cons3rtCli):
         if len(runs) > 0:
             self.runs = self.sort_by_id(runs)
             self.print_drs(dr_list=self.runs)
-        print('Total number of runs found: {n}'.format(n=str(len(runs))))
+        print('Total number of runs found: [{n}]'.format(n=str(len(runs))))
 
     def list_runs_for_project(self, project_id, search_type):
         try:
@@ -1596,6 +1954,27 @@ class ProjectCli(Cons3rtCli):
             else:
                 self.err('Unrecognized member command: {c}'.format(c=member_subcommand))
             return False
+    
+    def power(self):
+        skip_run_id_strs = []
+        if self.args.skip:
+            skip_run_id_strs = self.args.skip.split(',')
+        for skip_run_id_str in skip_run_id_strs:
+            self.skip_run_ids.append(int(skip_run_id_str))
+        if len(self.subcommands) > 2:
+            power_subcommand = self.subcommands[2]
+            if power_subcommand == 'off':
+                self.power_off_runs()
+                return
+            elif power_subcommand == 'on':
+                self.power_on_runs()
+                return
+            elif power_subcommand == 'restart':
+                self.restart_runs()
+                return
+            else:
+                self.err('Unrecognized project run power subcommand: {c}'.format(c=power_subcommand))
+                return
 
     def power_off_runs(self):
         """Powers off the project runs
@@ -1603,18 +1982,21 @@ class ProjectCli(Cons3rtCli):
         :return: None
         :raises: Cons3rtCliError
         """
-        unlock = False
-        if self.args.unlock:
-            unlock = True
         runs = self.list_active_runs_for_projects()
-        project_id_list = [str(num) for num in self.ids]
-        print('Attempting to power off {n} runs in projects: {p}'.format(
-                n=str(len(runs)), p=','.join(project_id_list)))
+        self.print_drs(runs)
+        print('Attempting to power off [{n}] runs in projects: [{p}]'.format(
+                n=str(len(runs)), p=','.join(self.project_id_list)))
+        proceed = input('Hosts in these runs will be powered off, proceed? (y/n) ')
+        if not proceed:
+            return
+        if proceed != 'y':
+            return
         try:
-            self.c5t.power_off_multiple_runs(drs=runs, unlock=unlock)
+            results = self.c5t.power_off_multiple_runs(drs=runs, unlock=self.unlock)
         except Cons3rtApiError as exc:
-            msg = 'Problem powering off runs in projects: {p}'.format(p=project_id_list)
+            msg = 'Problem powering off runs in projects: [{p}]'.format(p=self.project_id_list)
             raise Cons3rtCliError(msg) from exc
+        self.print_host_action_results(results=results)
 
     def power_on_runs(self):
         """Powers on the project runs
@@ -1622,39 +2004,66 @@ class ProjectCli(Cons3rtCli):
         :return: None
         :raises: Cons3rtCliError
         """
-        unlock = False
-        if self.args.unlock:
-            unlock = True
         runs = self.list_active_runs_for_projects()
-        project_id_list = [str(num) for num in self.ids]
-        print('Attempting to power on {n} runs in projects: {p}'.format(n=str(len(runs)), p=','.join(project_id_list)))
+        print('Attempting to power on {n} runs in projects: {p}'.format(n=str(len(runs)), p=','.join(self.project_id_list)))
         try:
-            self.c5t.power_on_multiple_runs(drs=runs, unlock=unlock)
+            results = self.c5t.power_on_multiple_runs(drs=runs, unlock=self.unlock)
         except Cons3rtApiError as exc:
-            msg = 'Problem powering on runs in projects: {p}'.format(p=project_id_list)
+            msg = 'Problem powering on runs in projects: {p}'.format(p=self.project_id_list)
             raise Cons3rtCliError(msg) from exc
+        self.print_host_action_results(results=results)
 
     def release_runs(self):
-        runs = []
-        for project_id in self.ids:
-            runs += self.list_runs_for_project(project_id=project_id, search_type='SEARCH_ACTIVE')
-        if len(runs) > 0:
-            runs = self.sort_by_id(runs)
-        else:
-            print('No inactive runs to release for project IDs: [{i}]'.format(
+        runs = self.list_active_runs_for_projects()
+        if len(runs) < 1:
+            print('No active runs to release for project IDs: [{i}]'.format(
                 i=','.join(map(str, self.ids))))
             return
+        runs = self.sort_by_id(runs)
+        self.print_drs(runs)
         print('Total number of active runs found to release: {n}'.format(n=str(len(runs))))
-        proceed = input('These runs will not be recoverable, proceed with release? (y/n) ')
+        proceed = input('These runs and snapshots will not be recoverable, proceed with release? (y/n) ')
         if not proceed:
             return
         if proceed != 'y':
             return
+        released_runs = []
+        problem_runs = []
         for run in runs:
             if 'id' not in run.keys():
-                print('WARNING: id not found in run: {r}'.format(r=str(run)))
+                print('WARNING: [id] not found in run: {r}'.format(r=str(run)))
+                problem_runs.append(run)
                 continue
-            self.c5t.release_deployment_run(dr_id=run['id'])
+            self.c5t.release_deployment_run(dr_id=run['id'], unlock=self.unlock)
+            released_runs.append(run)
+        print('Released the following runs:')
+        self.print_drs(released_runs)
+        if len(problem_runs) > 0:
+            print('Errors attempting to release the following runs:')
+            self.print_drs(problem_runs)
+        
+    def restart_runs(self):
+        """Restarts the project runs
+
+        :return: None
+        :raises: Cons3rtCliError
+        """
+        runs = self.list_active_runs_for_projects()
+        self.print_drs(runs)
+        print('Attempting to restart [{n}] runs in projects: [{p}]'.format(
+                n=str(len(runs)), p=','.join(self.project_id_list)))
+        proceed = input('Hosts in these runs will be restarted, proceed? (y/n) ')
+        if not proceed:
+            return
+        if proceed != 'y':
+            return
+        try:
+            self.c5t.restart_multiple_runs(drs=runs, unlock=self.unlock)
+        except Cons3rtApiError as exc:
+            msg = 'Problem restarting runs in projects: [{p}]'.format(self.project_id_list)
+            raise Cons3rtCliError(msg) from exc
+        print('Restarted runs:')
+        self.print_drs(runs)
 
     def restore_snapshots(self):
         """Restore the project runs from snapshots
@@ -1662,19 +2071,23 @@ class ProjectCli(Cons3rtCli):
         :return: None
         :raises: Cons3rtCliError
         """
-        project_id_list = [str(num) for num in self.ids]
+        runs = self.list_active_runs_for_projects()
+        self.print_drs(runs)
+        print('Attempting to restore snaphots for [{n}] runs in projects: [{p}]'.format(
+                n=str(len(runs)), p=','.join(self.project_id_list)))
+        proceed = input('All hosts in these runs will have snapshots restored, proceed? (y/n) ')
+        if not proceed:
+            return
+        if proceed != 'y':
+            return
         results = []
         for project_id in self.ids:
             print('Restoring snapshots for runs in project: {i}'.format(i=str(project_id)))
-            results += self.c5t.restore_snapshots_for_project(project_id=project_id, skip_run_ids=self.skip_run_ids)
-        print('Completed restoring snapshots for runs in projects: {i}'.format(i=','.join(map(str, project_id_list))))
+            results += self.c5t.restore_snapshots_for_project(project_id=project_id, unlock=self.unlock, skip_run_ids=self.skip_run_ids)
+        print('Completed restoring snapshots for runs in projects: {i}'.format(i=','.join(map(str, self.project_id_list))))
         self.print_host_action_results(results=results)
 
     def snapshot(self):
-        if not self.ids:
-            msg = '--id or --ids arg required to specify the project ID(s)'
-            self.err(msg)
-            raise Cons3rtCliError(msg)
         skip_run_id_strs = []
         if self.args.skip:
             skip_run_id_strs = self.args.skip.split(',')
@@ -1704,13 +2117,20 @@ class RunCli(Cons3rtCli):
             'cancel',
             'off',
             'on',
+            'power',
             'rdp',
             'release',
-            'restore',
             'snapshot'
         ]
+        self.unlock = False
 
     def process_subcommands(self):
+        if not self.ids:
+            msg = '--id arg required to specify the run ID'
+            self.err(msg)
+            raise Cons3rtCliError(msg)
+        if self.args.unlock:
+            self.unlock = True
         if not self.subcommands:
             return True
         if len(self.subcommands) < 1:
@@ -1723,32 +2143,32 @@ class RunCli(Cons3rtCli):
                 self.cancel()
             except Cons3rtCliError:
                 return False
-        if self.subcommands[0] == 'off':
+        elif self.subcommands[0] == 'off':
             try:
                 self.power_off()
             except Cons3rtCliError:
                 return False
-        if self.subcommands[0] == 'on':
+        elif self.subcommands[0] == 'on':
             try:
                 self.power_on()
             except Cons3rtCliError:
                 return False
-        if self.subcommands[0] == 'release':
+        elif self.subcommands[0] == 'power':
+            try:
+                self.power()
+            except Cons3rtCliError:
+                return False
+        elif self.subcommands[0] == 'release':
             try:
                 self.cancel()
             except Cons3rtCliError:
                 return False
-        if self.subcommands[0] == 'rdp':
+        elif self.subcommands[0] == 'rdp':
             try:
                 self.download_rdp()
             except Cons3rtCliError:
                 return False
-        if self.subcommands[0] == 'restore':
-            try:
-                self.restore()
-            except Cons3rtCliError:
-                return False
-        if self.subcommands[0] == 'snapshot':
+        elif self.subcommands[0] == 'snapshot':
             try:
                 self.snapshot()
             except Cons3rtCliError:
@@ -1756,17 +2176,20 @@ class RunCli(Cons3rtCli):
         return True
 
     def cancel(self):
-        unlock = False
-        if self.args.unlock:
-            unlock = True
         for run_id in self.ids:
-            self.c5t.release_deployment_run(dr_id=run_id, unlock=unlock)
+            self.c5t.release_deployment_run(dr_id=run_id, unlock=self.unlock)
             print('Attempted to cancel deployment run: {r}'.format(r=str(run_id)))
-
-    def delete(self):
+    
+    def create_snapshots(self):
         results = []
         for run_id in self.ids:
-            results += self.c5t.delete_run_snapshots(dr_id=run_id)
+            results += self.c5t.create_run_snapshots(dr_id=run_id, unlock=self.unlock)
+        self.print_host_action_results(results=results)
+
+    def delete_snapshots(self):
+        results = []
+        for run_id in self.ids:
+            results += self.c5t.delete_run_snapshots(dr_id=run_id, unlock=self.unlock)
         self.print_host_action_results(results=results)
 
     def download_rdp(self):
@@ -1785,39 +2208,62 @@ class RunCli(Cons3rtCli):
             suppress_status=False,
             background=False
         )
+    
+    def power(self):
+        if len(self.subcommands) > 1:
+            run_power_subcommand = self.subcommands[2]
+            if run_power_subcommand == 'off':
+                self.power_off()
+                return
+            elif run_power_subcommand == 'on':
+                self.power_on()
+                return
+            elif run_power_subcommand == 'restart':
+                self.restart()
+                return
+            else:
+                self.err('Unrecognized run power subcommand: {c}'.format(c=run_power_subcommand))
+                return
 
     def power_off(self):
-        unlock = False
-        if self.args.unlock:
-            unlock = True
         results = []
         for run_id in self.ids:
-            results += self.c5t.power_off_run(dr_id=run_id, unlock=unlock)
+            results += self.c5t.power_off_run(dr_id=run_id, unlock=self.unlock)
         self.print_host_action_results(results=results)
 
     def power_on(self):
-        unlock = False
-        if self.args.unlock:
-            unlock = True
         results = []
         for run_id in self.ids:
-            results += self.c5t.power_on_run(dr_id=run_id, unlock=unlock)
+            results += self.c5t.power_on_run(dr_id=run_id, unlock=self.unlock)
         self.print_host_action_results(results=results)
-
-    def restore(self):
-        unlock = False
-        if self.args.unlock:
-            unlock = True
+    
+    def restart(self):
         results = []
         for run_id in self.ids:
-            results += self.c5t.restore_run_snapshots(dr_id=run_id, unlock=unlock)
+            results += self.c5t.restart_run(dr_id=run_id, unlock=self.unlock)
         self.print_host_action_results(results=results)
 
+    def restore_snapshots(self):
+        results = []
+        for run_id in self.ids:
+            results += self.c5t.restore_run_snapshots(dr_id=run_id, unlock=self.unlock)
+        self.print_host_action_results(results=results)
+    
     def snapshot(self):
-        results = []
-        for run_id in self.ids:
-            results += self.c5t.create_run_snapshots(dr_id=run_id)
-        self.print_host_action_results(results=results)
+        if len(self.subcommands) > 1:
+            run_snapshot_subcommand = self.subcommands[2]
+            if run_snapshot_subcommand == 'create':
+                self.create_snapshots()
+                return
+            elif run_snapshot_subcommand == 'delete':
+                self.delete_snapshots()
+                return
+            elif run_snapshot_subcommand == 'restore':
+                self.restore_snapshots()
+                return
+            else:
+                self.err('Unrecognized run snapshot subcommand: {c}'.format(c=run_snapshot_subcommand))
+                return
 
 
 class ScenarioCli(Cons3rtCli):
@@ -1975,6 +2421,7 @@ class TeamCli(Cons3rtCli):
             'service'
         ]
         self.skip_run_ids = []
+        self.unlock = False
 
     def process_args(self):
         if not self.validate_args():
@@ -1989,6 +2436,10 @@ class TeamCli(Cons3rtCli):
         return True
 
     def process_subcommands(self):
+        if not self.ids:
+            msg = '--id or --ids arg required to specify the team ID(s)'
+            self.err(msg)
+            raise Cons3rtCliError(msg)
         if not self.subcommands:
             return True
         if len(self.subcommands) < 1:
@@ -2065,7 +2516,7 @@ class TeamCli(Cons3rtCli):
         results = []
         for team_id in self.ids:
             print('Creating snapshots for runs in team: {i}'.format(i=str(team_id)))
-            results += self.c5t.create_snapshots_for_team(team_id=team_id, skip_run_ids=self.skip_run_ids)
+            results += self.c5t.create_snapshots_for_team(team_id=team_id, unlock=self.unlock, skip_run_ids=self.skip_run_ids)
         print('Completed creating snapshots for runs in teams: {i}'.format(i=str(self.ids)))
         self.print_host_action_results(results=results)
 
@@ -2073,23 +2524,15 @@ class TeamCli(Cons3rtCli):
         results = []
         for team_id in self.ids:
             print('Deleting snapshots for runs in team: {i}'.format(i=str(team_id)))
-            results += self.c5t.delete_snapshots_for_team(team_id=team_id, skip_run_ids=self.skip_run_ids)
+            results += self.c5t.delete_snapshots_for_team(team_id=team_id, unlock=self.unlock, skip_run_ids=self.skip_run_ids)
         print('Completed deleting snapshots for runs in teams: {i}'.format(i=str(self.ids)))
         self.print_host_action_results(results=results)
 
     def generate_reports(self):
-        if not self.ids:
-            msg = '--id or --ids arg required to specify the team ID(s) to generate reports for'
-            self.err(msg)
-            raise Cons3rtCliError(msg)
         for team_id in self.ids:
             self.generate_report(team_id=team_id)
 
     def generate_asset_reports(self):
-        if not self.ids:
-            msg = '--id or --ids arg required to specify the team ID(s) to generate reports for'
-            self.err(msg)
-            raise Cons3rtCliError(msg)
         for team_id in self.ids:
             self.generate_asset_report(team_id=team_id)
 
@@ -2113,10 +2556,6 @@ class TeamCli(Cons3rtCli):
             raise Cons3rtCliError(msg) from exc
 
     def handle_reports(self):
-        if not self.ids:
-            msg = '--id or --ids arg required to specify the project ID(s)'
-            self.err(msg)
-            raise Cons3rtCliError(msg)
         if len(self.subcommands) < 2:
             msg = 'team report subcommand not provided'
             self.err(msg)
@@ -2131,10 +2570,8 @@ class TeamCli(Cons3rtCli):
             raise Cons3rtCliError(msg)
 
     def handle_runs(self):
-        if not self.ids:
-            msg = '--id or --ids arg required to specify the team ID(s)'
-            self.err(msg)
-            raise Cons3rtCliError(msg)
+        if self.args.unlock:
+            self.unlock = True
         if len(self.subcommands) < 2:
             msg = 'team run subcommand not provided'
             self.err(msg)
@@ -2151,10 +2588,6 @@ class TeamCli(Cons3rtCli):
             raise Cons3rtCliError(msg)
 
     def handle_team_services(self):
-        if not self.ids:
-            msg = '--id or --ids arg required to specify the team ID(s)'
-            self.err(msg)
-            raise Cons3rtCliError(msg)
         if len(self.subcommands) < 2:
             msg = 'team service subcommand not provided'
             self.err(msg)
@@ -2495,18 +2928,23 @@ class TeamCli(Cons3rtCli):
         :return: None
         :raises: Cons3rtCliError
         """
-        unlock = False
-        if self.args.unlock:
-            unlock = True
         runs = self.list_team_runs()
         team_id_list = [str(num) for num in self.ids]
-        print('Attempting to restart {n} runs in teams: {t}'.format(
-            n=str(len(runs)), t=','.join(team_id_list)))
+        self.print_drs(runs)
+        print('Attempting to restart [{n}] runs in teams: [{t}]'.format(
+                n=str(len(runs)), t=','.join(team_id_list)))
+        proceed = input('Hosts in these runs will be restarted, proceed? (y/n) ')
+        if not proceed:
+            return
+        if proceed != 'y':
+            return
         try:
-            self.c5t.restart_multiple_runs(drs=runs, unlock=unlock)
+            self.c5t.restart_multiple_runs(drs=runs, unlock=self.unlock)
         except Cons3rtApiError as exc:
-            msg = 'Problem restarting runs in teams: {t}'.format(t=team_id_list)
+            msg = 'Problem restarting runs in teams: [{t}]'.format(t=team_id_list)
             raise Cons3rtCliError(msg) from exc
+        print('Restarted runs:')
+        self.print_drs(runs)
 
     def power(self):
         skip_run_id_strs = []
@@ -2515,18 +2953,18 @@ class TeamCli(Cons3rtCli):
         for skip_run_id_str in skip_run_id_strs:
             self.skip_run_ids.append(int(skip_run_id_str))
         if len(self.subcommands) > 2:
-            team_snapshot_subcommand = self.subcommands[2]
-            if team_snapshot_subcommand == 'off':
+            team_power_subcommand = self.subcommands[2]
+            if team_power_subcommand == 'off':
                 self.power_off_runs()
                 return
-            elif team_snapshot_subcommand == 'on':
+            elif team_power_subcommand == 'on':
                 self.power_on_runs()
                 return
-            elif team_snapshot_subcommand == 'restart':
+            elif team_power_subcommand == 'restart':
                 self.restart_runs()
                 return
             else:
-                self.err('Unrecognized team run snapshot subcommand: {c}'.format(c=team_snapshot_subcommand))
+                self.err('Unrecognized team run power subcommand: {c}'.format(c=team_power_subcommand))
                 return
 
     def power_off_runs(self):
@@ -2535,18 +2973,22 @@ class TeamCli(Cons3rtCli):
         :return: None
         :raises: Cons3rtCliError
         """
-        unlock = False
-        if self.args.unlock:
-            unlock = True
         runs = self.list_team_runs()
         team_id_list = [str(num) for num in self.ids]
-        print('Attempting to power off {n} runs in teams: {t}'.format(
-            n=str(len(runs)), t=','.join(team_id_list)))
+        self.print_drs(runs)
+        print('Attempting to power off [{n}] runs in teams: [{p}]'.format(
+                n=str(len(runs)), p=','.join(team_id_list)))
+        proceed = input('Hosts in these runs will be powered off, proceed? (y/n) ')
+        if not proceed:
+            return
+        if proceed != 'y':
+            return
         try:
-            self.c5t.power_off_multiple_runs(drs=runs, unlock=unlock)
+            results = self.c5t.power_off_multiple_runs(drs=runs, unlock=self.unlock)
         except Cons3rtApiError as exc:
-            msg = 'Problem powering off runs in teams: {t}'.format(t=team_id_list)
+            msg = 'Problem powering off runs in teams: [{t}]'.format(t=team_id_list)
             raise Cons3rtCliError(msg) from exc
+        self.print_host_action_results(results=results)
 
     def power_on_runs(self):
         """Powers on the team runs
@@ -2554,18 +2996,15 @@ class TeamCli(Cons3rtCli):
         :return: None
         :raises: Cons3rtCliError
         """
-        unlock = False
-        if self.args.unlock:
-            unlock = True
         runs = self.list_team_runs()
-        project_id_list = [str(num) for num in self.ids]
         print('Attempting to power on {n} runs in teams: {p}'.format(
-            n=str(len(runs)), p=','.join(project_id_list)))
+            n=str(len(runs)), p=','.join(self.project_id_list)))
         try:
-            self.c5t.power_on_multiple_runs(drs=runs, unlock=unlock)
+            results = self.c5t.power_on_multiple_runs(drs=runs, unlock=self.unlock)
         except Cons3rtApiError as exc:
-            msg = 'Problem powering on runs in teams: {p}'.format(p=project_id_list)
+            msg = 'Problem powering on runs in teams: {p}'.format(p=self.project_id_list)
             raise Cons3rtCliError(msg) from exc
+        self.print_host_action_results(results=results)
 
     def project(self):
         if len(self.subcommands) < 2:

@@ -6454,20 +6454,6 @@ class Cons3rtApi(object):
             if not requirements:
                 continue
 
-            # Skip if the host has an action in progress
-            if 'hostActionInProcess' in host:
-                log.info('Found [hostActionInProcess] for host [{h}]: {d}'.format(
-                    h=str(host['id']), d=str(host['hostActionInProcess'])))
-                if host['hostActionInProcess']:
-                    log.info('Skipping DR [{d}] host with a host action already in progress: {h}'.format(
-                        d=str(dr_id), h=str(host['id'])))
-                    continue
-                else:
-                    log.info('No host action in progress for DR [{d}] host [{h}]'.format(
-                        d=str(dr_id), h=str(host['id'])))
-            else:
-                log.info('No data returned for [hostActionInProcess] for host [{h}]'.format(h=str(host['id'])))
-
             # Compute the total disk capacity
             total_disk_capacity_mb = 0
             for disk in host['disks']:
@@ -6478,6 +6464,27 @@ class Cons3rtApi(object):
             total_disk_capacity_gb = total_disk_capacity_mb / 1024
             log.info('Found {n} disks with capacity {g} GBs for host: {h}'.format(
                 h=str(host['id']), n=str(len(host['disks'])), g=str(total_disk_capacity_gb)))
+            
+            # Compute the snapshot size if it exists
+            snapshot_date_str = 'NA'
+            if 'snapshotAvailable' not in host.keys():
+                snapshot_exists = False
+            else:
+                snapshot_exists =  host['snapshotAvailable']
+                # Get the snapshot date if available, or put N/A
+                if 'snapshotDate' in host.keys():
+                    snapshot_date_str = host['snapshotDate']
+            snapshot_storage_gb = total_disk_capacity_gb if snapshot_exists else 0
+
+            # Get the GPU profile
+            gpu_profile_str = 'None'
+            if 'gpuProfile' in host.keys():
+                gpu_profile_str = host['gpuProfile']
+
+            # Get the GPU type
+            gpu_type_str = 'None'
+            if 'gpuType' in host.keys():
+                gpu_type_str = host['gpuType']
 
             # Create a HostActionResult object with info
             host_action_result = HostActionResult(
@@ -6488,8 +6495,51 @@ class Cons3rtApi(object):
                 action=action,
                 request_time=datetime.datetime.now().strftime('%Y%m%d-%H%M%S'),
                 num_disks=len(host['disks']),
-                storage_gb=total_disk_capacity_gb
+                storage_gb=total_disk_capacity_gb,
+                snapshot_storage_gb=snapshot_storage_gb,
+                gpu_profile=gpu_profile_str,
+                gpu_type=gpu_type_str
             )
+
+            # Skip if the host has an action in progress
+            if 'hostActionInProcess' in host.keys():
+                log.info('Found [hostActionInProcess] for host [{h}]: {d}'.format(
+                    h=str(host['id']), d=str(host['hostActionInProcess'])))
+                if host['hostActionInProcess']:
+                    log.info('Skipping DR [{d}] host [{h}] with a host action already in progress'.format(
+                        d=str(dr_id), h=str(host['id'])))
+                    host_action_result.set_noop()
+                    host_action_result.set_err_msg = 'hostActionInProcess'
+                    results.append(host_action_result)
+                    continue
+                else:
+                    log.debug('No host action in progress for DR [{d}] host [{h}]'.format(
+                        d=str(dr_id), h=str(host['id'])))
+            else:
+                log.debug('No data returned for [hostActionInProcess] for host [{h}]'.format(h=str(host['id'])))
+            
+            # Skip if fap status is not reserved
+            if 'fapStatus' in host.keys():
+                if host['fapStatus'] != 'RESERVED':
+                    log.info('Skipping DR [{d}] host [{h}] the status is not [RESERVED]: [{s}]'.format(
+                        d=str(dr_id), h=str(host['id']), s=host['fapStatus']))
+                    host_action_result.set_noop()
+                    host_action_result.set_err_msg = 'Status: [{s}]'.format(s=host['fapStatus'])
+                    results.append(host_action_result)
+                    continue
+
+            # Skip remove snapshot when there is no snapshot
+            if action == 'REMOVE_ALL_SNAPSHOTS' and not snapshot_exists:
+                log.info('Skipping DR [{d}] host [{h}] with action [REMOVE_ALL_SNAPSHOTS] and no snapshot exists'.format(
+                        d=str(dr_id), h=str(host['id'])))
+                host_action_result.set_noop()
+                results.append(host_action_result)
+                continue
+
+            # Print the snapshot date being removed
+            if action == 'REMOVE_ALL_SNAPSHOTS':
+                log.info('Removing snapshot from run [{r}] host [{h}] with size [{s}] and date [{d}]'.format(
+                    r=str(dr_id), h=str(host['id']), s=str(snapshot_storage_gb), d=snapshot_date_str))
 
             # Attempt to perform the host action
             try:
@@ -6549,39 +6599,53 @@ class Cons3rtApi(object):
             time.sleep(inter_run_action_delay_sec)
         return all_results
 
-    def create_run_snapshots(self, dr_id):
+    def create_run_snapshots(self, dr_id, unlock=False):
         """Attempts to create snapshots for all hosts in the provided DR ID
 
         :param dr_id: (int) ID of the deployment run
+        :param unlock: (bool) Set True to force unlock the host before taking snapshot acti
         :return: (list) of dict data on request results
         :raises Cons3rtApiError
         """
         try:
             results = self.perform_host_action_for_run(
                 dr_id=dr_id,
-                action='CREATE_SNAPSHOT'
+                action='CREATE_SNAPSHOT',
+                unlock=unlock
             )
         except Cons3rtApiError as exc:
             raise Cons3rtApiError('Problem creating snapshot for run ID: {i}'.format(i=str(dr_id))) from exc
         return results
 
-    def create_snapshots_for_team(self, team_id, skip_run_ids):
+    def create_snapshots_for_team(self, team_id, unlock=False, skip_run_ids=None):
         """Creates snapshots for a team
 
         :param team_id: (int) team ID
+        :param unlock: (bool) Set True to force unlock the host before taking snapshot acti
         :param skip_run_ids: (list) of deployment run IDs to skip
         :return: (list) of HostActionResults
         """
-        return self.snapshot_team_runs(team_id=team_id, action='CREATE_SNAPSHOT', skip_run_ids=skip_run_ids)
+        return self.snapshot_team_runs(team_id=team_id, action='CREATE_SNAPSHOT', unlock=unlock, skip_run_ids=skip_run_ids)
 
-    def create_snapshots_for_project(self, project_id, skip_run_ids):
+    def create_snapshots_for_project(self, project_id, unlock=False, skip_run_ids=None):
         """Creates snapshots for a project
 
         :param project_id: (int) project ID
+        :param unlock: (bool) Set True to force unlock the host before taking snapshot acti
         :param skip_run_ids: (list) of deployment run IDs to skip
         :return: (list) of HostActionResults
         """
-        return self.snapshot_project_runs(project_id=project_id, action='CREATE_SNAPSHOT', skip_run_ids=skip_run_ids)
+        return self.snapshot_project_runs(project_id=project_id, action='CREATE_SNAPSHOT', unlock=unlock, skip_run_ids=skip_run_ids)
+    
+    def create_snapshots_for_virtualization_realm(self, vr_id, unlock=False, skip_run_ids=None):
+        """Creates snapshots for a VR
+
+        :param vr_id: (int) VR ID
+        :param unlock: (bool) Set True to force unlock the host before taking snapshot action
+        :param skip_run_ids: (list) of deployment run IDs to skip
+        :return: (list) of HostActionResults
+        """
+        return self.snapshot_virtualization_realm_runs(vr_id=vr_id, action='CREATE_SNAPSHOT', unlock=unlock, skip_run_ids=skip_run_ids)
 
     def restore_run_snapshots(self, dr_id, unlock=False):
         """Attempts to restore snapshots for all hosts in the provided DR ID
@@ -6601,25 +6665,36 @@ class Cons3rtApi(object):
             raise Cons3rtApiError('Problem restoring snapshot for run ID: {i}'.format(i=str(dr_id))) from exc
         return results
 
-    def restore_snapshots_for_team(self, team_id, skip_run_ids, unlock=False):
+    def restore_snapshots_for_team(self, team_id, unlock=False, skip_run_ids=None):
         """Restores snapshots for a team
 
         :param team_id: (int) team ID
-        :param skip_run_ids: (list) of deployment run IDs to skip
         :param unlock: (bool) Set true to unlock a DR before restoring from snapshot
+        :param skip_run_ids: (list) of deployment run IDs to skip
         :return: (list) of HostActionResults
         """
         return self.snapshot_team_runs(team_id=team_id, action='RESTORE_SNAPSHOT', skip_run_ids=skip_run_ids,
                                        unlock=unlock)
 
-    def restore_snapshots_for_project(self, project_id, skip_run_ids):
+    def restore_snapshots_for_project(self, project_id, unlock=False, skip_run_ids=None):
         """Restores snapshots for a project
 
-        :param project_id: (int) project ID
+        :param project_id: (int) project 
+        :param unlock: (bool) set true to unlock the run before deleting snapshots
         :param skip_run_ids: (list) of deployment run IDs to skip
         :return: (list) of HostActionResults
         """
-        return self.snapshot_project_runs(project_id=project_id, action='RESTORE_SNAPSHOT', skip_run_ids=skip_run_ids)
+        return self.snapshot_project_runs(project_id=project_id, action='RESTORE_SNAPSHOT', unlock=unlock, skip_run_ids=skip_run_ids)
+
+    def restore_snapshots_for_virtualization_realm(self, vr_id, unlock=False, skip_run_ids=None):
+        """Restores snapshots for a project
+
+        :param vr_id: (int) VR ID
+        :param unlock: (bool) set true to unlock the run before deleting snapshots
+        :param skip_run_ids: (list) of deployment run IDs to skip
+        :return: (list) of HostActionResults
+        """
+        return self.snapshot_virtualization_realm_runs(vr_id=vr_id, action='RESTORE_SNAPSHOT', unlock=unlock, skip_run_ids=skip_run_ids)
 
     def delete_run_snapshots(self, dr_id, unlock=False):
         """Attempts to delete snapshots for all hosts in the provided DR ID
@@ -6639,24 +6714,37 @@ class Cons3rtApi(object):
             raise Cons3rtApiError('Problem restoring snapshot for run ID: {i}'.format(i=str(dr_id))) from exc
         return results
 
-    def delete_snapshots_for_team(self, team_id, skip_run_ids):
+    def delete_snapshots_for_team(self, team_id, unlock=False, skip_run_ids=None):
         """Deletes snapshots for a team
 
         :param team_id: (int) team ID
+        :param unlock: (bool) Set True to force unlock the host ebfore taking snapshot action
         :param skip_run_ids: (list) of deployment run IDs to skip
         :return: (list) of HostActionResults
         """
-        return self.snapshot_team_runs(team_id=team_id, action='REMOVE_ALL_SNAPSHOTS', skip_run_ids=skip_run_ids)
+        return self.snapshot_team_runs(team_id=team_id, action='REMOVE_ALL_SNAPSHOTS', unlock=unlock, skip_run_ids=skip_run_ids)
 
-    def delete_snapshots_for_project(self, project_id, skip_run_ids):
+    def delete_snapshots_for_project(self, project_id, unlock=False, skip_run_ids=None):
         """Restores snapshots for a project
 
         :param project_id: (int) project ID
+        :param unlock: (bool) Set True to force unlock the host ebfore taking snapshot action
         :param skip_run_ids: (list) of deployment run IDs to skip
         :return: (list) of HostActionResults
         """
         return self.snapshot_project_runs(project_id=project_id, action='REMOVE_ALL_SNAPSHOTS',
-                                          skip_run_ids=skip_run_ids)
+                                          unlock=unlock, skip_run_ids=skip_run_ids)
+    
+    def delete_snapshots_for_virtualization_realm(self, vr_id, unlock=False, skip_run_ids=None):
+        """Restores snapshots for a VR
+
+        :param vr_id: (int) VR ID
+        :param unlock: (bool) Set True to force unlock the host ebfore taking snapshot action
+        :param skip_run_ids: (list) of deployment run IDs to skip
+        :return: (list) of HostActionResults
+        """
+        return self.snapshot_virtualization_realm_runs(vr_id=vr_id, action='REMOVE_ALL_SNAPSHOTS',
+                                          unlock=unlock, skip_run_ids=skip_run_ids)
 
     def power_off_run(self, dr_id, unlock=False):
         """Attempts to power off all hosts in the provided DR ID
@@ -6692,6 +6780,24 @@ class Cons3rtApi(object):
             )
         except Cons3rtApiError as exc:
             raise Cons3rtApiError('Problem performing power on for run ID: {i}'.format(i=str(dr_id))) from exc
+        return results
+    
+    def restart_run(self, dr_id, unlock=False):
+        """Attempts to restart all hosts in the provided DR ID
+
+        :param dr_id: (int) ID of the deployment run
+        :param unlock: (bool) set true to unlock the run before restart
+        :return: (list) of dict data on request results
+        :raises Cons3rtApiError
+        """
+        try:
+            results = self.perform_host_action_for_run(
+                dr_id=dr_id,
+                action='REBOOT',
+                unlock=unlock
+            )
+        except Cons3rtApiError as exc:
+            raise Cons3rtApiError('Problem performing restart for run ID: {i}'.format(i=str(dr_id))) from exc
         return results
 
     def restore_run_snapshots_multiple(self, drs):
@@ -6981,8 +7087,8 @@ class Cons3rtApi(object):
             f=str(failed_action_count)))
         return all_results
 
-    def snapshot_project_runs(self, project_id, action, skip_run_ids=None):
-        """Creates a snapshot for each active deployment run in the provided team ID
+    def snapshot_project_runs(self, project_id, action, unlock=False, skip_run_ids=None):
+        """Creates a snapshot for each active deployment run in the provided project ID
 
         :param project_id: (int) project ID
         :param action: (str) CREATE_SNAPSHOT | RESTORE_SNAPSHOT | REMOVE_ALL_SNAPSHOTS
@@ -6999,7 +7105,7 @@ class Cons3rtApi(object):
         if not skip_run_ids:
             skip_run_ids = []
 
-        # Get a list of team DRs
+        # Get a list of DRs
         log.info('Retrieving a list of runs owned by project ID: {i}'.format(i=str(project_id)))
         try:
             project_drs = self.list_active_runs_in_project(project_id=project_id)
@@ -7027,8 +7133,8 @@ class Cons3rtApi(object):
 
         log.info('Processing snapshots for [{n}] out of [{t}] deployment runs in project ID {i}'.format(
             n=str(len(snapshot_drs)), t=str(len(project_drs)), i=str(project_id)))
-        results, start_time, end_time, skip_run_ids = self.snapshots_for_team_or_project(
-            action=action, snapshot_drs=snapshot_drs, skip_run_ids=skip_run_ids)
+        results, start_time, end_time, skip_run_ids = self.process_snapshot_list(
+            action=action, snapshot_drs=snapshot_drs, skip_run_ids=skip_run_ids, unlock=unlock)
         elapsed_time = end_time - start_time
 
         log.info('Completed processing snapshots for project ID {i} at: {t}, total time elapsed: {e}'.format(
@@ -7075,7 +7181,7 @@ class Cons3rtApi(object):
 
         log.info('Processing snapshots for [{n}] out of [{t}] deployment runs in team ID {i}'.format(
             n=str(len(snapshot_drs)), t=str(len(team_drs)), i=str(team_id)))
-        results, start_time, end_time, skip_run_ids = self.snapshots_for_team_or_project(
+        results, start_time, end_time, skip_run_ids = self.process_snapshot_list(
             action=action, snapshot_drs=snapshot_drs, skip_run_ids=skip_run_ids, unlock=unlock)
         elapsed_time = end_time - start_time
 
@@ -7083,9 +7189,64 @@ class Cons3rtApi(object):
             i=str(team_id), t=end_time, e=str(elapsed_time)))
         log.info('Returning a list of {n} snapshot results'.format(n=str(len(results))))
         return results
+    
+    def snapshot_virtualization_realm_runs(self, vr_id, action, unlock=False, skip_run_ids=None):
+        """Creates a snapshot for each active deployment run in the provided VR ID
 
-    def snapshots_for_team_or_project(self, action, snapshot_drs, skip_run_ids, unlock=False):
-        """Takes a snapshot action for each active deployment run in the provided team ID
+        :param vr_id: (int) VR ID
+        :param action: (str) CREATE_SNAPSHOT | RESTORE_SNAPSHOT | REMOVE_ALL_SNAPSHOTS
+        :param skip_run_ids: (list) of int run IDs to skip snapshots
+        :return: (list) of HostActionResults
+        :raises: Cons3rtApiError
+        """
+        log = logging.getLogger(self.cls_logger + '.snapshot_virtualization_realm_runs')
+
+        # Keep a list of deployment runs that had snapshots created
+        snapshot_drs = []
+
+        # Ensure this is a list
+        if not skip_run_ids:
+            skip_run_ids = []
+
+        # Get a list of VR DRs
+        log.info('Retrieving a list of runs in virtualization realm: {i}'.format(i=str(vr_id)))
+        try:
+            vr_drs = self.list_active_deployment_runs_in_virtualization_realm(vr_id=vr_id)
+        except Cons3rtApiError as exc:
+            raise Cons3rtApiError('Problem retrieving active DRs from VR: {i}'.format(i=str(vr_id))) from exc
+        log.info('Found {n} DRs in VR ID: {i}'.format(n=str(len(vr_drs)), i=str(vr_id)))
+
+        # Filter out the skip DRs to get a list to snapshot
+        my_run_id = self.get_my_run_id()
+        if my_run_id:
+            log.info('Found my run ID, adding to skip list: {i}'.format(i=str(my_run_id)))
+            skip_run_ids.append(my_run_id)
+        else:
+            log.info('My run ID not found, not adding to skip list')
+
+        # Loop through the list of DRs, validate and add to the list to process
+        for vr_dr in vr_drs:
+            if 'id' not in vr_dr.keys():
+                log.warning('id not found in DR data: {d}'.format(d=str(vr_dr)))
+                continue
+            if vr_dr['id'] in skip_run_ids:
+                log.info('Skipping run: {i}'.format(i=str(vr_dr['id'])))
+                continue
+            snapshot_drs.append(vr_dr)
+
+        log.info('Processing snapshots for [{n}] out of [{t}] deployment runs in VR ID {i}'.format(
+            n=str(len(snapshot_drs)), t=str(len(vr_drs)), i=str(vr_id)))
+        results, start_time, end_time, skip_run_ids = self.process_snapshot_list(
+            action=action, snapshot_drs=snapshot_drs, unlock=unlock, skip_run_ids=skip_run_ids)
+        elapsed_time = end_time - start_time
+
+        log.info('Completed processing snapshots for VR ID {i} at: {t}, total time elapsed: {e}'.format(
+            i=str(vr_id), t=end_time, e=str(elapsed_time)))
+        log.info('Returning a list of {n} snapshot results'.format(n=str(len(results))))
+        return results
+
+    def process_snapshot_list(self, action, snapshot_drs, skip_run_ids, unlock=False):
+        """Takes a snapshot action for each deployment tune in the list
 
         :param action: (str) CREATE_SNAPSHOT | RESTORE_SNAPSHOT | REMOVE_ALL_SNAPSHOTS
         :param snapshot_drs: (list) list of int deployment run IDs to snapshot
@@ -7094,7 +7255,7 @@ class Cons3rtApi(object):
         :return: results, start_time, end_time, skip_run_ids
         :raises: Cons3rtApiError
         """
-        log = logging.getLogger(self.cls_logger + '.snapshots_for_team_or_project')
+        log = logging.getLogger(self.cls_logger + '.process_snapshot_list')
 
         # Ensure this is a list
         if not skip_run_ids:

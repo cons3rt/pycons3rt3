@@ -13,7 +13,7 @@ import sys
 import argparse
 
 from .cons3rtconfig import manual_config
-from .cons3rtcli import CloudCli, CloudspaceCli, DeploymentCli, ProjectCli, RunCli, ScenarioCli, SystemCli, TeamCli, \
+from .cons3rtcli import CloudCli, CloudspaceCli, DeploymentCli, HostCli, ProjectCli, RunCli, ScenarioCli, SystemCli, TeamCli, \
     UserCli
 
 # Commands for setting up the cons3rtapi configuration
@@ -28,6 +28,7 @@ valid_commands = setup_command_options + [
     'cloud',
     'cloudspace',
     'deployment',
+    'host',
     'project',
     'system',
     'scenario',
@@ -38,6 +39,13 @@ valid_commands = setup_command_options + [
 
 # String representation of valid commands
 valid_commands_str = 'Valid commands: {c}'.format(c=', '.join(map(str, valid_commands)))
+
+
+def cloud_cli(args, subcommands):
+    c = CloudCli(args, subcommands)
+    if c.process_args():
+        return 0
+    return 1
 
 
 def cloudspace_cli(args, subcommands):
@@ -51,18 +59,18 @@ def deployment_cli(args, subcommands):
     c = DeploymentCli(args, subcommands)
     if c.process_args():
         return 0
+    return 
+
+
+def host_cli(args, subcommands):
+    h = HostCli(args, subcommands)
+    if h.process_args():
+        return 0
     return 1
 
 
 def project_cli(args, subcommands):
     c = ProjectCli(args, subcommands)
-    if c.process_args():
-        return 0
-    return 1
-
-
-def cloud_cli(args, subcommands):
-    c = CloudCli(args, subcommands)
     if c.process_args():
         return 0
     return 1
@@ -127,6 +135,7 @@ def main():
     parser.add_argument('--emails', help='Get a semi-colon separated list of email addresses for the output',
                         required=False, action='store_true')
     parser.add_argument('--expired', help='Process only expired items', required=False, action='store_true')
+    parser.add_argument('--force', help='Force the command without prompting', required=False, action='store_true')
     parser.add_argument('--host', help='Deployment run host ID', required=False)
     parser.add_argument('--id', help='ID relative to the command provided', required=False)
     parser.add_argument('--ids', help='List of IDs relative to the command provided', required=False)
@@ -180,6 +189,8 @@ def main():
         return cloudspace_cli(args, subcommands)
     elif args.command == 'deployment':
         return deployment_cli(args, subcommands)
+    elif args.command == 'host':
+        return host_cli(args, subcommands)
     elif args.command == 'project':
         return project_cli(args, subcommands)
     elif args.command == 'run':

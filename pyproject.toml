@@ -29,7 +29,7 @@ dependencies = [
     "scp",
     "urllib3"
 ]
-keywords = ["cons3rt", "pycons3rt", "pycons3rt3", "assets", "arcus"]
+keywords = ["cons3rt", "pycons3rt", "pycons3rt3", "assets", "arcus", "nimbuscore", "97helix"]
 classifiers = [
     "Development Status :: 5 - Production/Stable",
     "Programming Language :: Python :: 3"
@@ -45,6 +45,7 @@ pycons3rt_setup = "pycons3rt3.osutil:main"
 ractl = "pycons3rt3.remoteaccesscontoller:main"
 s3organizer = "pycons3rt3.s3organizer:main"
 slack = "pycons3rt3.slack:main"
+teams = "pycons3rt3.teams:main"
 
 [project.urls]
 Homepage = "https://pypi.org/project/pycons3rt3/"

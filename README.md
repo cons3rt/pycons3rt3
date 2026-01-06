@@ -244,6 +244,28 @@ Permissions:
 
 The `--id=1` or `--ids=1,2,3` args can be used to indicate which cloudspace IDs.
 
+* Listing cloudspaces and retrieving cloudspace details
+
+```
+# List cloudspaces
+cons3rt cloudspace list
+
+# Retrieve cloudpace details
+cons3rt cloudspace retrieve --id=16
+```
+
+* Unregister or deallocate cloudspaces (WARNING: Destructive action)
+
+```
+# Unregister a cloudspace
+cons3rt cloudspace unregister --id 123
+
+# Deallocate a cloudspace
+cons3rt cloudspace deallocate --id 123
+```
+
+* Cloudspace run actions
+
 ```
 # Release active runs from multiple cloudspaces:
 cons3rt cloudspace release_active_runs --ids=123,124
@@ -251,15 +273,39 @@ cons3rt cloudspace release_active_runs --ids=123,124
 # Delete inactive runs from your cloudspace
 cons3rt cloudspace delete_inactive_runs --id=123
 
-# Deallocate a cloudspace
-cons3rt cloudspace deallocate --id 123
-
-# List cloudspaces
-cons3rt cloudspace list
-
 # List active runs in a cloudspace:
 cons3rt cloudspace --list_active_runs --id=123
+```
 
+* Host/power actions on a cloudspace runs
+
+```
+# List runs in cloudspaces
+cons3rt cloudspace run list --ids=3,6,9
+
+# Create/Restore/Delete snapshots for all cloudspace runs
+cons3rt cloudspace run snapshot create --id=3
+cons3rt cloudspace run snapshot restore --id=3
+cons3rt cloudspace run snapshot delete --id=3
+
+# Skip run IDs for any of the snapshot commands with --skip
+cons3rt cloudspace run snapshot create --id=3 --skip=12345,12346,12347
+
+# Power runs off/on in the cloudspace
+cons3rt cloudspace run power on --id=3
+cons3rt cloudspace run power off --id=3
+cons3rt cloudspace run power restart --id=3
+
+# Delete inactive runs in cloudspaces (does not release active runs)
+cons3rt cloudspace run delete --ids=3,4,5
+
+# Release runs in cloudspaces, note this will prompt for confirmation due to the destructive nature
+cons3rt cloudspace run release --id=3
+```
+
+* Cloudspace OS template actions
+
+```
 # Delete a specific template
 cons3rt cloudspace template delete --id=1 --name 'cons3rt-redhat-8'
 
@@ -278,9 +324,6 @@ cons3rt cloudspace template register --id=1 --names 'cons3rt-redhat-8,cons3rt-re
 # Register all unregistered templates
 cons3rt cloudspace template register --all
 
-# Retrieve cloudpace details
-cons3rt cloudspace retrieve --id=16
-
 # Share a specific template from one cloudspace to another
 cons3rt cloudspace template share --provider_id=1 --ids=2,3,4,5,6 --name 'cons3rt-redhat-8'
 
@@ -289,9 +332,6 @@ cons3rt cloudspace template share --provider_id=1 --ids=2,3,4,5,6 --names 'cons3
 
 # Share all templates from one cloudspace to another and specify the max CPU and RAM in Megabytes
 cons3rt cloudspace template share --provider_id=1 --ids=2,3,4,5,6 --all --cpu 16 --ram 32000 
-
-# Unregister a cloudspace
-cons3rt cloudspace unregister --id 123
 ```
 
 ## cons3rt user CLI
@@ -423,14 +463,71 @@ cons3rt project run snapshot delete --id=3
 cons3rt project run snapshot create --id=3 --skip=12345,12346,12347
 
 # Power runs off/on in the project
-cons3rt project run on --id=3
-cons3rt project run off --id=3
+cons3rt project run power on --id=3
+cons3rt project run power off --id=3
+cons3rt project run power restart --id=3
 
-# Delete runs in projects
+# Delete inactive runs in projects (does not release active runs)
 cons3rt project run delete --ids=3,4,5
 
 # Release runs in projects, note this will prompt for confirmation due to the destructive nature
 cons3rt project run release --id=3
+```
+
+## cons3rt run CLI
+
+Permissions:
+* **Asset Developer** project role
+* Run owner
+
+The `--id=1` or `--ids=1,2,3` args can be used to indicate which project IDs.
+
+```
+# Create/restore/delete snapshots for all hosts in run
+cons3rt run snapshot create --id=3
+cons3rt run snapshot restore --id=3
+cons3rt run snapshot delete --id=3
+
+# Power runs off/on
+cons3rt run power on --id=3
+cons3rt run power off --id=3
+cons3rt run power restart --id=3
+
+# Delete inactive runs (does not release active runs)
+cons3rt run delete --ids=3,4,5
+
+# Release/cancel runs, note this will prompt for confirmation due to the destructive nature
+cons3rt run release --ids=3,4,5
+cons3rt run cancel --ids=3,4,5
+
+# Download RDP file for a host
+cons3rt run rdp --id=3 --host=5
+```
+
+## cons3rt host CLI
+
+Permissions:
+* **Asset Developer** project role
+* Run owner
+
+The `--id=1` or `--ids=1,2,3` args can be used to indicate which project IDs.
+
+```
+# Create/restore/delete snapshots a hosts in a run
+cons3rt host snapshot create --id=3 --host=5
+cons3rt host snapshot restore --id=3 --host=5
+cons3rt host snapshot delete --id=3 --host=5
+
+# Power off/on a hosts in a run
+cons3rt host power on --id=3 --host=5
+cons3rt host power off --id=3 --host=5
+cons3rt host power restart --id=3 --host=5
+
+# Download RDP file for a host
+cons3rt host rdp --id=3 --host=5
+
+# Resize a host CPU and/or RAM (MB)
+cons3rt host resize --id=3 --host=5 --cpu=4 --ram=8192
 ```
 
 ## ractl command -- Controls and queries remote access across the CONS3RT site
@@ -444,6 +541,56 @@ ractl print cloudspace --id=116
 
 # Create a csv file with remote access info for the CONS3RT site
 ractl print site
+
+# Disable remote access in a cloudspace
+ractl cloudspace disable --id=3
+
+# Enable remote access in multiple cloudspaces
+ractl cloudspace enable --ids=3,4,5
+
+# Disable/Enable remote access in all cloudspaces under a cloud ID
+ractl cloud disable --id=1
+
+# Toggle (disable then enable) remote access in a cloud/cloudspace/site
+ractl cloud toggle --ids=1,2,3
+```
+
+* Flags available for enable, disable, and toggle
+
+```
+# Use the `--unlock` flag to force unlock any locked remote access runs
+ractl cloud disable --ids=3,4,5 --unlock
+
+# Use the `--load` flag to load remote access data from a previous attempt (time saver)
+ractl site toggle --load
+
+# Use the `--skip` flag to skip cloudspaces in a cloud or site action
+ractl cloud disable --id=3 --skip=100,101
+
+# Use the `--delay` flag to override the default delay in seconds between each action
+ractl cloud toggle --delay=60
+```
+
+* Configure remote access settings on enable or toggle
+
+```
+# Use the `--access` flag to specify an access point override when enabling or toggling remote
+# access for a cloudspace (default is the cons3rt-net boundary IP)
+ractl cloudspace enable --id=123 --access=50.252.5.6
+
+# Use the `--nordp` flag to disable RDP proxy in the cloudspace remote access configuration
+ractl cloudspace enable --id=123 --nordp
+
+# Use the `--port` flag to set the remote access external port in the remote access config
+# Default is 9443
+ractl cloudspace enable --id=123 --port=443
+```
+
+* Send notifications to Slack or Teams
+
+```
+ractl site toggle --slackurl '<webhook URL>' --slackchannel '#channelName'
+ractl site toggle --teamshook '<webhook URL>'
 ```
 
 

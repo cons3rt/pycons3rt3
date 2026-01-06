@@ -8,6 +8,11 @@
 * Added a visibility override for the export_import.py sample script
 * Added the --ram option when sharing OS templates via CIL for example,  cons3rt cloudspace template share --ram 16000
 * Added the azurecomputeutil module with some methods for querying azure VM images
+* Added safety prompts to query user before destructive CLI calls like releasing runs and deallocating cloudspaces
+* Added `cons3rt cloudspace run` subcommand with host actions and snapshot actions
+* Corrections and additions to the `cons3rt team run` and `cons3rt project run` commands
+* Added the teams.py module for sending Teams messages
+* Added `--force` to the CLI to avoid prompting
 
 0.0.29
 ======
