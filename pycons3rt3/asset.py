@@ -382,7 +382,7 @@ def validate_asset_structure(asset_dir_path):
     """
     log = logging.getLogger(mod_logger + '.validate_asset_structure')
 
-    log.info('Validating asset directory: {d}'.format(d=asset_dir_path))
+    log.debug('Validating asset directory: {d}'.format(d=asset_dir_path))
 
     # Ensure there is an asset.properties file
     asset_props = os.path.join(asset_dir_path, 'asset.properties')
@@ -437,30 +437,30 @@ def validate_asset_structure(asset_dir_path):
         raise Cons3rtAssetStructureError('Required property [asset_type] found blank in asset properties '
                                          'file: {f}'.format(f=asset_props))
 
-    log.info('Found installScript={f}'.format(f=install_script_rel_path))
-    log.info('Found assetType={f}'.format(f=asset_type))
+    log.debug('Found installScript={f}'.format(f=install_script_rel_path))
+    log.debug('Found assetType={f}'.format(f=asset_type))
 
     # Verify the doc file exists if specified
     if doc_file_rel_path:
-        log.info('Found documentationFile={f}'.format(f=doc_file_rel_path))
+        log.debug('Found documentationFile={f}'.format(f=doc_file_rel_path))
         doc_file_path = os.path.join(asset_dir_path, doc_file_rel_path)
         if not os.path.isfile(doc_file_path):
             raise Cons3rtAssetStructureError('Documentation file not found: {f}'.format(f=doc_file_path))
         else:
-            log.info('Verified documentation file: {f}'.format(f=doc_file_path))
+            log.debug('Verified documentation file: {f}'.format(f=doc_file_path))
     else:
-        log.info('The documentationFile property was not specified in asset.properties')
+        log.debug('The documentationFile property was not specified in asset.properties')
 
     # Verify the license file exists if specified
     if license_file_rel_path:
-        log.info('Found licenseFile={f}'.format(f=license_file_rel_path))
+        log.debug('Found licenseFile={f}'.format(f=license_file_rel_path))
         license_file_path = os.path.join(asset_dir_path, license_file_rel_path)
         if not os.path.isfile(license_file_path):
             raise Cons3rtAssetStructureError('License file not found: {f}'.format(f=license_file_path))
         else:
-            log.info('Verified license file: {f}'.format(f=license_file_path))
+            log.debug('Verified license file: {f}'.format(f=license_file_path))
     else:
-        log.info('The licenseFile property was not specified in asset.properties')
+        log.debug('The licenseFile property was not specified in asset.properties')
 
     if asset_type == 'software':
         if not install_script_rel_path:
@@ -473,9 +473,9 @@ def validate_asset_structure(asset_dir_path):
             else:
                 log.info('Verified install script for software asset: {f}'.format(f=install_script_path))
 
-    log.info('Checking items at the root of the asset directory...')
+    log.debug('Checking items at the root of the asset directory...')
     for item in os.listdir(asset_dir_path):
-        log.info('Checking item: {i}'.format(i=item))
+        log.debug('Checking item: {i}'.format(i=item))
         item_path = os.path.join(asset_dir_path, item)
         if item_path == license_file_path:
             continue
@@ -509,7 +509,7 @@ def validate_asset_structure(asset_dir_path):
                     raise Cons3rtAssetStructureError('Extra license file found: {f}'.format(f=item_path))
             else:
                 raise Cons3rtAssetStructureError('Found illegal item at the asset root dir: {i}'.format(i=item))
-    log.info('Validated asset directory successfully: {d}'.format(d=asset_dir_path))
+    log.debug('Validated asset directory successfully: {d}'.format(d=asset_dir_path))
     asset_info = Asset(asset_dir_path=asset_dir_path, name=asset_name, asset_subtype=asset_subtype,
                        asset_type=asset_type)
     return asset_info
@@ -526,8 +526,7 @@ def make_asset_zip(asset_dir_path, destination_directory=None):
     :raises: AssetZipCreationError
     """
     log = logging.getLogger(mod_logger + '.make_asset_zip')
-    log.info('Attempting to create an asset zip from directory: {d}'.format(d=asset_dir_path))
-    print('Creating asset zip file from asset directory: {d}'.format(d=asset_dir_path))
+    log.debug('Attempting to create an asset zip from directory: {d}'.format(d=asset_dir_path))
 
     # Ensure the path is a directory
     if not os.path.isdir(asset_dir_path):
@@ -553,7 +552,7 @@ def make_asset_zip(asset_dir_path, destination_directory=None):
     # Determine the asset zip file name (same as asset name without spaces)
     asset_name = asset_info.name
     zip_file_name = 'asset-' + asset_name.replace(' ', '') + '.zip'
-    log.info('Using asset zip file name: {n}'.format(n=zip_file_name))
+    log.debug('Using asset zip file name: {n}'.format(n=zip_file_name))
 
     # Determine the zip file path
     asset_info.asset_zip_path = os.path.join(destination_directory, zip_file_name)
@@ -567,7 +566,7 @@ def make_asset_zip(asset_dir_path, destination_directory=None):
 
     # Remove existing zip file if it exists
     if os.path.isfile(asset_info.asset_zip_path):
-        log.info('Removing existing asset zip file: {f}'.format(f=asset_info.asset_zip_path))
+        log.debug('Removing existing asset zip file: {f}'.format(f=asset_info.asset_zip_path))
         os.remove(asset_info.asset_zip_path)
 
     # Copy asset dir to staging dir
@@ -592,11 +591,11 @@ def make_asset_zip(asset_dir_path, destination_directory=None):
                         'External media file not found: {f}'.format(f=local_media_file)
                     )
                 shutil.copy2(local_media_file, media_dir)
-                print('Staged media file: {f}'.format(f=local_media_file))
+                log.debug('Staged media file: {f}'.format(f=local_media_file))
                 media_files_copied.append(local_media_file)
 
     # Attempt to create the zip
-    log.info('Attempting to create asset zip file: {f}'.format(f=asset_info.asset_zip_path))
+    log.debug('Attempting to create asset zip file: {f}'.format(f=asset_info.asset_zip_path))
     try:
         with contextlib.closing(zipfile.ZipFile(asset_info.asset_zip_path, 'w', allowZip64=True)) as zip_w:
             for root, dirs, files in os.walk(staging_directory):
@@ -615,30 +614,30 @@ def make_asset_zip(asset_dir_path, destination_directory=None):
                             if matching_item:
                                 test_dir = file_path[:file_path.index(ignore_dir) + len(ignore_dir)]
                                 if os.path.isdir(test_dir):
-                                    log.info('File is in an ignore directory {d}: {f}'.format(d=ignore_dir, f=file_path))
+                                    log.debug('File is in an ignore directory {d}: {f}'.format(d=ignore_dir, f=file_path))
                                     skip = True
 
                     # Skip file in the ignore_files list
                     for ignore_file in ignore_files:
                         if f.startswith(ignore_file):
-                            log.info('File starts with ignored file prefix {p}: {f}'.format(p=ignore_file, f=file_path))
+                            log.debug('File starts with ignored file prefix {p}: {f}'.format(p=ignore_file, f=file_path))
                             skip = True
 
                     # Skip if the file ends with one of the items in ignore_file_extensions
                     if ignore_by_extension(item_path=file_path):
-                        log.info('File has an ignored extension: {f}'.format(f=file_path))
+                        log.debug('File has an ignored extension: {f}'.format(f=file_path))
                         skip = True
 
                     if skip:
-                        log.info('Skipping file: {f}'.format(f=file_path))
+                        log.debug('Skipping file: {f}'.format(f=file_path))
                         continue
 
-                    log.info('Adding file to zip: {f}'.format(f=file_path))
+                    log.debug('Adding file to zip: {f}'.format(f=file_path))
                     archive_name = os.path.join(root[len(staging_directory):], f)
                     if archive_name.startswith('/'):
                         log.debug('Trimming the leading char: [/]')
                         archive_name = archive_name[1:]
-                    log.info('Adding file to archive as: {a}'.format(a=archive_name))
+                    log.debug('Adding file to archive as: {a}'.format(a=archive_name))
                     zip_w.write(file_path, archive_name)
     except Exception as exc:
         raise AssetZipCreationError('Unable to create zip file: {f}'.format(f=asset_info.asset_zip_path)) from exc
@@ -647,7 +646,7 @@ def make_asset_zip(asset_dir_path, destination_directory=None):
     except Exception as exc:
         log.warning('Error when cleaning up the staging directory, manually clean up: {d}\n{e}'.format(
             d=staging_directory, e=str(exc)))
-    log.info('Successfully created asset zip file: {f}'.format(f=asset_info.asset_zip_path))
+    log.debug('Successfully created asset zip file: {f}'.format(f=asset_info.asset_zip_path))
     print('Created asset zip file: {f}'.format(f=asset_info.asset_zip_path))
     return asset_info
 
@@ -658,6 +657,7 @@ def validate(asset_dir):
     :param asset_dir: (full path to the asset dir)
     :return: (int)
     """
+    log = logging.getLogger(mod_logger + '.validate')
     try:
         asset_info = validate_asset_structure(asset_dir_path=asset_dir)
     except Cons3rtAssetStructureError as exc:
@@ -665,7 +665,7 @@ def validate(asset_dir):
         print('ERROR: {m}'.format(m=msg))
         traceback.print_exc()
         return 1
-    print('Validated asset with name: {n}'.format(n=asset_info.name))
+    log.debug('Validated asset with name: {n}'.format(n=asset_info.name))
     return 0
 
 
