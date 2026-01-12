@@ -7356,6 +7356,21 @@ class Cons3rtApi(object):
         :raises: Cons3rtApiError
         """
         log = logging.getLogger(self.cls_logger + '.list_active_runs_in_team')
+        log.info('Listing active runs in team ID [{i}]'.format(i=str(team_id)))
+        return self.list_runs_in_team(team_id=team_id, search_type='SEARCH_ACTIVE', project_filter=False)
+    
+    def list_runs_in_team(self, team_id, search_type='SEARCH_ACTIVE', project_filter=True):
+        """Returns a list of deployment runs in the provided team ID searching using the provided search type
+
+        May include remote access runs and other VR-DRs not owned by the team's projects
+
+        :param team_id: (int) ID of the team
+        :param search_type: (str) specify the search type
+        :param project_filter: (bool) Set True to only return runs owned by the team's projects
+        :return: (list) of deployment runs
+        :raises: Cons3rtApiError
+        """
+        log = logging.getLogger(self.cls_logger + '.list_runs_in_team')
 
         # Ensure the team_id is an int
         if not isinstance(team_id, int):
@@ -7366,6 +7381,7 @@ class Cons3rtApi(object):
                 raise Cons3rtApiError(msg) from exc
 
         # List all the virtualization realms that this team's projects can deploy into
+        log.info('Getting a list of virtualization realms deployable from the team projects...')
         try:
             vrs = self.list_project_virtualization_realms_for_team(team_id=team_id)
         except Cons3rtApiError as exc:
@@ -7373,31 +7389,36 @@ class Cons3rtApi(object):
             raise Cons3rtApiError(msg) from exc
 
         # Get a list of DR IDs
-        log.info('Retrieving the list of active DRs in each virtualization realm...')
+        log.info('Retrieving the list of DRs in each virtualization realm with search type [{s}]...'.format(
+            s=search_type))
         drs = []
         for vr in vrs:
             try:
-                vr_drs = self.list_active_deployment_runs_in_virtualization_realm(vr_id=vr['id'])
+                vr_drs = self.list_deployment_runs_in_virtualization_realm(vr_id=vr['id'], search_type=search_type)
             except Cons3rtApiError as exc:
-                msg = 'Problem listing active DRs from VR ID: {i}\n{e}'.format(i=str(vr['id']), e=str(exc))
+                msg = 'Problem listing DRs from VR ID [{i}] with search type [{s}]\n{e}'.format(
+                    i=str(vr['id']), s=search_type, e=str(exc))
                 log.warning(msg)
             else:
-                log.info('Found {n} DRs in VR ID: {i}'.format(n=str(len(vr_drs)), i=str(vr['id'])))
+                log.info('Found [{n}] DRs in VR ID [{i}] with search type [{s}]'.format(
+                    n=str(len(vr_drs)), i=str(vr['id']), s=search_type))
                 for vr_dr in vr_drs:
                     drs.append(vr_dr)
-        log.info('Found {n} active deployment runs in team ID: {i}'.format(i=str(team_id), n=str(len(drs))))
-        return drs
-
-    def list_active_runs_in_team_owned_projects(self, team_id):
-        """Returns a list of active deployment runs in the provided team ID in owned projects
-
-        May include remote access runs and other VR-DRs not owned by the team's projects
-
-        :param team_id: (int) ID of the team
-        :return: (list) of deployment runs
-        :raises: Cons3rtApiError
-        """
-        log = logging.getLogger(self.cls_logger + '.list_active_runs_in_team_owned_projects')
+        
+        # Return if no DRs were found through the VRs
+        if len(drs) == 0:
+            log.info('No deployment runs found in team ID [{i}] with search type [{s}]'.format(
+                i=str(team_id), s=search_type))
+            return drs
+        
+        # If the project filter is not set, return the full list of DRs not owned by the team's projects
+        if not project_filter:
+            log.info('Found [{n}] deployment runs in team ID [{i}] with search type [{s}]'.format(
+            i=str(team_id), n=str(len(drs)), s=search_type))
+            return drs
+        
+        # Filter the DRs to only return ones owned by the team's projects
+        log.info('Filtering deployment runs to only include ones owned by the team projects...')
         team_details = self.get_team_details(team_id=team_id)
         if 'ownedProjects' not in team_details.keys():
             msg = 'ownedProjects not found in team detail data: {d}'.format(d=str(team_details))
@@ -7409,10 +7430,9 @@ class Cons3rtApi(object):
                 log.warning('name not found in project data: {p}'.format(p=str(project)))
                 continue
             owned_project_names.append(project['name'])
-        team_drs = self.list_active_runs_in_team(team_id=team_id)
 
         # Filter on DRs in owned projects
-        for team_dr in team_drs:
+        for team_dr in drs:
             if 'id' not in team_dr:
                 log.warning('id not found in deployment run data: {p}'.format(p=str(team_dr)))
                 continue
@@ -7433,7 +7453,20 @@ class Cons3rtApi(object):
             n=str(len(team_owned_project_drs)), t=team_details['name']))
         return team_owned_project_drs
 
-    def list_runs_in_project(self, project_id, search_type='SEARCH_ALL'):
+    def list_active_runs_in_team_owned_projects(self, team_id):
+        """Returns a list of active deployment runs in the provided team ID in owned projects
+
+        May include remote access runs and other VR-DRs not owned by the team's projects
+
+        :param team_id: (int) ID of the team
+        :return: (list) of deployment runs
+        :raises: Cons3rtApiError
+        """
+        log = logging.getLogger(self.cls_logger + '.list_active_runs_in_team_owned_projects')
+        log.info('Listing active runs in team ID [{i}] owned projects'.format(i=str(team_id)))
+        return self.list_runs_in_team(team_id=team_id, search_type='SEARCH_ACTIVE', project_filter=True)
+
+    def list_runs_in_project(self, project_id, search_type='SEARCH_ACTIVE'):
         """Returns a list of deployment runs in the provided project ID, using the provided search type
 
         :param project_id: (int) ID of the project

@@ -13,6 +13,7 @@
 * Corrections and additions to the `cons3rt team run` and `cons3rt project run` commands
 * Added the teams.py module for sending Teams messages
 * Added `--force` to the CLI to avoid prompting
+* Added `cons3rt host` subcommand
 
 0.0.29
 ======

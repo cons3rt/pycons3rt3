@@ -2411,6 +2411,7 @@ class TeamCli(Cons3rtCli):
     def __init__(self, args, subcommands=None):
         Cons3rtCli.__init__(self, args=args, subcommands=subcommands)
         self.valid_subcommands = [
+            'cloudspace',
             'collabtools',
             'list',
             'managers',
@@ -2437,9 +2438,11 @@ class TeamCli(Cons3rtCli):
 
     def process_subcommands(self):
         if not self.ids:
-            msg = '--id or --ids arg required to specify the team ID(s)'
-            self.err(msg)
-            raise Cons3rtCliError(msg)
+            teams = self.list_teams()
+            if len(teams) > 0:
+                self.ids = []
+                for team in teams:
+                    self.ids.append(team['id'])
         if not self.subcommands:
             return True
         if len(self.subcommands) < 1:
@@ -2447,7 +2450,12 @@ class TeamCli(Cons3rtCli):
         if self.subcommands[0] not in self.valid_subcommands:
             self.err('Unrecognized command: {c}'.format(c=self.subcommands[0]))
             return False
-        if self.subcommands[0] == 'collabtools':
+        if self.subcommands[0] == 'cloudspace':
+            try:
+                self.handle_cloudspaces()
+            except Cons3rtCliError:
+                return False
+        elif self.subcommands[0] == 'collabtools':
             try:
                 self.collab_tools()
             except Cons3rtCliError:
@@ -2519,6 +2527,19 @@ class TeamCli(Cons3rtCli):
             results += self.c5t.create_snapshots_for_team(team_id=team_id, unlock=self.unlock, skip_run_ids=self.skip_run_ids)
         print('Completed creating snapshots for runs in teams: {i}'.format(i=str(self.ids)))
         self.print_host_action_results(results=results)
+    
+    def delete_runs(self):
+        runs = self.list_team_inactive_runs()
+        if len(runs) < 1:
+            print('No inactive runs to delete for team IDs: [{i}]'.format(
+                i=','.join(map(str, self.ids))))
+            return
+        runs = self.sort_by_id(runs) 
+        print('Total number of inactive runs found to delete: {n}'.format(n=str(len(runs))))
+        for run in runs:
+            self.c5t.delete_inactive_run(dr_id=run['id'])
+        print('Deleted runs:')
+        self.print_drs(runs)
 
     def delete_snapshots(self):
         results = []
@@ -2568,6 +2589,20 @@ class TeamCli(Cons3rtCli):
             msg = 'Unrecognized team report subcommand: {c}'.format(c=self.subcommands[1])
             self.err(msg)
             raise Cons3rtCliError(msg)
+    
+    def handle_cloudspaces(self):
+        if self.args.unlock:
+            self.unlock = True
+        if len(self.subcommands) < 2:
+            msg = 'team run subcommand not provided'
+            self.err(msg)
+            raise Cons3rtCliError(msg)
+        if self.subcommands[1] == 'list':
+            self.list_managed_cloudspaces()
+        else:
+            msg = 'Unrecognized command: {c}'.format(c=self.subcommands[1])
+            self.err(msg)
+            raise Cons3rtCliError(msg)
 
     def handle_runs(self):
         if self.args.unlock:
@@ -2576,10 +2611,14 @@ class TeamCli(Cons3rtCli):
             msg = 'team run subcommand not provided'
             self.err(msg)
             raise Cons3rtCliError(msg)
-        if self.subcommands[1] == 'list':
-            self.list_team_runs()
+        if self.subcommands[1] == 'delete':
+            self.delete_runs()
+        elif self.subcommands[1] == 'list':
+            self.list_runs_for_teams()
         elif self.subcommands[1] == 'power':
             self.power()
+        elif self.subcommands[1] == 'release':
+            self.release_runs()
         elif self.subcommands[1] == 'snapshot':
             self.snapshot()
         else:
@@ -2600,16 +2639,46 @@ class TeamCli(Cons3rtCli):
             msg = 'Unrecognized command: {c}'.format(c=self.subcommands[1])
             self.err(msg)
             raise Cons3rtCliError(msg)
+    
+    def list_managed_cloudspaces(self):
+        cloudspaces = []
+        for team_id in self.ids:
+            try:
+                team_cloudspaces = self.c5t.list_virtualization_realms_for_team(team_id=team_id)
+                for team_cloudspace in team_cloudspaces:
+                    team_cloudspace['team_id'] = team_id
+                    cloudspaces.append(team_cloudspace)
+            except Cons3rtApiError as exc:
+                msg = 'Problem listing managed cloudspaces for team: {i}'.format(i=str(team_id))
+                self.err(msg)
+                raise Cons3rtCliError(msg) from exc
+        if len(cloudspaces) > 0:
+            self.print_cloudspaces(cloudspaces_list=cloudspaces)
+    
+    def list_runs_for_teams(self, search_type=None):
+        runs = []
+        if not search_type:
+            if self.args.all:
+                search_type = 'SEARCH_ALL'
+            elif self.args.active:
+                search_type = 'SEARCH_ACTIVE'
+            elif self.args.inactive:
+                search_type = 'SEARCH_INACTIVE'
+            else:
+                search_type = 'SEARCH_ACTIVE'
+        runs = []
+        for team_id in self.ids:
+            runs += self.c5t.list_runs_in_team(team_id=team_id, search_type=search_type, project_filter=True)
+        if len(runs) > 0:
+            runs = self.sort_by_id(runs)
+            self.print_drs(dr_list=runs)
+        return runs
+    
+    def list_team_active_runs(self):
+        return self.list_runs_for_teams(search_type='SEARCH_ACTIVE')
 
     def list_team_collab_tools(self):
-        team_ids = []
-        if not self.ids:
-            teams = self.list_teams()
-            for team in teams:
-                team_ids.append(team['id'])
-        else:
-            team_ids = self.ids
-        for team_id in team_ids:
+        for team_id in self.ids:
             try:
                 _, collab_tools_projects = self.c5t.list_collab_tools_projects_in_team(team_id=team_id)
             except Cons3rtApiError as exc:
@@ -2624,15 +2693,8 @@ class TeamCli(Cons3rtCli):
                 self.print_formatted_list(item_list=collab_tools_projects, included_columns=['id', 'tool_name'])
 
     def list_team_collab_tool_users(self):
-        team_ids = []
         collab_tool_users = []
-        if not self.ids:
-            teams = self.list_teams()
-            for team in teams:
-                team_ids.append(team['id'])
-        else:
-            team_ids = self.ids
-        for team_id in team_ids:
+        for team_id in self.ids:
             try:
                 team_details, collab_tools_projects = self.c5t.list_collab_tools_projects_in_team(team_id=team_id)
             except Cons3rtApiError as exc:
@@ -2683,6 +2745,9 @@ class TeamCli(Cons3rtCli):
                 included_columns=['team_id', 'team_name', 'tool_name', 'active_user_count']
             )
         return collab_tool_users
+    
+    def list_team_inactive_runs(self):
+        return self.list_runs_for_teams(search_type='SEARCH_INACTIVE')
 
     def list_team_services(self):
         services = []
@@ -2859,36 +2924,11 @@ class TeamCli(Cons3rtCli):
             self.print_formatted_list(item_list=team_members, emails=emails)
 
     def list_team_projects(self):
-        team_ids = []
-        if not self.ids:
-            teams = self.list_teams()
-            for team in teams:
-                team_ids.append(team['id'])
-        else:
-            team_ids = self.ids
-
-        for team_id in team_ids:
+        for team_id in self.ids:
             _, team_projects = self.c5t.list_projects_in_team(team_id=team_id)
             if len(team_projects) > 0:
                 team_projects = self.sort_by_id(team_projects)
                 self.print_projects(project_list=team_projects)
-
-    def list_team_runs(self):
-        team_ids = []
-        runs = []
-        if not self.ids:
-            teams = self.list_teams()
-            for team in teams:
-                team_ids.append(team['id'])
-        else:
-            team_ids = self.ids
-
-        for team_id in team_ids:
-            runs += self.c5t.list_active_runs_in_team_owned_projects(team_id=team_id)
-        if len(runs) > 0:
-            runs = self.sort_by_id(runs)
-            self.print_drs(dr_list=runs)
-        return runs
 
     def list_teams(self):
         teams = []
@@ -2922,30 +2962,6 @@ class TeamCli(Cons3rtCli):
             self.err(msg)
             raise Cons3rtCliError(msg)
 
-    def restart_runs(self):
-        """Restarts the team runs
-
-        :return: None
-        :raises: Cons3rtCliError
-        """
-        runs = self.list_team_runs()
-        team_id_list = [str(num) for num in self.ids]
-        self.print_drs(runs)
-        print('Attempting to restart [{n}] runs in teams: [{t}]'.format(
-                n=str(len(runs)), t=','.join(team_id_list)))
-        proceed = input('Hosts in these runs will be restarted, proceed? (y/n) ')
-        if not proceed:
-            return
-        if proceed != 'y':
-            return
-        try:
-            self.c5t.restart_multiple_runs(drs=runs, unlock=self.unlock)
-        except Cons3rtApiError as exc:
-            msg = 'Problem restarting runs in teams: [{t}]'.format(t=team_id_list)
-            raise Cons3rtCliError(msg) from exc
-        print('Restarted runs:')
-        self.print_drs(runs)
-
     def power(self):
         skip_run_id_strs = []
         if self.args.skip:
@@ -2973,7 +2989,7 @@ class TeamCli(Cons3rtCli):
         :return: None
         :raises: Cons3rtCliError
         """
-        runs = self.list_team_runs()
+        runs = self.list_team_active_runs()
         team_id_list = [str(num) for num in self.ids]
         self.print_drs(runs)
         print('Attempting to power off [{n}] runs in teams: [{p}]'.format(
@@ -2996,7 +3012,7 @@ class TeamCli(Cons3rtCli):
         :return: None
         :raises: Cons3rtCliError
         """
-        runs = self.list_team_runs()
+        runs = self.list_team_active_runs()
         print('Attempting to power on {n} runs in teams: {p}'.format(
             n=str(len(runs)), p=','.join(self.project_id_list)))
         try:
@@ -3017,6 +3033,59 @@ class TeamCli(Cons3rtCli):
             msg = 'Unrecognized command: {c}'.format(c=self.subcommands[1])
             self.err(msg)
             raise Cons3rtCliError(msg)
+    
+    def release_runs(self):
+        runs = self.list_team_active_runs()
+        if len(runs) < 1:
+            print('No active runs to release for team IDs: [{i}]'.format(
+                i=','.join(map(str, self.ids))))
+            return
+        runs = self.sort_by_id(runs)
+        self.print_drs(runs)
+        print('Total number of active runs found to release: {n}'.format(n=str(len(runs))))
+        proceed = input('These runs and snapshots will not be recoverable, proceed with release? (y/n) ')
+        if not proceed:
+            return
+        if proceed != 'y':
+            return
+        released_runs = []
+        problem_runs = []
+        for run in runs:
+            if 'id' not in run.keys():
+                print('WARNING: [id] not found in run: {r}'.format(r=str(run)))
+                problem_runs.append(run)
+                continue
+            self.c5t.release_deployment_run(dr_id=run['id'], unlock=self.unlock)
+            released_runs.append(run)
+        print('Released the following runs:')
+        self.print_drs(released_runs)
+        if len(problem_runs) > 0:
+            print('Errors attempting to release the following runs:')
+            self.print_drs(problem_runs)
+    
+    def restart_runs(self):
+        """Restarts the team runs
+
+        :return: None
+        :raises: Cons3rtCliError
+        """
+        runs = self.list_team_active_runs()
+        team_id_list = [str(num) for num in self.ids]
+        self.print_drs(runs)
+        print('Attempting to restart [{n}] runs in teams: [{t}]'.format(
+                n=str(len(runs)), t=','.join(team_id_list)))
+        proceed = input('Hosts in these runs will be restarted, proceed? (y/n) ')
+        if not proceed:
+            return
+        if proceed != 'y':
+            return
+        try:
+            self.c5t.restart_multiple_runs(drs=runs, unlock=self.unlock)
+        except Cons3rtApiError as exc:
+            msg = 'Problem restarting runs in teams: [{t}]'.format(t=team_id_list)
+            raise Cons3rtCliError(msg) from exc
+        print('Restarted runs:')
+        self.print_drs(runs)
 
     def restore_snapshots(self):
         unlock = False

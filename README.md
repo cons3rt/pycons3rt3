@@ -415,6 +415,12 @@ cons3rt team run snapshot delete --id=3
 # Skip run IDs for any of the snapshot commands with --skip
 cons3rt team run snapshot create --id=3 --skip=12345,12346,12347
 
+# Delete inactive runs in a team
+cons3rt team run delete --id=3
+
+# Release active runs in a team
+cons3rt team run release --id=3
+
 # Power off all runs in a team
 cons3rt team run power off --id=3
 
@@ -426,6 +432,9 @@ cons3rt team run power restart --id=3
 
 # Unlock and power off all runs in a team
 cons3rt team run power off --id=3 --unlock
+
+# List a team's managed cloudspaces
+cons3rt team cloudspace list
 ```
 
 
