@@ -5,13 +5,17 @@ Python3 integration for CONS3RT
 ## Features
 
 * Logging framework
-* Python3 SDK for the CONS3RT API
+* Python3 SDK for the CONS3RT API (unofficial)
+* `cons3rt` CLI for running cons3rt commands
+* `ractl` CLI for controlling remote access in CONS3RT
+* `asset` CLI for building asset zip files and importing/updating
 * Gather CONS3RT deployment info and properties
 * Run Linux commands from python
 * Configure networking
-* Integrate with AWS S3 and EC2
+* Integrate with AWS and Azure
 * Nexus Artifact Repository downloads
 * Post to Slack
+* Post to Teams
 
 ## Installation
 
@@ -694,6 +698,67 @@ slack_msg.add_attachment(slack_attachment)
 # Send a message
 slack_msg.send()
 ~~~
+
+## Teams
+
+This module provides an interface for posting anything to Teams! (sorry)
+
+Teams can take a `webhook_url` arg or will look for the `TEAMS_HOOK` environment variable.
+
+* Create and send an adaptive card
+
+```
+from pycons3rt3.teams import TeamsMessage
+
+# Create a message
+t = TeamsMessage()
+
+# Add a heading
+t.add_heading_block_to_card(heading_text='HEADING', color='ok')
+
+# Add a text block to the card
+t.add_text_block_to_card(message_text='Message to send')
+
+# Add text blocks for various log levels
+t.add_warning_text_block_to_card('WARNING')
+t.add_danger_text_block_to_card('DANGER')
+t.add_good_text_block_to_card('OK')
+t.add_info_text_block_to_card('INFO')
+
+# Add a code block
+code_block = """
+print('Hello World!')
+"""
+t.add_code_block_to_card(code_snippet=code_block)
+
+# Send the adaptive card
+t.send()
+
+```
+
+* Use the `teams` CLI command to send messages
+
+```
+export TEAMS_HOOK=<my webhook URL>
+
+# Send a basic message
+teams --text='Text'
+
+# Specify the log level
+teams --text='Info' --level='info'
+teams --text='Success!' --level='success'
+teams --text='Warning!!' --level='warning'
+teams --text='Error!!!' --level='error'
+
+# Specify a webhook URL
+teams --text='Info' --url='https://<webhook URL>'
+
+# Send a simple Adaptive Card
+teams --title='My Heading' --text='Body text of the card' --type=card
+
+# Send a Code Block
+teams --title='My Heading' --text='Code snippet' --type=code
+```
 
 ## Nexus
 

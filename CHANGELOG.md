@@ -14,6 +14,8 @@
 * Added the teams.py module for sending Teams messages
 * Added `--force` to the CLI to avoid prompting
 * Added `cons3rt host` subcommand
+* Added the teams.py module for sending teams messages
+* Added the `teams` CLI command for sending teams messages
 
 0.0.29
 ======
