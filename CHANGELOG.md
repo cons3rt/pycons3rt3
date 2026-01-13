@@ -1,6 +1,6 @@
 
-0.0.30a0
-========
+0.0.30
+======
 
 * Added cons3rt API call to retrieve organization details
 * Added a sample script to create a cons3rt AWS cloudspace
