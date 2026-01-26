@@ -195,9 +195,44 @@ class Cons3rtCli(object):
         return self.print_item_name_and_id(deployment_list)
 
     def print_dr_hosts(self, dr_host_list):
+        # DEBUG print the JSON to examine available data
+        #json.dump(dr_host_list, open('dr_hosts.json', 'w'), sort_keys=True, indent=2, separators=(',', ': '))
+
+        # Tailor the list of print with details
+        list_to_print = []
+        for dr_host in dr_host_list:
+
+            # Determine the storage in GB as the sum of disks
+            storage_gb = 0
+            for disk in dr_host['disks']:
+                storage_gb += disk['capacityInMegabytes'] / 1000
+
+            # Determine the snapshot storage as == storage if a snapshot exists
+            snapshot_storage_gb = 0
+            if 'snapshotAvailable' in dr_host.keys():
+                if dr_host['snapshotAvailable'] == 'true':
+                    snapshot_storage_gb = storage_gb
+            
+            # Determine the GPU
+            gpu_profile = 'None'
+            if 'gpuProfile' in dr_host.keys():
+                gpu_profile = dr_host['gpuProfile']
+
+            list_to_print.append({
+                'id': dr_host['id'],
+                'hostname': dr_host['hostname'],
+                'status': dr_host['fapStatus'],
+                'numCpus': dr_host['numCpus'],
+                'ram_gb': dr_host['ram'],
+                'storage_gb': storage_gb,
+                'snapshot_storage_gb': snapshot_storage_gb,
+                'gpu_profile': gpu_profile
+            })
+
         self.print_formatted_list(
-            item_list=dr_host_list,
-            included_columns=['id', 'hostname', 'fapStatus', 'numCpus', 'ram', 'hasGpu']
+            item_list=list_to_print,
+            included_columns=['id', 'hostname', 'status', 'numCpus', 'ram_gb', 
+                              'storage_gb', 'snapshot_storage_gb', 'gpu_profile']
         )
 
     def print_drs(self, dr_list):
@@ -1717,6 +1752,7 @@ class ProjectCli(Cons3rtCli):
         Cons3rtCli.__init__(self, args=args, subcommands=subcommands)
         self.valid_subcommands = [
             'get',
+            'host',
             'list',
             'members',
             'run'
@@ -1745,17 +1781,22 @@ class ProjectCli(Cons3rtCli):
                 self.get_project()
             except Cons3rtCliError:
                 return False
-        if self.subcommands[0] == 'list':
+        elif self.subcommands[0] == 'host':
+            try:
+                self.handle_hosts()
+            except Cons3rtCliError:
+                return False
+        elif self.subcommands[0] == 'list':
             try:
                 self.list_projects()
             except Cons3rtCliError:
                 return False
-        if self.subcommands[0] == 'members':
+        elif self.subcommands[0] == 'members':
             try:
                 self.members()
             except Cons3rtCliError:
                 return False
-        if self.subcommands[0] == 'run':
+        elif self.subcommands[0] == 'run':
             try:
                 self.handle_runs()
             except Cons3rtCliError:
@@ -1814,6 +1855,18 @@ class ProjectCli(Cons3rtCli):
             # TODO Do something better here
             print(str(project_details))
 
+    def handle_hosts(self):
+        if self.args.unlock:
+            self.unlock = True
+        if len(self.subcommands) > 1:
+            run_subcommand = self.subcommands[1]
+            if run_subcommand == 'list':
+                self.list_hosts()
+                return
+            else:
+                self.err('Unrecognized project command: {c}'.format(c=run_subcommand))
+                return False
+
     def handle_runs(self):
         if self.args.unlock:
             self.unlock = True
@@ -1852,6 +1905,31 @@ class ProjectCli(Cons3rtCli):
         for project_id in self.ids:
             runs += self.list_runs_for_project(project_id=project_id, search_type='SEARCH_ACTIVE')
         return runs
+    
+    def list_hosts(self):
+
+        # Set the load based on args
+        load = False
+        if self.args.load:
+            load = True
+
+        # If the --active flag was set, search_type=SEARCH_ACTIVE
+        search_type = 'SEARCH_ALL'
+        if self.args.active:
+            search_type = 'SEARCH_ACTIVE'
+
+        project_run_hosts = []
+        for project_id in self.ids:
+            try:
+                this_project_run_hosts = self.c5t.list_hosts_in_project(
+                    project_id=project_id, search_type=search_type, load=load)
+            except Cons3rtApiError as exc:
+                msg = 'Problem retrieving deployment run hosts for project ID: {c}\n{e}'.format(
+                    c=str(project_id), e=str(exc))
+                self.err(msg)
+                raise Cons3rtCliError(msg) from exc
+            project_run_hosts += this_project_run_hosts
+        self.print_dr_hosts(dr_host_list=project_run_hosts)
 
     def list_project_members(self, state=None, role=None, username=None):
         members = []

@@ -461,7 +461,10 @@ cons3rt project get --id=3
 cons3rt project members list --id=3
 
 # List runs in projects
-cons3rt project run list --ids=3,6,9
+cons3rt project run list --ids=3,6
+
+# List host details in projects
+cons3rt project host list --ids=3,4,5 
 
 # Create snapshots for all project runs
 cons3rt project run snapshot create --id=3

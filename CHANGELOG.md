@@ -2,7 +2,7 @@
 0.0.31a0
 ========
 
-* TBD
+* Added CLI command `cons3rt project host list --id=3` to list details for hosts in a project
 
 0.0.30
 ======

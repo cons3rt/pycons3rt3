@@ -7621,6 +7621,25 @@ class Cons3rtApi(object):
                 loaded_data.append(new_host_details)
                 self.save_cons3rt_data(cons3rt_data=loaded_data, data_name=data_name)
         return drh_list, drh_count, failed_dr_list
+    
+    def list_hosts_in_project(self, project_id, search_type='SEARCH_ACTIVE', load=False):
+        """Return a list of host details for each host in the project
+
+        :param project_id: (int) ID of the project
+        :param search_type: (str) defines to search for, all, inactive, or active DRs
+        :param load (bool) Set True to load local data if found
+        :return: (list) of host details
+        :raises: Cons3rtApiError
+        """
+        log = logging.getLogger(self.cls_logger + '.list_hosts_in_project')
+        log.info('Getting a list of hosts in project [{p}]'.format(p=str(project_id)))
+        project_host_run_details, _, _ = self.list_host_details_in_dr_list(
+            dr_list=self.list_runs_in_project(project_id=project_id, search_type=search_type), 
+            load=load)
+        project_hosts = []
+        for project_run_host_detail in project_host_run_details:
+            project_hosts += project_run_host_detail['hosts']
+        return project_hosts
 
     def list_host_details_in_team(self, team_id):
         """Lists details for every deployment run host deployed in the provided team ID
